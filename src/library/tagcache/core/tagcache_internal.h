@@ -272,6 +272,7 @@ void numeric_overlay(int32_t slot, struct index_entry *idx);
 
 /* tagcache_scan.c */
 void scan_seen_release(void);
+void scan_session_drop(void);
 bool scan_seen_test(int32_t slot);
 size_t scan_hash_mem_available_bytes(void);
 void scan_hash_release(void);

@@ -411,11 +411,13 @@ bool metadata_db_walk_song_identities(bool (*visit)(const char * path, int32_t m
                                       void * user) {
     if (!visit) return false;
     int32_t slots, generation;
+    uint32_t incarnation;
     {
         METADATA_DB_GUARD;
         if (!metadata_db_db_ready) return false;
         slots = tagcache_slot_count();
         generation = tagcache_generation();
+        incarnation = metadata_db_db_incarnation;
     }
     char (*paths)[PATH_MAX] = malloc(sizeof(*paths) * METADATA_DB_WALK_IDENTITY_BATCH);
     if (!paths) return false;
@@ -425,7 +427,8 @@ bool metadata_db_walk_song_identities(bool (*visit)(const char * path, int32_t m
         int copied = 0;
         {
             METADATA_DB_GUARD;
-            if (!metadata_db_db_ready || tagcache_generation() != generation || !tagcache_storage_current()) { ok = false; break; }
+            if (!metadata_db_db_ready || tagcache_generation() != generation ||
+                metadata_db_db_incarnation != incarnation || !tagcache_storage_current()) { ok = false; break; }
             for (int32_t id = first; id < first + METADATA_DB_WALK_IDENTITY_BATCH && id <= slots; id++) {
                 tagcache_song_t song;
                 if (!tagcache_song_fields_by_id(id, TAGCACHE_FIELD_PATH, &song) || !song.path[0]) continue;

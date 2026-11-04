@@ -388,7 +388,7 @@ metadata_db_catalog_result_t metadata_db_catalog_songs_page(
     out_page->total = tagcache_live_count();
     tagcache_query_t query;
     tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL);
-    tagcache_query_skip(&query, (uint64_t) offset);
+    tagcache_query_skip(&query, offset);
     int32_t rank;
     while (out_page->count < limit && tagcache_query_next(&query, &rank)) {
         tagcache_song_t song;

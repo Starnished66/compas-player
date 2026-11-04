@@ -25,8 +25,14 @@ static bool numeric_write_failed;
  * Cleared only when a new database session starts. */
 static bool numeric_overflow_failed;
 static pthread_mutex_t numeric_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t numeric_cond = PTHREAD_COND_INITIALIZER;
-static pthread_cond_t numeric_drain_cond = PTHREAD_COND_INITIALIZER;
+/* Initialised exactly once by numeric_conds_init; every entry point runs it first. */
+static pthread_cond_t numeric_cond;
+static pthread_cond_t numeric_drain_cond;
+/* Timed waits use the monotonic clock so a wall-clock step cannot stretch or
+ * cut them; numeric_conds_init falls back to the realtime default if the
+ * condition variables cannot be configured. */
+static clockid_t numeric_clock = CLOCK_REALTIME;
+static pthread_once_t numeric_conds_once = PTHREAD_ONCE_INIT;
 static pthread_t numeric_thread;
 static bool numeric_thread_running = false;
 static bool numeric_shutdown = false;
@@ -201,7 +207,27 @@ static bool numeric_flush_inflight_locked(void) {
     return ok;
 }
 
+static bool numeric_conds_init_with(const pthread_condattr_t * attr) {
+    if (pthread_cond_init(&numeric_cond, attr) != 0) return false;
+    if (pthread_cond_init(&numeric_drain_cond, attr) == 0) return true;
+    pthread_cond_destroy(&numeric_cond);
+    return false;
+}
+
+static void numeric_conds_init(void) {
+    pthread_condattr_t attr;
+    if (pthread_condattr_init(&attr) == 0) {
+        bool ok = pthread_condattr_setclock(&attr, CLOCK_MONOTONIC) == 0 && numeric_conds_init_with(&attr);
+        pthread_condattr_destroy(&attr);
+        if (ok) { numeric_clock = CLOCK_MONOTONIC; return; }
+    }
+    if (!numeric_conds_init_with(NULL)) fprintf(stderr, "tagcache: numeric condition variables unavailable\n");
+}
+
+static void numeric_conds_ready(void) { pthread_once(&numeric_conds_once, numeric_conds_init); }
+
 bool tagcache_flush_numeric(void) {
+    numeric_conds_ready();
     for (;;) {
         pthread_mutex_lock(&numeric_mutex);
         while (numeric_inflight_active) pthread_cond_wait(&numeric_drain_cond, &numeric_mutex);
@@ -223,7 +249,7 @@ static void * numeric_worker_func(void * arg) {
         int rc = 0;
         if (!numeric_flush_now) {
             struct timespec ts;
-            clock_gettime(CLOCK_REALTIME, &ts);
+            clock_gettime(numeric_clock, &ts);
             ts.tv_sec += NUMERIC_COMMIT_DELAY_SEC;
             rc = pthread_cond_timedwait(&numeric_cond, &numeric_mutex, &ts);
         }
@@ -239,6 +265,7 @@ static void * numeric_worker_func(void * arg) {
 }
 
 void numeric_worker_start(void) {
+    numeric_conds_ready();
     pthread_mutex_lock(&numeric_mutex);
     if (!numeric_thread_running) {
         numeric_shutdown = false;
@@ -261,6 +288,7 @@ void numeric_worker_start(void) {
 }
 
 void numeric_worker_stop(void) {
+    numeric_conds_ready();
     pthread_mutex_lock(&numeric_mutex);
     if (numeric_thread_running) {
         numeric_shutdown = true;
@@ -288,6 +316,7 @@ void numeric_worker_stop(void) {
  * nothing was queued or no waiter slot was free. */
 void queue_numeric_update(int32_t slot, const struct index_entry *idx, int *waiter) {
     if (waiter) *waiter = 0;
+    numeric_conds_ready();
     if (!disk_ready || disk_gen < 0) return;
     pthread_mutex_lock(&numeric_mutex);
     int handle = 0;
@@ -328,8 +357,9 @@ void queue_numeric_update(int32_t slot, const struct index_entry *idx, int *wait
 bool tagcache_numeric_wait_durable(int waiter, int timeout_ms) {
     if (waiter <= 0 || waiter > NUMERIC_WAITERS_MAX) return false;
     numeric_waiter_t * slot = &numeric_waiters[waiter - 1];
+    numeric_conds_ready();
     struct timespec deadline;
-    clock_gettime(CLOCK_REALTIME, &deadline);
+    clock_gettime(numeric_clock, &deadline);
     deadline.tv_sec += timeout_ms / 1000;
     deadline.tv_nsec += (long) (timeout_ms % 1000) * 1000000L;
     if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }

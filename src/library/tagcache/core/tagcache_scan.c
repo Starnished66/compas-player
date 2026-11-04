@@ -191,22 +191,10 @@ bool replay_scan_numeric(int fd) {
     return true;
 }
 
-bool start_staging_with_lock(void (*unlock)(void), void (*lock)(void)) {
-    if (updating) return !update_failed;
-    bool had_lazy_scan = scan_lazy_active;
-    updating = true;
-    update_failed = false;
-    int master = -1, strings[TAG_COUNT];
-    for (int t = 0; t < TAG_COUNT; t++) strings[t] = -1;
-    memset(scan_tag_private, 0, sizeof(scan_tag_private));
-    bool ok = (mkdir(db_dir, 0755) == 0 || errno == EEXIST);
-    if (ok) ok = (master = reader_create_temp()) >= 0;
-    if (ok) ok = (scan_numeric_fd = reader_create_temp()) >= 0;
-    scan_initializing = true;
-    if (unlock) unlock();
-    struct master_header mh = {{TAGCACHE_MAGIC, ent_count * (int32_t) sizeof(struct index_entry), ent_count},
-                                master_serial, master_commitid, 0};
-    if (ok) ok = reader_master_fd >= 0 ? copy_fd(reader_master_fd, master) : write_at(master, &mh, sizeof(mh), 0);
+/* Shares the committed string files with the staged reader, giving a tag
+ * without one a private empty file. */
+static bool staging_open_strings(int strings[]) {
+    bool ok = true;
     for (size_t i = 0; ok && i < sizeof(reader_persist_tags) / sizeof(reader_persist_tags[0]); i++) {
         int tag = reader_persist_tags[i];
         if (reader_tag_fd[tag] >= 0) {
@@ -220,41 +208,29 @@ bool start_staging_with_lock(void (*unlock)(void), void (*lock)(void)) {
         }
         ok = ok && strings[tag] >= 0;
     }
-    if (ok) {
-        const char *disable_ram_hash = getenv("TAGCACHE_DISABLE_RAM_HASH");
-        size_t hash_bytes = (size_t) SCAN_HASH_SLOTS * sizeof(int32_t);
-        bool ram_hash_ok = hash_bytes <= SCAN_HASH_MEM_MAX &&
-                           (!disable_ram_hash || disable_ram_hash[0] == '\0' || disable_ram_hash[0] == '0') &&
-                           scan_hash_mem_available_bytes() >= hash_bytes + SCAN_HASH_MEM_RESERVE;
-        if (ram_hash_ok) {
-            scan_hash_mem = malloc(hash_bytes);
-            if (scan_hash_mem) memset(scan_hash_mem, 0, hash_bytes);
-            ram_hash_ok = scan_hash_mem != NULL;
-        }
-        if (!ram_hash_ok) {
-            scan_hash_fd = reader_create_temp();
-            ok = scan_hash_fd >= 0 && ftruncate(scan_hash_fd, (off_t) hash_bytes) == 0;
-        }
+    return ok;
+}
+
+/* Path hash for the scan: RAM when it fits and memory allows, else a temp file. */
+static bool staging_hash_init(void) {
+    const char *disable_ram_hash = getenv("TAGCACHE_DISABLE_RAM_HASH");
+    size_t hash_bytes = (size_t) SCAN_HASH_SLOTS * sizeof(int32_t);
+    bool ram_hash_ok = hash_bytes <= SCAN_HASH_MEM_MAX &&
+                       (!disable_ram_hash || disable_ram_hash[0] == '\0' || disable_ram_hash[0] == '0') &&
+                       scan_hash_mem_available_bytes() >= hash_bytes + SCAN_HASH_MEM_RESERVE;
+    if (ram_hash_ok) {
+        scan_hash_mem = malloc(hash_bytes);
+        if (scan_hash_mem) memset(scan_hash_mem, 0, hash_bytes);
+        ram_hash_ok = scan_hash_mem != NULL;
     }
-    if (!ok) {
-        if (master >= 0) close(master);
-        for (int t = 0; t < TAG_COUNT; t++) if (strings[t] >= 0) close(strings[t]);
-        memset(scan_tag_private, 0, sizeof(scan_tag_private));
-        scan_hash_release();
-        if (lock) lock();
-        scan_initializing = false;
-        update_failed = true;
-        return false;
-    }
-    reader_context_init(&scan_reader);
-    scan_reader.master_fd = master;
-    scan_reader.entries = ent_count; scan_reader.live = live_count;
-    scan_reader.serial = master_serial; scan_reader.commitid = master_commitid; scan_reader.generation = disk_gen;
-    memcpy(scan_reader.tag_fd, strings, sizeof(strings));
-    memcpy(scan_reader.tag_size, reader_tag_size, sizeof(scan_reader.tag_size));
-    scan_reader.compact_order = reader_compact_order;
-    selected_reader = &scan_reader;
-    if (!scan_intern_init(!reader_compact_order)) update_failed = true;
+    if (ram_hash_ok) return true;
+    scan_hash_fd = reader_create_temp();
+    return scan_hash_fd >= 0 && ftruncate(scan_hash_fd, (off_t) hash_bytes) == 0;
+}
+
+/* Copies every row into the staged index and the path hash, then carries the
+ * lazy scan's seen set over.  Failures set update_failed. */
+static void staging_copy_rows(bool had_lazy_scan) {
     for (int32_t slot = 0; slot < ent_count && !update_failed; slot++) {
         struct index_entry idx;
         if (!reader_index(slot, &idx)) { update_failed = true; break; }
@@ -280,6 +256,60 @@ bool start_staging_with_lock(void (*unlock)(void), void (*lock)(void)) {
             if (!scan_write_index(slot, &idx)) break;
         }
     }
+}
+
+/* Releases whatever a failed staging start had opened. */
+static void staging_abandon(int master, const int strings[]) {
+    if (master >= 0) close(master);
+    for (int t = 0; t < TAG_COUNT; t++) if (strings[t] >= 0) close(strings[t]);
+    memset(scan_tag_private, 0, sizeof(scan_tag_private));
+    scan_hash_release();
+}
+
+/* Makes the staged files the selected scan reader. */
+static void staging_attach_reader(int master, const int strings[]) {
+    reader_context_init(&scan_reader);
+    scan_reader.master_fd = master;
+    scan_reader.entries = ent_count; scan_reader.live = live_count;
+    scan_reader.serial = master_serial; scan_reader.commitid = master_commitid; scan_reader.generation = disk_gen;
+    memcpy(scan_reader.tag_fd, strings, sizeof(int) * TAG_COUNT);
+    memcpy(scan_reader.tag_size, reader_tag_size, sizeof(scan_reader.tag_size));
+    scan_reader.compact_order = reader_compact_order;
+    selected_reader = &scan_reader;
+}
+
+bool start_staging_with_lock(void (*unlock)(void), void (*lock)(void)) {
+    if (updating) return !update_failed;
+    bool had_lazy_scan = scan_lazy_active;
+    updating = true;
+    update_failed = false;
+    int master = -1, strings[TAG_COUNT];
+    for (int t = 0; t < TAG_COUNT; t++) strings[t] = -1;
+    memset(scan_tag_private, 0, sizeof(scan_tag_private));
+    bool ok = (mkdir(db_dir, 0755) == 0 || errno == EEXIST);
+    if (ok) ok = (master = reader_create_temp()) >= 0;
+    if (ok) ok = (scan_numeric_fd = reader_create_temp()) >= 0;
+    /* Updates still queued would reach only the old generation's master,
+     * which the copy below may predate.  The lock is held, so nothing new can
+     * queue before scan_initializing starts journaling them. */
+    if (ok) ok = tagcache_flush_numeric();
+    scan_initializing = true;
+    if (unlock) unlock();
+    struct master_header mh = {{TAGCACHE_MAGIC, ent_count * (int32_t) sizeof(struct index_entry), ent_count},
+                                master_serial, master_commitid, 0};
+    if (ok) ok = reader_master_fd >= 0 ? copy_fd(reader_master_fd, master) : write_at(master, &mh, sizeof(mh), 0);
+    if (ok) ok = staging_open_strings(strings);
+    if (ok) ok = staging_hash_init();
+    if (!ok) {
+        staging_abandon(master, strings);
+        if (lock) lock();
+        scan_initializing = false;
+        update_failed = true;
+        return false;
+    }
+    staging_attach_reader(master, strings);
+    if (!scan_intern_init(!reader_compact_order)) update_failed = true;
+    staging_copy_rows(had_lazy_scan);
     if (lock) lock();
     if (!replay_scan_numeric(reader_master_fd)) update_failed = true;
     scan_initializing = false;

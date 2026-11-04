@@ -159,10 +159,10 @@ bool tagcache_open_for_rebuild(const char *dir) {
     return true;
 }
 
-void tagcache_close(void) {
-    if (!committed_reader.fds_ready) reader_context_init(&committed_reader);
-    numeric_worker_stop();
-    reader_legacy_active = false;
+/* Tears down the in-memory update session (staging, scan view, journal, hash,
+ * seen set, flags) and returns to the committed reader.  Needs no descriptor,
+ * so it works even when reopening the database cannot. */
+void scan_session_drop(void) {
     if (scan_view_ready) {
         scan_select(true);
         reader_close();
@@ -173,18 +173,26 @@ void tagcache_close(void) {
     if (scan_numeric_fd >= 0) close(scan_numeric_fd);
     scan_numeric_fd = -1;
     scan_intern_close();
-    reader_close_indexes();
-    reader_close();
-    reader_reset_cache();
     memset(scan_tag_private, 0, sizeof(scan_tag_private));
     scan_hash_release();
     scan_seen_release();
+    updating = scan_initializing = update_failed = false;
+    scan_preserve_unseen = false;
+}
+
+void tagcache_close(void) {
+    if (!committed_reader.fds_ready) reader_context_init(&committed_reader);
+    numeric_worker_stop();
+    reader_legacy_active = false;
+    scan_session_drop();
+    reader_close_indexes();
+    reader_close();
+    reader_reset_cache();
     ent_count = live_count = 0;
     disk_gen = master_commitid = 0;
     master_serial = 1;
     reader_loaded_index_version = reader_title_order_version = 0;
-    db_open = disk_ready = rebuild_preserve_generations = updating = scan_initializing = update_failed = false;
-    scan_preserve_unseen = false;
+    db_open = disk_ready = rebuild_preserve_generations = false;
     if (db_dir_fd >= 0) close(db_dir_fd);
     db_dir_fd = -1;
     db_dir_identity_valid = false;

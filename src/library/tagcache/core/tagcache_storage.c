@@ -172,6 +172,7 @@ bool write_fully(int fd, const void * buf, size_t n) {
     size_t off = 0;
     while (off < n) {
         ssize_t w = write(fd, p + off, n - off);
+        if (w < 0 && errno == EINTR) continue;
         if (w <= 0) return false;
         off += (size_t) w;
     }

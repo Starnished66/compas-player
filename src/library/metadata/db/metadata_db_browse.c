@@ -184,6 +184,9 @@ static int groups_page_locked(metadata_db_group_kind_t kind, int offset, int max
     if (offset < 0) offset = 0;
     if (kind == METADATA_DB_GROUP_GENRE) {
         if (!genre_cache_ensure()) return strict ? -1 : 0;
+        /* An incomplete list is rebuilt on the next call and may differ, so a
+         * walk by *next must not page across it. */
+        if (strict && !genre_cache_valid) return -1;
         int written = 0;
         for (int i = offset; i < genre_cache_count && written < max_rows; i++) {
             group_row_t * row = &out_rows[written++];
@@ -337,7 +340,8 @@ int64_t metadata_db_get_song_recency_offset(const char * path) {
 
 int64_t metadata_db_get_group_offset(metadata_db_group_kind_t kind, const char * name, const char * album_artist) {
     METADATA_DB_GUARD;
-    if (!metadata_db_db_ready || !name) return -1;
+    /* GENRE has no tagcache group; it must not match an artist of that name. */
+    if (!metadata_db_db_ready || !name || kind == METADATA_DB_GROUP_GENRE) return -1;
     int tc_kind = group_kind_to_tc(kind);
     int idx = tagcache_group_index(tc_kind, name, album_artist);
     return idx >= 0 ? idx : -1;
@@ -577,6 +581,7 @@ int metadata_db_get_albums_page_filtered(const char *filter, int offset, int max
 int metadata_db_group_walk_page(metadata_db_group_walk_t * walk, bool by_albums, metadata_db_group_kind_t kind,
                                 const char * album_filter, int max_rows, group_row_t * out_rows) {
     METADATA_DB_GUARD;
+    if (!metadata_db_db_ready) return -1;
     int32_t generation = tagcache_generation();
     if (!walk->started) {
         walk->started = true;
@@ -642,6 +647,64 @@ static int genre_group_cmp(const void *a, const void *b) {
     return c ? c : utf8_collate_identity_compare(x->album_artist, y->album_artist);
 }
 
+enum { GENRE_GROUP_LIMIT = 2000, GENRE_GROUP_HASH_SIZE = 4096 };
+
+typedef struct {
+    group_row_t * groups;
+    uint32_t * hashes;
+    int * slots;
+    int used;
+} genre_groups_t;
+
+/* Group identity of one song, cut to the stored 127 bytes up front so the hash
+ * and the comparison see exactly what the row keeps.  False when the song is
+ * not part of the requested groups. */
+static bool genre_group_key(metadata_db_group_kind_t kind, metadata_db_group_kind_t artist_kind,
+                            const char * artist_filter, const tagcache_song_t * song,
+                            char * name, char * second) {
+    char artist[sizeof(((group_row_t *) 0)->name)];
+    tagcache_artist_primary(song->artist, artist, sizeof(artist));
+    const char * album_artist = song->album_artist[0] ? song->album_artist : song->artist;
+    const char * key = artist;
+    const char * key_second = "";
+    if (kind == METADATA_DB_GROUP_ALBUM_ARTIST) {
+        key = album_artist;
+    } else if (kind == METADATA_DB_GROUP_ALBUM) {
+        if (artist_filter && artist_filter[0] &&
+            tagcache_cmp_ascii(artist_kind == METADATA_DB_GROUP_ALBUM_ARTIST ? album_artist : artist,
+                               artist_filter) != 0) return false;
+        key = song->album;
+        key_second = album_artist;
+    }
+    if (!key[0]) return false;
+    snprintf(name, sizeof(((group_row_t *) 0)->name), "%s", key);
+    snprintf(second, sizeof(((group_row_t *) 0)->album_artist), "%s", key_second);
+    return true;
+}
+
+/* Counts the song into its group, opening a new one while under the limit. */
+static void genre_group_add(genre_groups_t * g, const char * name, const char * second, int64_t song_id) {
+    uint32_t hash = 2166136261u;
+    for (const char * part = name; part; part = part == name ? second : NULL) {
+        hash = fnv1a_fold(hash, part);
+        hash = (hash ^ 0x1fu) * 16777619u;
+    }
+    unsigned bucket = hash % GENRE_GROUP_HASH_SIZE;
+    while (g->slots[bucket] >= 0 && (g->hashes[g->slots[bucket]] != hash ||
+           strcasecmp(g->groups[g->slots[bucket]].name, name) != 0 ||
+           strcasecmp(g->groups[g->slots[bucket]].album_artist, second) != 0))
+        bucket = (bucket + 1) % GENRE_GROUP_HASH_SIZE;
+    if (g->slots[bucket] >= 0) { g->groups[g->slots[bucket]].song_count++; return; }
+    if (g->used >= GENRE_GROUP_LIMIT) return;
+    int index = g->used++;
+    g->slots[bucket] = index;
+    g->hashes[index] = hash;
+    snprintf(g->groups[index].name, sizeof(g->groups[index].name), "%s", name);
+    snprintf(g->groups[index].album_artist, sizeof(g->groups[index].album_artist), "%s", second);
+    g->groups[index].song_count = 1;
+    g->groups[index].first_song_id = song_id;
+}
+
 int metadata_db_get_genre_groups_page(metadata_db_group_kind_t kind, const char *genre,
                                       metadata_db_group_kind_t artist_kind, const char *artist_filter,
                                       int offset, int max_rows, group_row_t *out_rows, int *out_total) {
@@ -651,62 +714,29 @@ int metadata_db_get_genre_groups_page(metadata_db_group_kind_t kind, const char 
     if (kind != METADATA_DB_GROUP_ARTIST && kind != METADATA_DB_GROUP_ALBUM_ARTIST && kind != METADATA_DB_GROUP_ALBUM)
         return 0;
     if (offset < 0) offset = 0;
-    enum { GROUP_LIMIT = 2000, GROUP_HASH_SIZE = 4096 };
-    group_row_t * groups = calloc(GROUP_LIMIT, sizeof(*groups));
-    uint32_t * hashes = calloc(GROUP_LIMIT, sizeof(*hashes));
-    int * slots = malloc(sizeof(*slots) * GROUP_HASH_SIZE);
-    if (!groups || !hashes || !slots) { free(groups); free(hashes); free(slots); return 0; }
-    for (int i = 0; i < GROUP_HASH_SIZE; i++) slots[i] = -1;
-    int used = 0;
+    genre_groups_t g = { calloc(GENRE_GROUP_LIMIT, sizeof(*g.groups)), calloc(GENRE_GROUP_LIMIT, sizeof(*g.hashes)),
+                         malloc(sizeof(*g.slots) * GENRE_GROUP_HASH_SIZE), 0 };
+    if (!g.groups || !g.hashes || !g.slots) { free(g.groups); free(g.hashes); free(g.slots); return 0; }
+    for (int i = 0; i < GENRE_GROUP_HASH_SIZE; i++) g.slots[i] = -1;
     tagcache_query_t query;
     tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL);
     int32_t rank;
     while (tagcache_query_next(&query, &rank)) {
         tagcache_song_t song;
+        char name[sizeof(g.groups[0].name)], second[sizeof(g.groups[0].album_artist)];
         if (!tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE | TAGCACHE_FIELD_ARTIST |
                                                     TAGCACHE_FIELD_ALBUM | TAGCACHE_FIELD_ALBUM_ARTIST, &song) ||
-            strcasecmp(song.genre, genre) != 0) continue;
-        char artist[sizeof(groups[0].name)];
-        tagcache_artist_primary(song.artist, artist, sizeof(artist));
-        const char * album_artist = song.album_artist[0] ? song.album_artist : song.artist;
-        const char * name = artist;
-        const char * second = "";
-        if (kind == METADATA_DB_GROUP_ALBUM_ARTIST) {
-            name = album_artist;
-        } else if (kind == METADATA_DB_GROUP_ALBUM) {
-            if (artist_filter && artist_filter[0] &&
-                tagcache_cmp_ascii(artist_kind == METADATA_DB_GROUP_ALBUM_ARTIST ? album_artist : artist,
-                                   artist_filter) != 0) continue;
-            name = song.album;
-            second = album_artist;
-        }
-        if (!name[0]) continue;
-        uint32_t hash = 2166136261u;
-        for (const char * part = name; part; part = part == name ? second : NULL) {
-            hash = fnv1a_fold(hash, part);
-            hash = (hash ^ 0x1fu) * 16777619u;
-        }
-        unsigned bucket = hash % GROUP_HASH_SIZE;
-        while (slots[bucket] >= 0 && (hashes[slots[bucket]] != hash ||
-               strcasecmp(groups[slots[bucket]].name, name) != 0 ||
-               strcasecmp(groups[slots[bucket]].album_artist, second) != 0)) bucket = (bucket + 1) % GROUP_HASH_SIZE;
-        if (slots[bucket] >= 0) { groups[slots[bucket]].song_count++; continue; }
-        if (used >= GROUP_LIMIT) continue;
-        int index = used++;
-        slots[bucket] = index;
-        hashes[index] = hash;
-        snprintf(groups[index].name, sizeof(groups[index].name), "%s", name);
-        snprintf(groups[index].album_artist, sizeof(groups[index].album_artist), "%s", second);
-        groups[index].song_count = 1;
-        groups[index].first_song_id = song.id;
+            strcasecmp(song.genre, genre) != 0 ||
+            !genre_group_key(kind, artist_kind, artist_filter, &song, name, second)) continue;
+        genre_group_add(&g, name, second, song.id);
     }
-    qsort(groups, (size_t) used, sizeof(*groups), genre_group_cmp);
+    qsort(g.groups, (size_t) g.used, sizeof(*g.groups), genre_group_cmp);
     int written = 0;
-    for (int i = offset; i < used && written < max_rows; i++) out_rows[written++] = groups[i];
-    if (out_total) *out_total = used;
-    free(slots);
-    free(hashes);
-    free(groups);
+    for (int i = offset; i < g.used && written < max_rows; i++) out_rows[written++] = g.groups[i];
+    if (out_total) *out_total = g.used;
+    free(g.slots);
+    free(g.hashes);
+    free(g.groups);
     return written;
 }
 
@@ -880,6 +910,32 @@ int64_t metadata_db_get_album_for_group_sorted_offset(metadata_db_group_kind_t k
 }
 
 #define METADATA_DB_WALK_BATCH 64
+/* Caller holds the database guard.  Copies the fields the visitor aggregates
+ * for one page of the group's song ids; *got is the page size read. */
+static int walk_group_copy_batch(metadata_db_group_kind_t kind, const char * name, int offset, song_row_t * batch,
+                                 int32_t * mtimes, int32_t * sizes, int * got) {
+    int32_t ids[METADATA_DB_WALK_BATCH];
+    *got = kind == METADATA_DB_GROUP_ARTIST
+        ? tagcache_artist_song_ids(name, offset, ids, METADATA_DB_WALK_BATCH)
+        : tagcache_album_artist_song_ids(name, offset, ids, METADATA_DB_WALK_BATCH);
+    int copied = 0;
+    for (int i = 0; i < *got; i++) {
+        tagcache_song_t song;
+        if (!tagcache_song_by_id(ids[i], &song)) continue;
+        song_row_t * row = &batch[copied];
+        row->id = song.id;
+        snprintf(row->path, sizeof(row->path), "%s", song.path);
+        snprintf(row->tags.album, sizeof(row->tags.album), "%s", song.album);
+        snprintf(row->tags.album_artist, sizeof(row->tags.album_artist), "%s", song.album_artist);
+        snprintf(row->tags.genre, sizeof(row->tags.genre), "%s", song.genre);
+        row->tags.release_year = song.release_year;
+        mtimes[copied] = song.mtime;
+        sizes[copied] = song.size;
+        copied++;
+    }
+    return copied;
+}
+
 bool metadata_db_walk_group_songs(metadata_db_group_kind_t kind, const char * name,
                                   bool (*visit)(const song_row_t * song, int32_t mtime, int32_t size, void * user),
                                   void * user) {
@@ -893,33 +949,23 @@ bool metadata_db_walk_group_songs(metadata_db_group_kind_t kind, const char * na
     if (!sizes) { free(mtimes); free(batch); return false; }
     bool ok = true, have_generation = false;
     int32_t generation = 0;
+    uint32_t incarnation = 0;
     for (int offset = 0; ok;) {
-        int32_t ids[METADATA_DB_WALK_BATCH];
         int got = 0, copied = 0;
         {
             METADATA_DB_GUARD;
-            /* A publication between batches changes the paging underneath the
-             * offset: abort rather than mix two generations. */
+            /* A publication or a close and reopen between batches changes the
+             * paging underneath the offset: abort rather than mix two states. */
             if (!metadata_db_db_ready || !tagcache_storage_current()) { ok = false; break; }
-            if (!have_generation) { generation = tagcache_generation(); have_generation = true; }
-            else if (tagcache_generation() != generation) { ok = false; break; }
-            got = kind == METADATA_DB_GROUP_ARTIST
-                ? tagcache_artist_song_ids(name, offset, ids, METADATA_DB_WALK_BATCH)
-                : tagcache_album_artist_song_ids(name, offset, ids, METADATA_DB_WALK_BATCH);
-            for (int i = 0; i < got; i++) {
-                tagcache_song_t song;
-                if (!tagcache_song_by_id(ids[i], &song)) continue;
-                song_row_t * row = &batch[copied];
-                row->id = song.id;
-                snprintf(row->path, sizeof(row->path), "%s", song.path);
-                snprintf(row->tags.album, sizeof(row->tags.album), "%s", song.album);
-                snprintf(row->tags.album_artist, sizeof(row->tags.album_artist), "%s", song.album_artist);
-                snprintf(row->tags.genre, sizeof(row->tags.genre), "%s", song.genre);
-                row->tags.release_year = song.release_year;
-                mtimes[copied] = song.mtime;
-                sizes[copied] = song.size;
-                copied++;
+            if (!have_generation) {
+                generation = tagcache_generation();
+                incarnation = metadata_db_db_incarnation;
+                have_generation = true;
+            } else if (tagcache_generation() != generation || metadata_db_db_incarnation != incarnation) {
+                ok = false;
+                break;
             }
+            copied = walk_group_copy_batch(kind, name, offset, batch, mtimes, sizes, &got);
         }
         for (int i = 0; i < copied && ok; i++) ok = visit(&batch[i], mtimes[i], sizes[i], user);
         if (got < METADATA_DB_WALK_BATCH) break;
