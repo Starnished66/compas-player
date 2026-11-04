@@ -556,10 +556,6 @@ static void player_screen_loaded_cb(lv_event_t * e) {
     player_timeline_play(player_timeline_screen_enter, NULL, NULL, NULL);
 }
 
-/* Wires a screen built by a layout to the app. Roles and their contract:
- * docs/reference/PLAYER_LAYOUTS.md. Returns false, with no global assigned and nothing
- * attached, when a required role is missing or of the wrong type, so the
- * caller can discard the tree and fall back to the built-in layout. */
 /* A layout's own glyphs and captions, outside the fixed roles, follow the
  * backdrop too when named for it: images "glyph_*" take the transport tint
  * and labels "caption_*" the muted text color. */
@@ -628,6 +624,10 @@ static player_inline_lyrics_view_t player_inline_view_for_bind(
     };
 }
 
+/* Wires a screen built by a layout to the app. Roles and their contract:
+ * docs/reference/PLAYER_LAYOUTS.md. Returns false, with no global assigned and nothing
+ * attached, when a required role is missing or of the wrong type, so the
+ * caller can discard the tree and fall back to the built-in layout. */
 static bool player_bind_widgets(lv_obj_t * scr) {
     const bool builtin = player_layout_builtin;
     player_count_row_reset();
@@ -670,8 +670,8 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     if (!r_lyrics_dim) r_lyrics_dim = player_find_role(scr, "panorama_lyrics_dim", NULL);
     lv_obj_t * r_lyrics_active = player_find_role(scr, "lyrics_active", &lv_label_class);
     lv_obj_t * r_lyrics_toggle = player_find_role(scr, "lyrics_toggle", NULL);
-    player_cover_thumbnail = player_find_role(scr, "cover_thumbnail", &lv_image_class);
-    player_play_circle = player_find_role(scr, "play_circle", NULL);
+    lv_obj_t * r_cover_thumbnail = player_find_role(scr, "cover_thumbnail", &lv_image_class);
+    lv_obj_t * r_play_circle = player_find_role(scr, "play_circle", NULL);
     lv_obj_t * r_transport_color = player_find_role(scr, "transport_color", &lv_label_class);
     lv_obj_t * r_cover_fade = player_find_role(scr, "cover_fade", &lv_image_class);
 
@@ -708,6 +708,8 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     player_background_img = r_background;
     cover_card = r_cover_card;
     cover_img = r_cover_img;
+    player_cover_thumbnail = r_cover_thumbnail;
+    player_play_circle = r_play_circle;
     /* Only a descendant was baked into the card snapshot. Older XMLs may
      * keep their fade beside the card; leave that live overlay visible. */
     song_title_label = r_title;
