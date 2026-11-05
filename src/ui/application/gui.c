@@ -9,6 +9,7 @@
 #include "../text/rendering/gui_text_input.h"
 #include "../text/rendering/gui_text_view.h"
 #include "../player/screen/gui_lyrics.h"
+#include "../player/transport/player_seek_input.h"
 #include "../network/subsonic/gui_subsonic.h"
 #include "../assets/assets.h"
 #include "../../hardware/indicators/backlight.h"
@@ -250,6 +251,7 @@ static void apply_boot_settings(void) {
     settings_load(&current_settings);
 #ifndef HOST_BUILD
     audio_output_set_usb_dsd_mode(current_settings.usb_dsd_output);
+    audio_output_set_dsd_gain_db(current_settings.dsd_gain_db);
     audio_output_set_dac_preferences(current_settings.dac_filter, current_settings.dac_nos,
                                      current_settings.dac_dre);
 #endif
@@ -265,6 +267,7 @@ static void apply_boot_settings(void) {
     db_log_set_enabled(current_settings.db_logging_enabled);
     hw_buttons_set_screenshot_combo_enabled(current_settings.screenshot_combo_enabled);
     hw_buttons_set_volume_lock_screen_off(current_settings.volume_lock_screen_off);
+    player_seek_input_set_hw_step_seconds(current_settings.hw_seek_step_seconds);
     gui_buttons_init();
     gui_apply_button_bindings();
     usb_dac_bridge_set_debug_log_enabled(current_settings.db_logging_enabled);

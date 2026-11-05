@@ -7,6 +7,7 @@
 #include "../../application/gui.h"
 #include "../../library/browse/gui_library.h"
 #include "../../player/screen/gui_player.h"
+#include "../../player/transport/player_seek_input.h"
 #include "../../shell/gui_notifications.h"
 #include "../../shell/gui_shell.h"
 #include "../../text/i18n/i18n.h"
@@ -95,6 +96,14 @@ static void apply_dac(void) {
 #endif
 }
 
+/* A DAC without NOS offers only the first two filters. */
+static int clamp_dac_filter(int filter) {
+#ifndef HOST_BUILD
+    if (filter > 1 && !audio_output_dac_nos_supported()) return 0;
+#endif
+    return filter;
+}
+
 /* Settings with a device-side setter use it; the rest are a plain store plus
  * the same live call their screen makes. */
 static void apply_change(const setting_desc_t * d, int value) {
@@ -106,14 +115,17 @@ static void apply_change(const setting_desc_t * d, int value) {
     else if (strcmp(key, "car_mode_enabled") == 0) gui_player_set_car_mode_enabled(value != 0);
     else if (strcmp(key, "max_volume_percent") == 0) apply_max_volume(value);
     else {
+        if (strcmp(key, "dac_filter") == 0) value = clamp_dac_filter(value);
         store_value(d, value);
         if (strncmp(key, "dac_", 4) == 0) apply_dac();
 #ifndef HOST_BUILD
         else if (strcmp(key, "usb_dsd_output") == 0) audio_output_set_usb_dsd_mode(value);
+        else if (strcmp(key, "dsd_gain_db") == 0) audio_output_set_dsd_gain_db(value);
 #endif
         else if (strcmp(key, "brightness_percent") == 0) backlight_request_normal_percent(value);
         else if (strcmp(key, "screen_dimming_enabled") == 0 && !value) backlight_set_dimmed(false);
         else if (strcmp(key, "show_battery_percent") == 0) gui_shell_apply_topbar_settings();
+        else if (strcmp(key, "hw_seek_step_seconds") == 0) player_seek_input_set_hw_step_seconds(value);
         else if (strcmp(key, "volume_lock_screen_off") == 0) hw_buttons_set_volume_lock_screen_off(value != 0);
         else if (strcmp(key, "led_indicator_enabled") == 0) led_control_apply(value != 0);
         else if (strcmp(key, "charge_limiter_enabled") == 0) charge_limiter_poll(value != 0, true);

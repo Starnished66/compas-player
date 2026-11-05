@@ -5,6 +5,7 @@
 #include "../input/event_input.h"
 #include "../network/gui_network.h"
 #include "../player/screen/gui_lyrics.h"
+#include "../player/transport/player_seek_input.h"
 #include "../network/subsonic/gui_subsonic.h"
 #include "../../hardware/indicators/backlight.h"
 #include "../../hardware/power/battery.h"
@@ -602,6 +603,22 @@ static bool physical_button_dispatch(button_mapping_action_t action,
     return true;
 }
 
+/* R3 II 2025 wheel clicks mapped to seek add up instead of seeking per click. */
+static bool physical_button_wheel_seek(button_mapping_action_t action,
+        button_mapping_button_t button, button_mapping_gesture_t gesture) {
+#if defined(BOARD_R3II_2025)
+    bool seek = action == BUTTON_MAPPING_ACTION_SEEK_FORWARD ||
+                action == BUTTON_MAPPING_ACTION_SEEK_BACKWARD;
+    bool wheel = button == BUTTON_MAPPING_VOLUME_UP || button == BUTTON_MAPPING_VOLUME_DOWN;
+    if (!seek || !wheel || gesture != BUTTON_MAPPING_GESTURE_TAP) return false;
+    player_seek_input_hw_click(action == BUTTON_MAPPING_ACTION_SEEK_FORWARD ? 1 : -1);
+    return true;
+#else
+    (void)action; (void)button; (void)gesture;
+    return false;
+#endif
+}
+
 static void physical_button_action(button_mapping_action_t action,
         button_mapping_button_t button, button_mapping_gesture_t gesture,
         unsigned count, bool first, uint32_t timestamp_ms, void *userdata) {
@@ -612,7 +629,8 @@ static void physical_button_action(button_mapping_action_t action,
     action = physical_button_resolve_action(action, button, gesture);
     if (action == BUTTON_MAPPING_ACTION_NONE) return;
     if (!physical_button_gesture_allowed(action, button, gesture)) return;
-    if (!physical_button_dispatch(action, gesture, count, first)) return;
+    if (!physical_button_wheel_seek(action, button, gesture) &&
+        !physical_button_dispatch(action, gesture, count, first)) return;
     lv_display_trigger_activity(NULL);
 }
 

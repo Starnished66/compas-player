@@ -10,6 +10,7 @@
 #include "../assets/assets.h"
 #include "../../core/device/device_info.h"
 #include "../../core/persistence/storage_paths.h"
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include "../../audio/output/audio_output.h"
@@ -31,6 +32,8 @@ static lv_obj_t * dac_settings_screen;
 static lv_obj_t * dac_settings_list;
 static lv_obj_t * usb_dsd_settings_screen;
 static lv_obj_t * usb_dsd_settings_list;
+static lv_obj_t * dsd_gain_settings_screen;
+static lv_obj_t * dsd_gain_settings_list;
 static lv_obj_t * settings_eq_profiles_menu_screen;
 static lv_obj_t * music_playback_screen;
 static lv_obj_t * music_audio_screen;
@@ -143,6 +146,14 @@ static bool native_dac_controls_supported(void) {
 #endif
 }
 
+static bool native_dop_supported(void) {
+#ifdef HOST_BUILD
+    return false;
+#else
+    return audio_output_dop_supported();
+#endif
+}
+
 static bool native_dac_dre_supported(void) {
 #ifdef HOST_BUILD
     return false;
@@ -168,10 +179,23 @@ static void wrap_row_label(lv_obj_t * row) {
     lv_obj_set_width(label, lv_pct(78));
 }
 
+static bool native_dac_nos_supported(void) {
+#ifdef HOST_BUILD
+    return false;
+#else
+    return audio_output_dac_nos_supported();
+#endif
+}
+
+/* A DAC without NOS offers only the apodizing and linear-phase filters. */
+static int dac_filter_count(void) {
+    return native_dac_nos_supported() ? 4 : 2;
+}
+
 static void dac_filter_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int filter = (int) (intptr_t) lv_event_get_user_data(e);
-    if (filter < 0 || filter > 3) return;
+    if (filter < 0 || filter >= dac_filter_count()) return;
     current_settings.dac_filter = filter;
     apply_dac_preferences();
     settings_save_async(&current_settings);
@@ -202,22 +226,29 @@ static const char * const dac_filter_labels[4] = {
     N_("Slow roll-off, low latency"),
     N_("Slow roll-off, phase compensated")
 };
+static const char * const dac_filter_labels_no_nos[2] = {
+    N_("Apodizing fast roll-off"),
+    N_("Linear phase fast roll-off")
+};
 
 static void populate_dac_settings_screen(void) {
     if (!dac_settings_list) return;
     lv_obj_clean(dac_settings_list);
-    for (int i = 0; i < 4; ++i) {
-        wrap_row_label(add_pill_option_row(dac_settings_list, TR(dac_filter_labels[i]),
+    const char * const * labels = native_dac_nos_supported() ? dac_filter_labels : dac_filter_labels_no_nos;
+    for (int i = 0; i < dac_filter_count(); ++i) {
+        wrap_row_label(add_pill_option_row(dac_settings_list, TR(labels[i]),
             current_settings.dac_filter == i, dac_filter_event_cb, (void *) (intptr_t) i));
     }
-    wrap_row_label(add_pill_toggle_row(dac_settings_list, TR("NOS Mode"),
-        current_settings.dac_nos, dac_nos_event_cb));
+    if (native_dac_nos_supported())
+        wrap_row_label(add_pill_toggle_row(dac_settings_list, TR("NOS Mode"),
+            current_settings.dac_nos, dac_nos_event_cb));
     if (native_dac_dre_supported()) {
         wrap_row_label(add_pill_toggle_row(dac_settings_list, TR("DRE"),
             current_settings.dac_dre, dac_dre_event_cb));
     }
-    add_wrapped_section_header(dac_settings_list,
-        TR("Filters and NOS affect local PCM playback. NOS bypasses interpolation and ignores the selected filter. Changes apply when playback restarts."));
+    add_wrapped_section_header(dac_settings_list, native_dac_nos_supported()
+        ? TR("Filters and NOS affect local PCM playback. NOS bypasses interpolation and ignores the selected filter. Changes apply when playback restarts.")
+        : TR("The filter affects local PCM playback. Changes apply when playback restarts."));
     if (native_dac_dre_supported()) {
         add_wrapped_section_header(dac_settings_list,
             TR("DRE (Dynamic Range Enhancement) affects local PCM and DSD playback."));
@@ -280,8 +311,51 @@ static void usb_dsd_settings_row_cb(lv_event_t * e) {
     nav_push(usb_dsd_settings_screen);
 }
 
+static void dsd_gain_event_cb(lv_event_t * e);
+
+static void populate_dsd_gain_settings_screen(void) {
+    if (!dsd_gain_settings_list) return;
+    lv_obj_clean(dsd_gain_settings_list);
+    for (int db = 0; db <= 6; ++db) {
+        char label[24];
+        if (db == 0) snprintf(label, sizeof(label), "%s", TR("Off"));
+        else snprintf(label, sizeof(label), TR("+%d dB"), db);
+        wrap_row_label(add_pill_option_row(dsd_gain_settings_list, label,
+            current_settings.dsd_gain_db == db, dsd_gain_event_cb, (void *) (intptr_t) db));
+    }
+    add_wrapped_section_header(dsd_gain_settings_list,
+        TR("Raises native DSD on this player's headphone outputs. It cannot go past the loudest volume step."));
+}
+
+static void dsd_gain_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int db = (int) (intptr_t) lv_event_get_user_data(e);
+    if (db < 0 || db > 6) return;
+    current_settings.dsd_gain_db = db;
+#ifndef HOST_BUILD
+    audio_output_set_dsd_gain_db(db);
+#endif
+    settings_save_async(&current_settings);
+    populate_dsd_gain_settings_screen();
+}
+
+static lv_obj_t * build_dsd_gain_settings_screen(void) {
+    lv_obj_t * title = NULL;
+    lv_obj_t * scr = build_subsonic_list_screen(TR("DSD Gain"), &title, &dsd_gain_settings_list);
+    (void) title;
+    populate_dsd_gain_settings_screen();
+    finalize_screen_navigation(scr);
+    return scr;
+}
+
+static void dsd_gain_settings_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !dsd_gain_settings_screen) return;
+    populate_dsd_gain_settings_screen();
+    nav_push(dsd_gain_settings_screen);
+}
+
 static lv_obj_t * build_music_audio_screen(void) {
-    pill_list_item_t items[8 + PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS];
+    pill_list_item_t items[9 + PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS];
     lv_obj_t * eq_row = NULL;
     items[0] = (pill_list_item_t){ TR("Equalizer"), PILL_ACCESSORY_CHEVRON, false, gui_equalizer_eq_row_event_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Crossfeed"), PILL_ACCESSORY_CHEVRON, false, gui_equalizer_crossfeed_row_event_cb, NULL, NULL };
@@ -296,6 +370,8 @@ static lv_obj_t * build_music_audio_screen(void) {
     items[count++] = (pill_list_item_t){ TR("Max Volume"), PILL_ACCESSORY_CHEVRON, false, gui_volume_settings_max_volume_row_cb, NULL, NULL };
     items[count++] = (pill_list_item_t){ TR("ReplayGain"), PILL_ACCESSORY_CHEVRON, false, replaygain_mode_settings_row_cb, NULL, NULL };
     items[count++] = (pill_list_item_t){ TR("USB DSD Output"), PILL_ACCESSORY_CHEVRON, false, usb_dsd_settings_row_cb, NULL, NULL };
+    if (native_dop_supported())
+        items[count++] = (pill_list_item_t){ TR("DSD Gain"), PILL_ACCESSORY_CHEVRON, false, dsd_gain_settings_row_cb, NULL, NULL };
     if (native_dac_controls_supported())
         items[count++] = (pill_list_item_t){ TR("Local DAC Settings"), PILL_ACCESSORY_CHEVRON, false, dac_settings_row_cb, NULL, NULL };
     if (count_plugin_rows_in_group("music_audio", plugin_manager_get_music_audio_list_item_count(), "effects") > 0)
@@ -522,6 +598,7 @@ void settings_music_build_screens(void) {
     music_playback_screen = build_music_playback_screen();
     if (native_dac_controls_supported()) dac_settings_screen = build_dac_settings_screen();
     usb_dsd_settings_screen = build_usb_dsd_settings_screen();
+    if (native_dop_supported()) dsd_gain_settings_screen = build_dsd_gain_settings_screen();
     music_audio_screen = build_music_audio_screen();
     music_controls_screen = NULL; /* built on first open of Playback & Controls > Buttons & Remote */
 }
@@ -537,8 +614,10 @@ void settings_music_teardown_screens(void) {
     delete_screen(&music_audio_screen);
     delete_screen(&dac_settings_screen);
     delete_screen(&usb_dsd_settings_screen);
+    delete_screen(&dsd_gain_settings_screen);
     dac_settings_list = NULL;
     usb_dsd_settings_list = NULL;
+    dsd_gain_settings_list = NULL;
     delete_screen(&music_controls_screen);
 }
 

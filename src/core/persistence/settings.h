@@ -103,6 +103,7 @@ typedef struct {
      * assigned to another button. Remapped non-volume actions remain available.
      * Defaults off to preserve existing hardware behavior. */
     bool volume_lock_screen_off;
+    int hw_seek_step_seconds; /* 1..30 s per hardware-button seek step. */
 
     uint32_t accent_color;     /* packed 0xRRGGBB, applied to sliders/switches app-wide */
     bool accent_dynamic;       /* "Match album art": the playing cover's color replaces accent_color while shown */
@@ -188,6 +189,7 @@ typedef struct {
     bool dac_nos;
     bool dac_dre;
     usb_dsd_mode_t usb_dsd_output; /* Exact DSD pass-through bypasses software volume/DSP. */
+    int dsd_gain_db; /* 0..6 dB of extra DAC level while local native DSD plays. */
 
     /* Bluetooth output settings -- see bluetooth_control.h for the BlueALSA
      * 5 service behavior. */

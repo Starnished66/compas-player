@@ -93,6 +93,7 @@ static void queue_button_event_locked(button_mapping_button_t button,
 static void remove_queued_button_events_locked(button_mapping_button_t button);
 static void begin_lock_chord_locked(uint32_t now);
 static void complete_lock_chord_if_ready_locked(void);
+static bool tap_resolves_to_volume_locked(button_mapping_button_t button);
 
 /* The R3 II knob is reported as arrow-key pairs. Track each physical key per
  * evdev fd so a repeated KEY_DOWN without a release cannot become multiple
@@ -121,8 +122,11 @@ static void handle_knob_key_event(unsigned short code, int value, bool * left_he
                 return;
             }
         }
-        queue_button_event_locked(up ? BUTTON_MAPPING_VOLUME_UP : BUTTON_MAPPING_VOLUME_DOWN,
-                                  BUTTON_MAPPING_GESTURE_TAP, 1, now);
+        button_mapping_button_t button = up ? BUTTON_MAPPING_VOLUME_UP : BUTTON_MAPPING_VOLUME_DOWN;
+        /* Volume lock: a wheel click that would change the volume is dropped with the screen off. */
+        if (!(volume_lock_screen_off && !backlight_screen_is_on() &&
+              tap_resolves_to_volume_locked(button)))
+            queue_button_event_locked(button, BUTTON_MAPPING_GESTURE_TAP, 1, now);
         *held = true;
     } else if (value == 0) {
         *held = false;
@@ -349,6 +353,15 @@ static bool hold_resolves_to_volume_locked(button_mapping_button_t button) {
         hold == BUTTON_MAPPING_ACTION_VOLUME_DOWN)
         return true;
     return hold == BUTTON_MAPPING_ACTION_DEFAULT &&
+           (button == BUTTON_MAPPING_VOLUME_UP || button == BUTTON_MAPPING_VOLUME_DOWN);
+}
+
+static bool tap_resolves_to_volume_locked(button_mapping_button_t button) {
+    const button_mapping_action_t tap = mapped_bindings[button].tap;
+    if (tap == BUTTON_MAPPING_ACTION_VOLUME_UP ||
+        tap == BUTTON_MAPPING_ACTION_VOLUME_DOWN)
+        return true;
+    return tap == BUTTON_MAPPING_ACTION_DEFAULT &&
            (button == BUTTON_MAPPING_VOLUME_UP || button == BUTTON_MAPPING_VOLUME_DOWN);
 }
 

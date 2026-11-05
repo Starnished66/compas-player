@@ -69,7 +69,6 @@ static double calibrated_taper_db(double percent) {
  * provide hardware attenuation. Raw 0 is maximum volume (0dB attenuation), with
  * higher raw values providing increasing attenuation up to full mute. */
 #define HW_VOLUME_DB_PER_STEP 0.34
-#define HW_VOLUME_MAX_RAW 230 /* full attenuation / silence */
 
 static int volume_db_to_hw_raw(double db) {
     if (db >= 0.0) return 0; /* hardware's loudest point -- can't go past it */

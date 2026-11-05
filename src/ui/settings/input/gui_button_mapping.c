@@ -7,6 +7,7 @@
 #include "../../text/i18n/i18n.h"
 #include "../../widgets/builders/screen_builders.h"
 #include "../../../core/persistence/settings.h"
+#include "../../player/transport/player_seek_input.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -20,6 +21,12 @@ static lv_obj_t * button_action_screens[BUTTON_MAPPING_BUTTON_COUNT][3];
 static lv_obj_t * button_action_lists[BUTTON_MAPPING_BUTTON_COUNT][3];
 static gui_popup_t button_mapping_reset_popup;
 static lv_obj_t * settings_button_mapping_summary;
+
+static const int seek_step_choices[] = { 1, 2, 3, 5, 10, 15, 30 };
+static lv_obj_t * seek_step_screen;
+static lv_obj_t * seek_step_list;
+static lv_obj_t * seek_step_row;
+static lv_obj_t * seek_step_summary;
 
 static const char * button_mapping_button_label(int button) {
     switch (button) {
@@ -119,6 +126,11 @@ void gui_button_mapping_refresh_summaries(void) {
                 lv_label_set_text(button_detail_summaries[button][gesture], button_mapping_action_label(action));
         }
     }
+    if (seek_step_summary) {
+        char text[16];
+        snprintf(text, sizeof(text), TR("%d s"), current_settings.hw_seek_step_seconds);
+        lv_label_set_text(seek_step_summary, text);
+    }
     if (settings_button_mapping_summary) {
         bool is_default = true;
         for (int button = 0; button < BUTTON_MAPPING_BUTTON_COUNT; ++button) {
@@ -148,8 +160,11 @@ static void button_mapping_reset_confirm_cb(lv_event_t * e);
 static void button_mapping_reset_cancel_cb(lv_event_t * e);
 static void button_mapping_reset_backdrop_cb(lv_event_t * e);
 
+static void seek_step_open_cb(lv_event_t * e);
+static void seek_step_option_cb(lv_event_t * e);
+
 static lv_obj_t * build_button_mapping_screen(void) {
-    pill_list_item_t items[BUTTON_MAPPING_BUTTON_COUNT + 1] = { 0 };
+    pill_list_item_t items[BUTTON_MAPPING_BUTTON_COUNT + 2] = { 0 };
     int count = 0;
     for (int button = 0; button < BUTTON_MAPPING_BUTTON_COUNT; ++button) {
         if (!button_mapping_button_available(button)) continue;
@@ -162,6 +177,12 @@ static lv_obj_t * build_button_mapping_screen(void) {
         };
     }
     items[count++] = (pill_list_item_t){
+        .label = TR("Seek Step"),
+        .accessory = PILL_ACCESSORY_CHEVRON,
+        .on_click = seek_step_open_cb,
+        .out_row = &seek_step_row,
+    };
+    items[count++] = (pill_list_item_t){
         .label = TR("Reset All"),
         .accessory = PILL_ACCESSORY_NONE,
         .on_click = button_mapping_reset_cb,
@@ -172,6 +193,7 @@ static lv_obj_t * build_button_mapping_screen(void) {
     for (int button = 0; button < BUTTON_MAPPING_BUTTON_COUNT; ++button)
         if (button_mapping_button_available(button) && button_mapping_rows[button])
             button_mapping_summaries[button] = add_pill_summary_label(button_mapping_rows[button]);
+    if (seek_step_row) seek_step_summary = add_pill_summary_label(seek_step_row);
     gui_button_mapping_refresh_summaries();
     lv_obj_add_event_cb(scr, button_mapping_summaries_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     finalize_screen_navigation(scr);
@@ -246,6 +268,38 @@ static void populate_button_action_screen(int button, int gesture) {
         add_pill_option_row(list, label, selected,
                             button_action_option_cb, (void *)packed);
     }
+}
+
+static void populate_seek_step_screen(void) {
+    if (!seek_step_list) return;
+    lv_obj_clean(seek_step_list);
+    for (size_t i = 0; i < sizeof(seek_step_choices) / sizeof(seek_step_choices[0]); ++i) {
+        char label[16];
+        snprintf(label, sizeof(label), TR("%d s"), seek_step_choices[i]);
+        add_pill_option_row(seek_step_list, label,
+                            current_settings.hw_seek_step_seconds == seek_step_choices[i],
+                            seek_step_option_cb, (void *)(intptr_t)seek_step_choices[i]);
+    }
+}
+
+static void seek_step_option_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    current_settings.hw_seek_step_seconds = (int)(intptr_t)lv_event_get_user_data(e);
+    player_seek_input_set_hw_step_seconds(current_settings.hw_seek_step_seconds);
+    settings_save_async(&current_settings);
+    gui_button_mapping_refresh_summaries();
+    populate_seek_step_screen();
+}
+
+static void seek_step_open_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (!seek_step_screen) {
+        lv_obj_t * title = NULL;
+        seek_step_screen = build_subsonic_list_screen(TR("Seek Step"), &title, &seek_step_list);
+        finalize_screen_navigation(seek_step_screen);
+    }
+    populate_seek_step_screen();
+    if (seek_step_screen) nav_push(seek_step_screen);
 }
 
 void gui_button_mapping_row_cb(lv_event_t * e) {
@@ -334,5 +388,10 @@ void gui_button_mapping_teardown_screens(void) {
         button_mapping_rows[button] = NULL;
         button_mapping_summaries[button] = NULL;
     }
+    if (seek_step_screen) lv_obj_delete(seek_step_screen);
+    seek_step_screen = NULL;
+    seek_step_list = NULL;
+    seek_step_row = NULL;
+    seek_step_summary = NULL;
     if (button_mapping_screen) { lv_obj_delete(button_mapping_screen); button_mapping_screen = NULL; }
 }

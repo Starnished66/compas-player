@@ -9,6 +9,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -191,13 +192,35 @@ void audio_output_set_dac_preferences(int filter, bool nos, bool dre) {
     pthread_mutex_unlock(&config_mutex);
 }
 
+bool audio_output_dac_nos_supported(void) {
+#if (defined(BOARD_R1) || defined(BOARD_R3PROII)) && !defined(HOST_BUILD)
+    struct mixer * mixer = get_alsa_mixer();
+    return mixer && mixer_get_ctl_by_name(mixer, "NOS_EN");
+#else
+    return false;
+#endif
+}
+
 static bool dac_controls_present(void) {
 #if (defined(BOARD_R1) || defined(BOARD_R3PROII)) && !defined(HOST_BUILD)
     struct mixer * mixer = get_alsa_mixer();
     return mixer && mixer_get_ctl_by_name(mixer, "Digital Filter") &&
-           mixer_get_ctl_by_name(mixer, "NOS_EN");
+           audio_output_dac_nos_supported();
+#elif defined(BOARD_R3II_2025) && !defined(HOST_BUILD)
+    struct mixer * mixer = get_alsa_mixer();
+    return mixer && mixer_get_ctl_by_name(mixer, "Digital Filter");
 #else
     return false;
+#endif
+}
+
+/* The 2025 codec takes 6 for its linear phase filter and treats any other
+ * value as the default apodizing one, matching the stock HiBy firmware. */
+static int dac_filter_value(int filter) {
+#if defined(BOARD_R3II_2025)
+    return filter == 1 ? 6 : 0;
+#else
+    return filter;
 #endif
 }
 
@@ -219,8 +242,8 @@ bool audio_output_dac_controls_supported(void) {
 static void apply_dac_preferences(bool dop) {
     if (!dac_controls_present()) return;
     pthread_mutex_lock(&config_mutex);
-    int filter = requested_dac_filter;
-    bool nos = requested_dac_nos && !dop;
+    int filter = dac_filter_value(requested_dac_filter);
+    bool nos = requested_dac_nos && !dop && audio_output_dac_nos_supported();
     bool dre = requested_dac_dre;
     pthread_mutex_unlock(&config_mutex);
     if (dac_preferences_written && filter == written_dac_filter &&
@@ -229,7 +252,9 @@ static void apply_dac_preferences(bool dop) {
     /* Ordering preserves the stored filter when leaving NOS. Do not trust
      * the driver's dummy getters. Its saved table survives power cycles. */
     int filter_result = mixer_ctl_set_value(mixer_get_ctl_by_name(mixer, "Digital Filter"), 0, filter);
-    int nos_result = mixer_ctl_set_value(mixer_get_ctl_by_name(mixer, "NOS_EN"), 0, nos ? 1 : 0);
+    int nos_result = 0;
+    if (audio_output_dac_nos_supported())
+        nos_result = mixer_ctl_set_value(mixer_get_ctl_by_name(mixer, "NOS_EN"), 0, nos ? 1 : 0);
     /* R3 Pro II's dual codec applies this to both chips and replays the
      * cached DRE setting during prepare for PCM and DSD alike. */
     int dre_result = 0;
@@ -250,8 +275,11 @@ static void apply_dac_preferences(bool dop) {
  * prepared, or the DAC reads PCM as DSD (noise). The control reads back 0
  * whatever was written, so the last value written is tracked here instead;
  * -1 forces the first write, which also clears a switch left on by a
- * crashed process. Called only by the output owner thread. */
-static int dop_switch_written = -1;
+ * crashed process. Written only by the output owner thread; atomic because
+ * the volume path also reads it to apply the DSD gain. */
+static _Atomic int dop_switch_written = -1;
+
+static void refresh_hw_volume(void);
 
 /* A DoP rate the DAC refused (hw_params or the switch), so later tracks at
  * that rate are converted without another failed open. Owner thread only. */
@@ -273,6 +301,8 @@ static bool set_dop_switch(bool on) {
         return false;
     }
     dop_switch_written = on ? 1 : 0;
+    /* Raise (or restore) the DAC level before any stream data flows. */
+    refresh_hw_volume();
     return true;
 }
 
@@ -946,11 +976,30 @@ static struct mixer * get_alsa_mixer(void) {
     return mixer;
 }
 
-static void audio_output_set_hw_volume_raw(int raw_left, int raw_right) {
+/* All of this is under hw_volume_mutex: the volume worker and the output
+ * owner (DoP switch edges) both write the hardware volume. */
+static pthread_mutex_t hw_volume_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int requested_raw_left = INT_MIN; /* what the volume path asked for */
+static int requested_raw_right = INT_MIN;
+static int dsd_gain_steps; /* raw steps removed while DoP is on */
+
+/* The stock firmware's DSD gain: lower the attenuation while DoP plays,
+ * never past the loudest step and never on the mute value. */
+static int gained_raw(int raw) {
+    if (raw >= HW_VOLUME_MAX_RAW || dop_switch_written != 1) return raw;
+    return raw > dsd_gain_steps ? raw - dsd_gain_steps : 0;
+}
+
+/* Writes the requested volume (with gain) unless it is already in place.
+ * Call with hw_volume_mutex held. */
+static void write_hw_volume_locked(void) {
     static struct mixer_ctl * left_ctl = NULL;
     static struct mixer_ctl * right_ctl = NULL;
     static int last_left = INT_MIN;
     static int last_right = INT_MIN;
+    if (requested_raw_left == INT_MIN) return;
+    int raw_left = gained_raw(requested_raw_left);
+    int raw_right = gained_raw(requested_raw_right);
 
     if (raw_left == last_left && raw_right == last_right) return;
 
@@ -962,6 +1011,28 @@ static void audio_output_set_hw_volume_raw(int raw_left, int raw_right) {
         last_left = raw_left;
     if (right_ctl && raw_right != last_right && mixer_ctl_set_value(right_ctl, 0, raw_right) == 0)
         last_right = raw_right;
+}
+
+static void audio_output_set_hw_volume_raw(int raw_left, int raw_right) {
+    pthread_mutex_lock(&hw_volume_mutex);
+    requested_raw_left = raw_left;
+    requested_raw_right = raw_right;
+    write_hw_volume_locked();
+    pthread_mutex_unlock(&hw_volume_mutex);
+}
+
+/* DoP switch edge: re-apply the volume, but only when a gain is set. */
+static void refresh_hw_volume(void) {
+    pthread_mutex_lock(&hw_volume_mutex);
+    if (dsd_gain_steps) write_hw_volume_locked();
+    pthread_mutex_unlock(&hw_volume_mutex);
+}
+
+void audio_output_set_dsd_gain_db(int db) {
+    pthread_mutex_lock(&hw_volume_mutex);
+    dsd_gain_steps = (db < 0 ? 0 : db > 6 ? 6 : db) * 2; /* 0.5 dB per raw step */
+    if (dop_switch_written == 1) write_hw_volume_locked();
+    pthread_mutex_unlock(&hw_volume_mutex);
 }
 
 /* Route values for the R3 Pro II's "Output Port Switch" mixer control --

@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define HW_VOLUME_MAX_RAW 230 /* hardware volume raw value: full attenuation / silence */
+
 /* Shared PCM output device for the target build -- local hardware (via tinyalsa),
  * a connected Bluetooth accessory, or USB DAC (PCM via aplay, DSD via tinyalsa). Used by both
  * audio.c's playback thread and usb_dac_bridge.c's USB DAC bridge thread.
@@ -44,6 +46,7 @@ void audio_output_get_info(audio_output_info_t * out);
 /* Local Cirrus DAC controls; changes take effect on the next stream open. */
 bool audio_output_dac_controls_supported(void);
 bool audio_output_dac_dre_supported(void);
+bool audio_output_dac_nos_supported(void);
 void audio_output_set_dac_preferences(int filter, bool nos, bool dre);
 
 /* Opens (or reopens) the output device for the given format, target, and latency mode.
@@ -66,6 +69,8 @@ bool audio_output_ensure_dop(unsigned int channels, unsigned int sample_rate);
 
 /* USB preference: 0=PCM, 1=native DSD, 2=DoP. Safe from any thread. */
 void audio_output_set_usb_dsd_mode(int mode);
+/* Extra DAC level (0..6 dB) while local native DSD (DoP) plays. Safe from any thread. */
+void audio_output_set_dsd_gain_db(int db);
 /* Route/setting permits a bit-exact DSD attempt; ensure performs the hardware test. */
 bool audio_output_dsd_passthrough_requested(unsigned int dop_rate);
 

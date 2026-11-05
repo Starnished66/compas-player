@@ -82,6 +82,7 @@ static const pfield_t plain_fields[] = {
     PF("resume_mode", PF_INT, resume_mode),
     PF("play_pause_button_mode", PF_INT, play_pause_button_mode),
     PF("volume_lock_screen_off", PF_BOOL, volume_lock_screen_off),
+    PF("hw_seek_step_seconds", PF_INT, hw_seek_step_seconds),
     PF("accent_dynamic", PF_BOOL, accent_dynamic),
     PF("startup_splash_tint", PF_BOOL, startup_splash_tint),
     PF("titlebar_icon_tint", PF_BOOL, titlebar_icon_tint),
@@ -135,6 +136,7 @@ static const pfield_t plain_fields[] = {
     PF("startup_volume_fixed_enabled", PF_BOOL, startup_volume_fixed_enabled),
     PF("startup_volume_fixed_percent", PF_INT, startup_volume_fixed_percent),
     PF("max_volume_percent", PF_INT, max_volume_percent),
+    PF("dsd_gain_db", PF_INT, dsd_gain_db),
     PF("sleep_timer_minutes", PF_INT, sleep_timer_minutes),
     PF("timezone", PF_STR, timezone),
     PF("hostname", PF_STR, hostname),
@@ -367,6 +369,7 @@ static void set_defaults(player_settings_t * out) {
         out->button_bindings[i].hold = BUTTON_MAPPING_ACTION_DEFAULT;
     }
     out->volume_lock_screen_off = false;
+    out->hw_seek_step_seconds = 3;
     out->accent_color = DEFAULT_ACCENT_COLOR;
     out->accent_dynamic = false;
     out->startup_splash_tint = false;
@@ -394,6 +397,7 @@ static void set_defaults(player_settings_t * out) {
     out->dac_nos = false;
     out->dac_dre = true;
     out->usb_dsd_output = USB_DSD_OUTPUT_PCM;
+    out->dsd_gain_db = 0;
     out->bt_dac_mode_enabled = false;
     out->bt_speexrate_enabled = true;
     out->bt_sample_rate = 0;
@@ -774,6 +778,8 @@ bool settings_load(player_settings_t * out) {
     if (!car_mode_volume_percent_seen && legacy_car_mode_volume_percent_seen)
         out->car_mode_volume_percent = legacy_car_mode_volume_percent;
     if (out->car_mode_volume_percent < 0 || out->car_mode_volume_percent > 100) out->car_mode_volume_percent = 80;
+    if (out->hw_seek_step_seconds < 1 || out->hw_seek_step_seconds > 30) out->hw_seek_step_seconds = 3;
+    if (out->dsd_gain_db < 0 || out->dsd_gain_db > 6) out->dsd_gain_db = 0;
     if (out->max_volume_percent < 1 || out->max_volume_percent > 100) out->max_volume_percent = 100;
     if (out->brightness_percent < 0 || out->brightness_percent > 100) out->brightness_percent = 80;
     if (out->resume_mode < 0 || out->resume_mode > 2) out->resume_mode = 0;

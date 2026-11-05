@@ -7,6 +7,10 @@
 #include "player_seekbar.h"
 
 #define TRANSPORT_SEEK_STEP_SECONDS 3.0
+#define WHEEL_SEEK_SETTLE_MS 500
+
+/* Step of hardware-button seeking; touch long-press keeps the fixed step. */
+static int hw_seek_step_seconds = (int) TRANSPORT_SEEK_STEP_SECONDS;
 
 /* Long-press seeking on next/prev buttons (fast-forward/rewind).
  *
@@ -41,8 +45,16 @@ static bool progress_awaiting_seek;
 static uint32_t progress_awaiting_seek_started_ms;
 
 /* Shared math for touch repeat and physical button seeking. */
-static void apply_transport_seek_step(double dir, int step_count, bool is_first, double * target_seconds,
-                                      uint64_t * playback_generation, bool * hold_cancelled) {
+static double clamp_seek_target(double target) {
+    if (target < 0.0) target = 0.0;
+    double duration = audio_get_duration_seconds();
+    double max_target = duration > TRANSPORT_SEEK_EOF_GUARD_SECONDS ? duration - TRANSPORT_SEEK_EOF_GUARD_SECONDS : 0.0;
+    return target > max_target ? max_target : target;
+}
+
+static void apply_transport_seek_step(double dir, int step_count, bool is_first, double step_seconds,
+                                      double * target_seconds, uint64_t * playback_generation,
+                                      bool * hold_cancelled) {
     if (step_count <= 0) return;
     uint64_t gen = audio_get_playback_generation();
     if (is_first) {
@@ -54,11 +66,7 @@ static void apply_transport_seek_step(double dir, int step_count, bool is_first,
     }
     if (*hold_cancelled) return;
 
-    *target_seconds += dir * TRANSPORT_SEEK_STEP_SECONDS * (double) step_count;
-    if (*target_seconds < 0.0) *target_seconds = 0.0;
-    double duration = audio_get_duration_seconds();
-    double max_target = duration > TRANSPORT_SEEK_EOF_GUARD_SECONDS ? duration - TRANSPORT_SEEK_EOF_GUARD_SECONDS : 0.0;
-    if (*target_seconds > max_target) *target_seconds = max_target;
+    *target_seconds = clamp_seek_target(*target_seconds + dir * step_seconds * (double) step_count);
     audio_seek(*target_seconds);
 }
 
@@ -66,8 +74,9 @@ static void transport_seek_repeat_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code != LV_EVENT_LONG_PRESSED && code != LV_EVENT_LONG_PRESSED_REPEAT) return;
     double dir = (double) (intptr_t) lv_event_get_user_data(e);
-    apply_transport_seek_step(dir, 1, code == LV_EVENT_LONG_PRESSED, &transport_seek_target_seconds,
-                              &transport_seek_playback_generation, &transport_seek_hold_cancelled);
+    apply_transport_seek_step(dir, 1, code == LV_EVENT_LONG_PRESSED, TRANSPORT_SEEK_STEP_SECONDS,
+                              &transport_seek_target_seconds, &transport_seek_playback_generation,
+                              &transport_seek_hold_cancelled);
 }
 
 /* LVGL can emit CLICKED after LONG_PRESSED. Clear a fired marker on
@@ -111,9 +120,43 @@ bool player_seek_input_consume_transport_click(int direction) {
 void player_seek_input_hw_steps(int direction, int step_count, bool is_first) {
     if ((direction != 1 && direction != -1) || step_count <= 0) return;
     unsigned slot = direction < 0;
-    apply_transport_seek_step((double)direction, step_count, is_first, &hw_seek_target_seconds[slot],
-                              &hw_seek_playback_generation[slot],
+    apply_transport_seek_step((double)direction, step_count, is_first, hw_seek_step_seconds,
+                              &hw_seek_target_seconds[slot], &hw_seek_playback_generation[slot],
                               &hw_seek_hold_cancelled[slot]);
+}
+
+void player_seek_input_set_hw_step_seconds(int seconds) {
+    if (seconds >= 1) hw_seek_step_seconds = seconds;
+}
+
+/* Wheel clicks add up: each moves a pending target and one seek runs after
+ * the wheel settles. A playback change in between drops the pending seek. */
+static lv_timer_t * wheel_seek_timer;
+static double wheel_seek_target_seconds;
+static uint64_t wheel_seek_playback_generation;
+
+static void wheel_seek_timer_cb(lv_timer_t * timer) {
+    (void) timer;
+    wheel_seek_timer = NULL;
+    if (audio_get_playback_generation() == wheel_seek_playback_generation)
+        audio_seek(wheel_seek_target_seconds);
+}
+
+void player_seek_input_hw_click(int direction) {
+    if (direction != 1 && direction != -1) return;
+    uint64_t gen = audio_get_playback_generation();
+    if (!wheel_seek_timer || gen != wheel_seek_playback_generation) {
+        wheel_seek_target_seconds = audio_get_position_seconds();
+        wheel_seek_playback_generation = gen;
+    }
+    wheel_seek_target_seconds =
+        clamp_seek_target(wheel_seek_target_seconds + direction * (double) hw_seek_step_seconds);
+    if (wheel_seek_timer) {
+        lv_timer_reset(wheel_seek_timer);
+        return;
+    }
+    wheel_seek_timer = lv_timer_create(wheel_seek_timer_cb, WHEEL_SEEK_SETTLE_MS, NULL);
+    lv_timer_set_repeat_count(wheel_seek_timer, 1);
 }
 
 static void cancel_pending_progress_seek(void) {

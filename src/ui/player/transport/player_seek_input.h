@@ -18,6 +18,8 @@ extern bool user_seeking;
 void player_seek_input_bind_transport_target(lv_obj_t * target, int direction);
 bool player_seek_input_consume_transport_click(int direction);
 void player_seek_input_hw_steps(int direction, int step_count, bool is_first);
+void player_seek_input_hw_click(int direction);
+void player_seek_input_set_hw_step_seconds(int seconds);
 
 void player_seek_input_slider_event(lv_event_t * event, int32_t * displayed_percent);
 void player_seek_input_progress_reset(void);
