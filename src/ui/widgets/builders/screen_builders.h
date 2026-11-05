@@ -253,6 +253,8 @@ const char * text_glyph_asset(const char * relative);
 /* breeze_rows/<folder>_<name>.png for a stock row icon, when present and the
  * active theme does not supply the stock image itself. */
 bool breeze_row_icon(const char * stock, char * out, size_t out_size);
+/* `stock` when a row icon exists for it (Breeze art or a file), else `fallback`. */
+const char * row_icon_or(const char * stock, const char * fallback);
 /* Shared back control for screens that retain its handle to toggle visibility. */
 lv_obj_t * build_header_back_button(lv_obj_t * scr, lv_event_cb_t cb);
 /* Align existing text actions/switches by their actual height, not an

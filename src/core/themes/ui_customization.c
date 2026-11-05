@@ -8,10 +8,11 @@
 static ui_customization_override_t active_override;
 
 static const char * const music_keys[UI_MUSIC_COUNT] = {
-    "files", "artists", "albums", "album_artist", "genres", "all_songs", "playlists"
+    "files", "artists", "albums", "album_artist", "genres", "all_songs", "playlists", "cover_flow"
 };
 static const char * const music_labels[UI_MUSIC_COUNT] = {
-    N_("Files"), N_("Artists"), N_("Albums"), N_("Album Artist"), N_("Genres"), N_("All Songs"), N_("Playlists")
+    N_("Files"), N_("Artists"), N_("Albums"), N_("Album Artist"), N_("Genres"), N_("All Songs"), N_("Playlists"),
+    N_("Cover Flow")
 };
 static const char * const toolbar_keys[UI_MUSIC_TOOLBAR_COUNT] = {
     "sound", "playback", "library"
@@ -86,6 +87,17 @@ const char * ui_order_label(ui_order_kind_t kind, int id) {
         return order_extras[kind].label(id - desc->count);
     return NULL;
 }
+
+/* Cover Flow is offered only while its module is built. */
+bool ui_order_available(ui_order_kind_t kind, int id) {
+    return kind != UI_ORDER_MUSIC || id != UI_MUSIC_COVER_FLOW || cover_flow_open_albums;
+}
+
+/* Plugin entries are hidden by a "!key" and shown when new; natives are hidden by being omitted. */
+static bool order_id_hides_by_key(ui_order_kind_t kind, int id) {
+    return id >= order_desc_for(kind)->count;
+}
+
 int ui_order_find_key(ui_order_kind_t kind, const char *key) {
     const ui_order_desc_t * desc = order_desc_for(kind);
     if (!key || !desc) return -1;
@@ -117,6 +129,7 @@ static bool order_id_key(ui_order_kind_t kind, int id, char *out, size_t cap) {
 
 static int order_find_id(ui_order_kind_t kind, const char *key) {
     int id = ui_order_find_key(kind, key);
+    if (id >= 0 && !ui_order_available(kind, id)) return -1;
     char other[UI_ORDER_KEY_MAX];
     for (int i = order_desc_for(kind)->count; id < 0 && i < ui_order_size(kind); ++i)
         if (order_id_key(kind, i, other, sizeof(other)) && strcmp(other, key) == 0) id = i;
@@ -142,8 +155,10 @@ static bool order_next_key(const char **p, char *key, size_t cap, bool *hidden) 
 
 static void default_text(ui_order_kind_t kind, char *out, size_t cap) {
     size_t used = 0;
-    for (int i = 0; i < order_desc_for(kind)->count; ++i)
-        used += (size_t)snprintf(out + used, cap - used, "%s%s", i ? "," : "", ui_order_key(kind, i));
+    for (int i = 0; i < order_desc_for(kind)->count; ++i) {
+        if (kind == UI_ORDER_MUSIC && i == UI_MUSIC_COVER_FLOW) continue; /* hidden until switched on */
+        used += (size_t)snprintf(out + used, cap - used, "%s%s", used ? "," : "", ui_order_key(kind, i));
+    }
 }
 
 /* Plugin entries go at the end, or right after the "plugins" entry in the
@@ -178,8 +193,8 @@ void ui_order_resolve(ui_order_kind_t kind, const char *text, ui_item_order_t *o
     }
     /* Plugin entries the text never mentions (new installs) still show. */
     ui_item_order_t extra = { 0 };
-    for (int id = order_desc_for(kind)->count; id < ui_order_size(kind); ++id)
-        if (!seen[id]) extra.ids[extra.count++] = (uint8_t)id;
+    for (int id = 0; id < ui_order_size(kind); ++id)
+        if (!seen[id] && order_id_hides_by_key(kind, id)) extra.ids[extra.count++] = (uint8_t)id;
     order_insert_extras(kind, out, &extra);
 }
 
@@ -222,8 +237,8 @@ bool ui_order_to_text(ui_order_kind_t kind, const ui_item_order_t *visible, cons
             !order_text_add(out, cap, &used, false, key)) return false;
     }
     /* Hidden plugin entries get a "!" key; hidden natives are just omitted. */
-    for (int id = order_desc_for(kind)->count; id < ui_order_size(kind); ++id)
-        if (!shown[id] && order_id_key(kind, id, key, sizeof(key)) &&
+    for (int id = 0; id < ui_order_size(kind); ++id)
+        if (!shown[id] && order_id_hides_by_key(kind, id) && order_id_key(kind, id, key, sizeof(key)) &&
             !order_text_add(out, cap, &used, true, key)) return false;
     /* Keys of plugins that are not loaded now keep their place for later.
      * Only the newest UI_ORDER_UNLOADED_MAX are kept, so UI_ORDER_TEXT_MAX
@@ -239,7 +254,9 @@ void ui_customization_set_override(const ui_customization_override_t *override) 
 
 /* A plugin layout replaces the native part; plugin entries follow it. */
 static void order_apply_override(ui_order_kind_t kind, ui_item_order_t *order, const ui_item_order_t *layout) {
-    ui_item_order_t merged = *layout, extra = { 0 };
+    ui_item_order_t merged = { 0 }, extra = { 0 };
+    for (unsigned i = 0; i < layout->count; ++i)
+        if (ui_order_available(kind, layout->ids[i])) merged.ids[merged.count++] = layout->ids[i];
     for (unsigned i = 0; i < order->count; ++i)
         if (order->ids[i] >= order_desc_for(kind)->count) extra.ids[extra.count++] = order->ids[i];
     order_insert_extras(kind, &merged, &extra);

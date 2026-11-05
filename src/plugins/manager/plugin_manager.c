@@ -27,11 +27,6 @@
 #include <unistd.h>
 #include "plugin_manager_internal.h"
 
-/* Optional cover flow screen: absent when src/ui/widgets/cover_flow is removed. */
-extern const luaL_Reg plugin_cover_flow_funcs[] __attribute__((weak));
-extern void plugin_cover_flow_clear_owner(lua_State *, bool) __attribute__((weak));
-extern void plugin_cover_flow_clear_all(void) __attribute__((weak));
-
 plugin_instance_t plugin_instances[PLUGIN_MAX_FILES];
 int plugin_instance_count = 0;
 int loading_plugin_slot = -1;
@@ -172,7 +167,6 @@ static void register_plugin_api(lua_State * L) {
     plugin_lib_add(L, plugin_list_screens_funcs);
     plugin_lib_add(L, plugin_events_funcs);
     plugin_lib_add(L, plugin_layout_funcs);
-    if (plugin_cover_flow_funcs) plugin_lib_add(L, plugin_cover_flow_funcs);
     register_plugin_lib(L, plugin_now_playing_funcs);
     lua_setfield(L, -2, "now_playing");
     register_plugin_lib(L, plugin_storage_funcs);
@@ -303,7 +297,6 @@ static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
     discard_pending_confirmation(L, aborted);
     discard_pending_menu(L, aborted);
     plugin_text_view_bindings_clear_owner(L, aborted);
-    if (plugin_cover_flow_clear_owner) plugin_cover_flow_clear_owner(L, aborted);
 
     plugin_http_bindings_clear_owner(L, aborted);
     plugin_archive_bindings_clear_owner(L, aborted);
@@ -586,7 +579,6 @@ void plugin_manager_deinit(void) {
     /* Deinit drops Lua refs without calling Lua callbacks; UI teardown
      * already ran and discarded any pending on_close. */
     plugin_text_view_bindings_clear_all();
-    if (plugin_cover_flow_clear_all) plugin_cover_flow_clear_all();
 
     for (int i = 0; i < plugin_instance_count; i++) {
         /* An aborted state stays frozen and leaked, as in discard_failed_plugin_load(). */

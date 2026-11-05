@@ -122,17 +122,8 @@ static void add_customization_help(lv_obj_t *list) {
     lv_obj_set_style_text_align(help, LV_TEXT_ALIGN_LEFT, 0);
 }
 
-static void populate_ui_order_screen(void) {
-    if (!ui_order_list) return;
-    int item_count = ui_order_size(ui_order_kind);
-    for (int id = 0; id < UI_ORDER_MAX; ++id)
-        gui_list_reorder_row_stop_translate(ui_order_rows[id]);
-    for (int id = 0; id < UI_ORDER_MAX; ++id) {
-        if (!ui_order_rows[id]) continue;
-        if (id < item_count) lv_obj_remove_flag(ui_order_rows[id], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(ui_order_rows[id], LV_OBJ_FLAG_HIDDEN);
-    }
-    ui_item_order_t * order = ui_saved_order();
+/* Rows of the offered entries in saved order, then the rest; unoffered rows stay hidden at the end. */
+static void place_ui_order_rows(const ui_item_order_t * order, int item_count) {
     bool listed[UI_ORDER_MAX] = { false };
     int visual_index = 0;
     for (unsigned pos = 0; pos < order->count; ++pos) {
@@ -141,11 +132,26 @@ static void populate_ui_order_screen(void) {
         listed[id] = true;
         lv_obj_move_to_index(ui_order_rows[id], visual_index++);
     }
-    for (int id = 0; id < item_count; ++id) {
-        if (listed[id] || !ui_order_rows[id]) continue;
-        listed[id] = true;
-        lv_obj_move_to_index(ui_order_rows[id], visual_index++);
+    for (int pass = 0; pass < 2; ++pass)
+        for (int id = 0; id < item_count; ++id) {
+            if (listed[id] || !ui_order_rows[id] || ui_order_available(ui_order_kind, id) != (pass == 0)) continue;
+            listed[id] = true;
+            lv_obj_move_to_index(ui_order_rows[id], visual_index++);
+        }
+}
+
+static void populate_ui_order_screen(void) {
+    if (!ui_order_list) return;
+    int item_count = ui_order_size(ui_order_kind);
+    for (int id = 0; id < UI_ORDER_MAX; ++id)
+        gui_list_reorder_row_stop_translate(ui_order_rows[id]);
+    for (int id = 0; id < UI_ORDER_MAX; ++id) {
+        if (!ui_order_rows[id]) continue;
+        if (id < item_count && ui_order_available(ui_order_kind, id)) lv_obj_remove_flag(ui_order_rows[id], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(ui_order_rows[id], LV_OBJ_FLAG_HIDDEN);
     }
+    ui_item_order_t * order = ui_saved_order();
+    place_ui_order_rows(order, item_count);
     lv_obj_update_layout(ui_order_list);
     for (int id = 0; id < item_count; ++id) {
         lv_obj_t * row = ui_order_rows[id];

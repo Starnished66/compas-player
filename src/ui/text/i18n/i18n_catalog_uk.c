@@ -303,6 +303,7 @@ const i18n_entry_t i18n_entries_uk[] = {
     {"Couldn't read this .cue file", (const char * const[]){"Не вдалося прочитати цей файл .cue"}, 1},
     {"Couldn't save -- plugin change was not applied", (const char * const[]){"Не вдалося зберегти — зміни плагіна не застосовано"}, 1},
     {"Counterclockwise", (const char * const[]){"Проти годинникової стрілки"}, 1},
+    {"Cover Flow", (const char * const[]){"Cover Flow"}, 1},
     {"Cover reloaded", (const char * const[]){"Обкладинку перезавантажено"}, 1},
     {"Covers refreshed", (const char * const[]){"Обкладинки оновлено"}, 1},
     {"Create a playlist above or copy one to the SD card's Playlists folder.", (const char * const[]){"Створіть список вище або скопіюйте його до папки Playlists на SD-картці."}, 1},

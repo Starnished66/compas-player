@@ -302,6 +302,7 @@ const i18n_entry_t i18n_entries_ja[] = {
     {"Couldn't read this .cue file", (const char * const[]){"この.cueファイルを読み取れませんでした"}, 1},
     {"Couldn't save -- plugin change was not applied", (const char * const[]){"保存できませんでした。プラグインの変更は適用されませんでした"}, 1},
     {"Counterclockwise", (const char * const[]){"反時計回り"}, 1},
+    {"Cover Flow", (const char * const[]){"Cover Flow"}, 1},
     {"Cover reloaded", (const char * const[]){"アートワークを再読み込みしました"}, 1},
     {"Covers refreshed", (const char * const[]){"アートワークを更新しました"}, 1},
     {"Create a playlist above or copy one to the SD card's Playlists folder.", (const char * const[]){"上でプレイリストを作成するか、SDカードのPlaylistsフォルダーにコピーしてください。"}, 1},

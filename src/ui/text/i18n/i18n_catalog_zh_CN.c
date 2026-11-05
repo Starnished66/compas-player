@@ -302,6 +302,7 @@ const i18n_entry_t i18n_entries_zh_CN[] = {
     {"Couldn't read this .cue file", (const char * const[]){"无法读取此 .cue 文件"}, 1},
     {"Couldn't save -- plugin change was not applied", (const char * const[]){"无法保存 -- 插件更改未生效"}, 1},
     {"Counterclockwise", (const char * const[]){"逆时针"}, 1},
+    {"Cover Flow", (const char * const[]){"Cover Flow"}, 1},
     {"Cover reloaded", (const char * const[]){"封面已重新加载"}, 1},
     {"Covers refreshed", (const char * const[]){"封面已刷新"}, 1},
     {"Create a playlist above or copy one to the SD card's Playlists folder.", (const char * const[]){"在上方创建播放列表，或将其复制到 SD 卡的 Playlists 文件夹。"}, 1},

@@ -561,6 +561,11 @@ void poll_az_index_drag(lv_timer_t * timer) {
     library_az_index_poll(timer);
 }
 
+/* Row `index` of the whole Albums list in its sort order. */
+static bool resolve_album_sorted_row(int index, group_row_t * out) {
+    return index >= 0 && out && metadata_db_get_albums_page_sorted(NULL, effective_album_sort(), index, 1, out) == 1;
+}
+
 bool resolve_album_display_row(int index, group_row_t * out) {
     if (index < 0 || !out) return false;
     if (library_search_showing_results(SEARCH_BINDING_ALBUMS)) {
@@ -568,7 +573,7 @@ bool resolve_album_display_row(int index, group_row_t * out) {
         if (!library_search_try_map_filtered_row(SEARCH_BINDING_ALBUMS, index, &canonical)) return false;
         return metadata_db_get_albums_page_filtered(NULL, canonical, 1, out) == 1;
     }
-    return metadata_db_get_albums_page_sorted(NULL, effective_album_sort(), index, 1, out) == 1;
+    return resolve_album_sorted_row(index, out);
 }
 
 static lv_obj_t * search_az_strip_for_screen(lv_obj_t *screen) {
@@ -999,8 +1004,7 @@ static void artists_tile_cb(lv_event_t * e) {
     nav_push(artists_screen);
 }
 
-static void albums_tile_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+void gui_library_open_albums(void) {
     /* metadata_db_get_group_counts() is a real DB query, worth skipping
      * outright (not just leaving DB_LOG to no-op on the result) since this
      * runs on every ordinary tap into Albums, not just during a scan. */
@@ -1016,6 +1020,11 @@ static void albums_tile_cb(lv_event_t * e) {
                db_log_rss_kb());
     }
     nav_push(albums_screen);
+}
+
+static void albums_tile_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_library_open_albums();
 }
 
 static void album_artist_tile_cb(lv_event_t * e) {
@@ -1039,6 +1048,11 @@ static void playlists_tile_cb(lv_event_t * e) {
 static void music_files_tile_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     nav_push(files_screen);
+}
+
+static void cover_flow_tile_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !cover_flow_open_albums) return;
+    cover_flow_open_albums();
 }
 
 static void music_screen_playback_settings_cb(lv_event_t * e) {
@@ -1087,6 +1101,9 @@ static lv_obj_t * build_music_screen(void) {
         { "submenu/genres.png", NULL, TR("Genres"), genres_tile_cb, NULL },
         { "submenu/all_songs.png", NULL, TR("All Songs"), all_songs_tile_cb, NULL },
         { "submenu/playlists.png", NULL, TR("Playlists"), playlists_tile_cb, NULL },
+        /* The Cover Flow icon ships with the firmware image; an older image shows the Albums one. */
+        { row_icon_or("submenu/cover_flow.png", "submenu/albums.png"), NULL, TR("Cover Flow"),
+          cover_flow_tile_cb, NULL },
     };
     const ui_customization_t customization = ui_customization_effective();
     icon_grid_item_t ordered_items[UI_ORDER_MAX];

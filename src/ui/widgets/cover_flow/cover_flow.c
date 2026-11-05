@@ -152,7 +152,6 @@ static void destroy(cover_flow_t * cf) {
     cover_flow_tilt_destroy(cf->warps.tilt);
     free(cf->items_block);
     if (cf_instance == cf) cf_instance = NULL;
-    if (cf->on_closed) cf->on_closed();
     /* Last: removing the screen from navigation above can queue another destroy of this instance. */
     lv_async_call_cancel(destroy_async, cf);
     free(cf);
@@ -181,7 +180,6 @@ static void apply_params(cover_flow_t * cf, const cover_flow_params_t * p) {
     int sel = p->selected < 0 ? 0 : p->selected >= cf->count ? cf->count - 1 : p->selected;
     cf->on_select = p->on_select;
     cf->on_hold = p->on_hold;
-    cf->on_closed = p->on_closed;
     cf->label_item = -1;
     cf->pos = sel * CF_ONE;
     cf_slots_reset(cf, sel);
@@ -196,7 +194,6 @@ static bool create(const cover_flow_params_t * p) {
     if (!cf) return false;
     cf_instance = cf;
     cf->warp_budget = CF_WARP_PX_PER_FRAME;
-    cf->on_closed = p->on_closed; /* destroy() reports a failed start too */
     cf->az_on = p->az_index;
     cf->az.shown = -1;
     cf->warps.tilt = cover_flow_tilt_create(CF_FACE_PX, &tilt);
@@ -245,6 +242,10 @@ bool cover_flow_show(const cover_flow_params_t * p) {
     if (gui_navigation_transition_in_progress()) return false;
     if (cf) destroy(cf); /* left the stack but not yet reaped */
     return create(p);
+}
+
+const cover_flow_item_t * cover_flow_item(int index) {
+    return cf_instance && index >= 0 && index < cf_instance->count ? &cf_instance->items[index] : NULL;
 }
 
 void cover_flow_shutdown(void) {

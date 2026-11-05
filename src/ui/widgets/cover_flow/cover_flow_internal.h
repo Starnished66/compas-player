@@ -76,7 +76,6 @@ typedef struct {
     cf_az_t az;
     void (*on_select)(int);
     void (*on_hold)(int);
-    void (*on_closed)(void);
 
     void * items_block;
     cover_flow_item_t * items;

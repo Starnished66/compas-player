@@ -117,6 +117,9 @@
 #include "../../network/store/plugins/plugin_store.h"
 #include "../../core/system/logging/db_log.h"
 
+/* The optional cover flow module: absent when src/ui/widgets/cover_flow is removed. */
+extern void cover_flow_shutdown(void) __attribute__((weak));
+
 /* Diagnostic logging for UI reload steps. Append-only with fsync per line
  * to ensure entries are flushed to storage immediately to identify the
  * failure point if a crash occurs during reload. */
@@ -205,6 +208,7 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork,
     gui_apps_teardown();
     reload_diag("gui_queue_teardown: before");
     gui_queue_teardown();
+    if (cover_flow_shutdown) cover_flow_shutdown();
     reload_diag("gui_plugins_teardown: before");
     gui_plugins_teardown();
     reload_diag("gui_stream_media_teardown: before");

@@ -6,6 +6,7 @@
 #include "../../../library/remote/remote_collection.h"
 #include "../../../library/artwork/support/library_player_art.h"
 #include "../../settings/power/gui_power_hub.h"
+#include "../../widgets/lists/compact_list.h"
 #include "../../../library/metadata/scan/library_scan_storage.h"
 
 typedef struct group_song_entry_s {
@@ -54,6 +55,14 @@ typedef enum {
 } gui_library_sort_scope_t;
 /* Apply one persisted ordering without disturbing unrelated library views. */
 void gui_library_apply_sorting(gui_library_sort_scope_t scope);
+
+/* The Albums list as Cover Flow reuses it. The page is in the Albums screen's order
+ * (rows have the album, its album artist and, as identity, a song for the cover). */
+int albums_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
+void gui_library_open_albums(void);
+/* An album by name and album artist: open it, or its long-press menu. Nothing if it is gone. */
+void gui_library_open_album(const char * name, const char * album_artist);
+void gui_library_open_album_menu(const char * name, const char * album_artist);
 /* The album order an artist (or album artist) page shows, as the database can serve it. UI thread only. */
 metadata_db_album_sort_t gui_library_group_album_sort(metadata_db_group_kind_t kind);
 

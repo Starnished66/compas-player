@@ -303,6 +303,7 @@ const i18n_entry_t i18n_entries_nl[] = {
     {"Couldn't read this .cue file", (const char * const[]){"Dit .cue-bestand kon niet worden gelezen"}, 1},
     {"Couldn't save -- plugin change was not applied", (const char * const[]){"Opslaan mislukt — pluginwijziging is niet toegepast"}, 1},
     {"Counterclockwise", (const char * const[]){"Tegen de klok in"}, 1},
+    {"Cover Flow", (const char * const[]){"Cover Flow"}, 1},
     {"Cover reloaded", (const char * const[]){"Cover opnieuw geladen"}, 1},
     {"Covers refreshed", (const char * const[]){"Covers vernieuwd"}, 1},
     {"Create a playlist above or copy one to the SD card's Playlists folder.", (const char * const[]){"Maak hierboven een afspeellijst of kopieer er een naar de map Playlists op de SD-kaart."}, 1},

@@ -40,12 +40,9 @@ static const char * const plugin_capabilities[] = {
     "network.status", "i18n.tr"
 };
 
-/* Present only when the cover flow module (src/ui/widgets/cover_flow) is built. */
-extern const luaL_Reg plugin_cover_flow_funcs[] __attribute__((weak));
-
 int l_plugin_has_capability(lua_State * L) {
     const char * requested = luaL_checkstring(L, 1);
-    bool found = strcmp(requested, "ui.cover_flow") == 0 && plugin_cover_flow_funcs != NULL;
+    bool found = false;
     for (size_t i = 0; i < sizeof(plugin_capabilities) / sizeof(plugin_capabilities[0]); i++) {
         if (strcmp(requested, plugin_capabilities[i]) == 0) { found = true; break; }
     }

@@ -303,6 +303,7 @@ const i18n_entry_t i18n_entries_fi[] = {
     {"Couldn't read this .cue file", (const char * const[]){".cue-tiedoston lukeminen epäonnistui"}, 1},
     {"Couldn't save -- plugin change was not applied", (const char * const[]){"Tallennus epäonnistui — liitännäisen muutosta ei otettu käyttöön"}, 1},
     {"Counterclockwise", (const char * const[]){"Vastapäivään"}, 1},
+    {"Cover Flow", (const char * const[]){"Cover Flow"}, 1},
     {"Cover reloaded", (const char * const[]){"Kansikuva ladattu uudelleen"}, 1},
     {"Covers refreshed", (const char * const[]){"Kansikuvat päivitetty"}, 1},
     {"Create a playlist above or copy one to the SD card's Playlists folder.", (const char * const[]){"Luo soittolista yllä tai kopioi sellainen SD-kortin Playlists-kansioon."}, 1},

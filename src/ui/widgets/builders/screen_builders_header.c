@@ -351,3 +351,10 @@ bool breeze_row_icon(const char * stock, char * out, size_t out_size) {
         return false;
     return breeze_asset_if_present(out) != NULL;
 }
+
+const char * row_icon_or(const char * stock, const char * fallback) {
+    char breeze[96];
+    if (breeze_row_icon(stock, breeze, sizeof(breeze))) return stock;
+    const char * plain = asset_path_plain(stock);
+    return plain && access(plain, R_OK) == 0 ? stock : fallback;
+}
