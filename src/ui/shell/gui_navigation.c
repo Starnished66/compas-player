@@ -1436,11 +1436,14 @@ void nav_push_stack_only(lv_obj_t * scr) {
     back_target_cache_retarget(); /* source is mid-gesture: the frame is rendered later by the timer */
 }
 
-/* A covered text view is already unloaded, so dropping its stack entry
- * never delivers another LV_EVENT_SCREEN_UNLOADED. on_close stays queued
+extern void cover_flow_note_nav_removed(void) __attribute__((weak));
+
+/* A covered text view or cover flow is already unloaded, so dropping its stack
+ * entry never delivers another LV_EVENT_SCREEN_UNLOADED. on_close stays queued
  * until a slide already in progress has finished. */
 static void note_text_view_if_dropped(void) {
     gui_text_view_note_nav_removed();
+    if (cover_flow_note_nav_removed) cover_flow_note_nav_removed();
 }
 
 void nav_pop_ex(bool forward, bool vertical, bool reveal) {

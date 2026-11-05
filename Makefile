@@ -812,6 +812,7 @@ APP_SRCS += src/ui/player/transport/player_seekbar.c src/audio/visualization/wav
 APP_SRCS += src/ui/player/artwork/player_cover_fade.c src/ui/player/artwork/player_backdrop.c src/ui/player/artwork/player_cover.c src/ui/player/artwork/player_lyrics_backdrop.c src/ui/player/lyrics/player_timeline_labels.c
 APP_SRCS += src/network/bluetooth/control/bt_ssc_policy.c src/core/persistence/bt_ssc_settings.c src/network/bluetooth/control/bt_rc_trust.c src/core/persistence/bt_rc_trust_settings.c
 APP_SRCS += src/network/bluetooth/reconnect/bluetooth_reconnect.c src/network/bluetooth/media/bt_cover_art.c
+APP_SRCS += $(wildcard src/ui/widgets/cover_flow/*.c)
 APP_CXX_SRCS = src/audio/decoders/alac/alac_decoder.cpp
 LVGL_SRCS = $(sort $(shell find $(LVGL_DIR)/src -type f -name '*.c'))
 # LVGL 9.5 dropped the XML engine; v9.4.0's is vendored (see

@@ -35,41 +35,46 @@ static lv_image_dsc_t ready_dsc;
 
 static bool job_cancelled(void * user) { return atomic_load_explicit(&((job_t *) user)->cancel, memory_order_relaxed); }
 
+uint16_t * gui_album_cover_decode(int64_t song_id, int px, bool allow_generate, bool (*cancelled)(void *), void * user) {
+    uint16_t * pixels = NULL;
+    song_row_t row;
+    if (!metadata_db_get_song_by_id(song_id, &row)) return NULL;
+    albumart_info_t info;
+    albumart_info_from_song_row(&row, &info);
+    char found[PATH_MAX];
+    /* The 480 px cache the warmer builds is the sharp source. */
+    if (albumart_generated_cache_fresh(&info, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX,
+                                       found, sizeof(found))) {
+        uint8_t * data = NULL;
+        uint32_t size = 0;
+        if (albumart_load_file_ex(found, &data, &size, COVER_SOURCE_MAX_BYTES,
+                                  ARTWORK_PRIO_THUMBNAIL) == ALBUMART_LOAD_OK) {
+            if (cover_decode_to_rgb565_ex(data, size, px, px, ARTWORK_PRIO_THUMBNAIL,
+                                          cancelled, user, &pixels) != COVER_DECODE_OK) {
+                free(pixels);
+                pixels = NULL;
+            }
+            free(data);
+        }
+    }
+    if (!pixels && allow_generate && !(cancelled && cancelled(user))) {
+        uint16_t * large = NULL;
+        bool no_art = false;
+        if (gui_library_generate_player_cover(row.path, row.tags.artist, row.tags.album,
+                                              row.tags.album_artist, ALBUM_PLAYER_CACHE_PX, cancelled, user,
+                                              &large, &no_art) && large) {
+            pixels = cover_resize_rgb565(large, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX, px, px);
+            free(large);
+        }
+    }
+    return pixels;
+}
+
 static void * job_main(void * arg) {
     job_t * j = arg;
     worker_lower_priority(WORKER_NICE_BACKGROUND);
     if (install_thread_crash_altstack) install_thread_crash_altstack();
-    song_row_t row;
-    if (metadata_db_get_song_by_id(j->song_id, &row)) {
-        albumart_info_t info;
-        albumart_info_from_song_row(&row, &info);
-        char found[PATH_MAX];
-        /* The 480 px cache the warmer builds is the sharp source. */
-        if (albumart_generated_cache_fresh(&info, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX,
-                                           found, sizeof(found))) {
-            uint8_t * data = NULL;
-            uint32_t size = 0;
-            if (albumart_load_file_ex(found, &data, &size, COVER_SOURCE_MAX_BYTES,
-                                      ARTWORK_PRIO_THUMBNAIL) == ALBUMART_LOAD_OK) {
-                if (cover_decode_to_rgb565_ex(data, size, j->px, j->px, ARTWORK_PRIO_THUMBNAIL,
-                                              job_cancelled, j, &j->pixels) != COVER_DECODE_OK) {
-                    free(j->pixels);
-                    j->pixels = NULL;
-                }
-                free(data);
-            }
-        }
-        if (!j->pixels && !job_cancelled(j)) {
-            uint16_t * large = NULL;
-            bool no_art = false;
-            if (gui_library_generate_player_cover(row.path, row.tags.artist, row.tags.album,
-                                                  row.tags.album_artist, ALBUM_PLAYER_CACHE_PX, job_cancelled, j,
-                                                  &large, &no_art) && large) {
-                j->pixels = cover_resize_rgb565(large, ALBUM_PLAYER_CACHE_PX, ALBUM_PLAYER_CACHE_PX, j->px, j->px);
-                free(large);
-            }
-        }
-    }
+    j->pixels = gui_album_cover_decode(j->song_id, j->px, true, job_cancelled, j);
     atomic_store_explicit(&j->done, true, memory_order_release);
     ui_wake_notify(); /* the page swaps the sharp cover in on the next loop pass */
     return NULL;
@@ -86,11 +91,8 @@ static void start_job(void) {
     if (!j) return;
     j->song_id = want_id;
     j->px = (int) want_px;
-    pthread_attr_t attr;
-    bool attr_ok = pthread_attr_init(&attr) == 0 && pthread_attr_setstacksize(&attr, COVER_JOB_STACK) == 0;
-    if (pthread_create(&j->thread, attr_ok ? &attr : NULL, job_main, j) != 0) { free(j); failed_id = want_id; }
+    if (worker_thread_create(&j->thread, COVER_JOB_STACK, job_main, j) != 0) { free(j); failed_id = want_id; }
     else job = j;
-    if (attr_ok) pthread_attr_destroy(&attr);
 }
 
 void gui_album_cover_request(int64_t song_id, int px) {

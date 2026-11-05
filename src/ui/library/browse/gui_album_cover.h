@@ -6,6 +6,12 @@
 #include <stdint.h>
 #include <lvgl/lvgl.h>
 
+/* Blocking decode of the album cover of `song_id` into a malloc'd px x px RGB565
+ * buffer, or NULL. Any thread. `allow_generate` lets it build a missing cover
+ * (expensive). `cancelled` may be NULL. */
+uint16_t * gui_album_cover_decode(int64_t song_id, int px, bool allow_generate,
+                                  bool (*cancelled)(void *), void * user);
+
 /* UI thread. Starts decoding for `song_id`'s album unless already done, in
  * flight or failed. Drops a buffer that belongs to another album. */
 void gui_album_cover_request(int64_t song_id, int px);

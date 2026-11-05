@@ -20,6 +20,8 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
  * existing screen deletion/re-registration order; drag state/timer are not
  * reset here. */
 void library_az_index_reset_bindings(void);
+/* The letter bubble of an A-Z strip: hidden, centred in `parent`; `*label` is its text. */
+lv_obj_t * library_az_index_bubble_create(lv_obj_t * parent, lv_obj_t ** label);
 lv_obj_t * library_az_index_strip_for_screen(lv_obj_t * screen);
 bool library_az_index_overlay_visible(void);
 void library_az_index_resume_timer(void);

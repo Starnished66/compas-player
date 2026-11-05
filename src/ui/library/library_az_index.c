@@ -87,6 +87,18 @@ void library_az_index_reset_bindings(void) {
     az_index_registered_count = 0;
 }
 
+lv_obj_t * library_az_index_bubble_create(lv_obj_t * parent, lv_obj_t ** label) {
+    lv_obj_t * bubble = lv_image_create(parent);
+    lv_image_set_src(bubble, asset_path("touch_list/a_z_result_bg.png"));
+    lv_obj_center(bubble);
+    lv_obj_add_flag(bubble, LV_OBJ_FLAG_HIDDEN);
+    *label = lv_label_create(bubble);
+    lv_obj_set_style_text_font(*label, &app_font_28, 0);
+    lv_obj_add_style(*label, &style_theme_text_primary, 0);
+    lv_obj_center(*label);
+    return bubble;
+}
+
 void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
                                metadata_db_az_kind_t db_kind) {
     /* Not touch_list/a_z.png -- confirmed via pixel sampling that stock
@@ -149,15 +161,8 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
      * lies left of it and redraws this column each step. */
     lv_obj_set_scroll_blit_fixed_column(list, strip);
 
-    lv_obj_t * popup = lv_image_create(screen);
-    lv_image_set_src(popup, asset_path("touch_list/a_z_result_bg.png"));
-    lv_obj_center(popup);
-    lv_obj_add_flag(popup, LV_OBJ_FLAG_HIDDEN);
-
-    lv_obj_t * popup_label = lv_label_create(popup);
-    lv_obj_set_style_text_font(popup_label, &app_font_28, 0);
-    lv_obj_add_style(popup_label, &style_theme_text_primary, 0);
-    lv_obj_center(popup_label);
+    lv_obj_t * popup_label;
+    lv_obj_t * popup = library_az_index_bubble_create(screen, &popup_label);
 
     az_index_bindings[az_index_registered_count++] =
         (az_index_binding_t){ screen, list, strip, popup, popup_label, db_kind };
