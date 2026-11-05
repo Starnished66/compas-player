@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/types.h>
 
 #include "metadata.h"
 
@@ -26,8 +27,12 @@ static inline bool wants_lyrics(bool include_blobs) { return include_blobs && !a
 
 #define SET_TAG_TEXT(out, f, v, n) set_tag_text((out)->f, sizeof((out)->f), &(out)->has_##f, (v), (n))
 
+/* off_t appears in shared signatures: every including unit must be built with
+ * 64-bit file offsets (#define _FILE_OFFSET_BITS 64 before any include). */
+_Static_assert(sizeof(off_t) == 8, "define _FILE_OFFSET_BITS 64 before including system headers");
+
 /* Field helpers (metadata.c). */
-bool safe_chunk_advance(long chunk_start, uint64_t size, long pad, long * out_next);
+bool safe_file_advance(off_t chunk_start, uint64_t size, off_t pad, off_t * out_next);
 bool store_picture_bytes(track_metadata_t * out, const uint8_t * src, uint32_t n);
 void copy_bounded(char * dst, size_t dst_size, const char * src, size_t src_len);
 void set_tag_text(char * dst, size_t dst_size, bool * has, const char * v, size_t n);

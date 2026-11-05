@@ -10,7 +10,6 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/types.h>
-#include <wavpack.h>
 
 #define CUE_TEXT_MAX (1024u * 1024u)
 #define CUE_TRACK_MAX 1024
@@ -123,6 +122,21 @@ static bool append_track(cue_track_t **a, int *n, int *cap, int number, int file
     return true;
 }
 
+/* The single file an embedded sheet refers to: the tagged file itself. */
+static cue_file_t *embedded_file_list(const char *path, int *nf, int *cf, int *current_file) {
+    cue_file_t *files = calloc(1, sizeof(*files));
+    if (!files)
+        return NULL;
+    if (strlen(path) >= sizeof(files[0].name)) {
+        free(files);
+        return NULL;
+    }
+    strcpy(files[0].name, path);
+    *nf = *cf = 1;
+    *current_file = 0;
+    return files;
+}
+
 static bool parse_text(const char *text, size_t len, const char *base_path, bool embedded,
                        cue_sheet_t *out) {
     if (len > CUE_TEXT_MAX || memchr(text, '\0', len))
@@ -138,6 +152,11 @@ static bool parse_text(const char *text, size_t len, const char *base_path, bool
         return false;
     memcpy(copy, text, len);
     copy[len] = 0;
+    /* An embedded sheet describes this one file, with or without a FILE line. */
+    if (embedded && !(files = embedded_file_list(base_path, &nf, &cf, &current_file))) {
+        free(copy);
+        return false;
+    }
     char *save = NULL;
     for (char *line = strtok_r(copy, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
         if (strlen(line) >= 3 && (unsigned char)line[0] == 0xef && (unsigned char)line[1] == 0xbb &&
@@ -154,20 +173,6 @@ static bool parse_text(const char *text, size_t len, const char *base_path, bool
                 if (!*a) {
                     bad = true;
                     break;
-                }
-                current_file = 0;
-                if (!nf) {
-                    files = calloc(1, sizeof(*files));
-                    if (!files) {
-                        bad = true;
-                        break;
-                    }
-                    nf = cf = 1;
-                    if (strlen(base_path) >= sizeof(files[0].name)) {
-                        bad = true;
-                        break;
-                    }
-                    strcpy(files[0].name, base_path);
                 }
             } else {
                 if (nf >= CUE_FILE_MAX) {
@@ -488,6 +493,23 @@ static void ape_cue_item(void *ctx, const char *key, size_t key_len, const char 
     }
 }
 
+/* Positions f just past "fLaC", skipping any ID3v2 tags written in front of it. */
+static bool flac_stream_start(FILE *f) {
+    unsigned char h[10];
+    while (fread(h, 1, 4, f) == 4) {
+        if (!memcmp(h, "fLaC", 4))
+            return true;
+        if (memcmp(h, "ID3", 3) || fread(h + 4, 1, 6, f) != 6)
+            return false;
+        long size = ((h[6] & 0x7f) << 21) | ((h[7] & 0x7f) << 14) | ((h[8] & 0x7f) << 7) | (h[9] & 0x7f);
+        if (h[5] & 0x10) /* footer present */
+            size += 10;
+        if (fseek(f, size, SEEK_CUR))
+            return false;
+    }
+    return false;
+}
+
 bool cue_parse_embedded(const char *path, cue_sheet_t *out) {
     if (!out)
         return false;
@@ -527,34 +549,15 @@ bool cue_parse_embedded(const char *path, cue_sheet_t *out) {
         free(toc);
         return true;
     }
-    bool wv = !strcasecmp(ext, ".wv");
-    if (wv || !strcasecmp(ext, ".ape")) {
-        char *tag = NULL;
-        size_t len = 0;
-        if (wv) {
-            WavpackContext *w = WavpackOpenFileInput(path, NULL, OPEN_TAGS, 0);
-            if (!w)
-                return false;
-            int tag_size = WavpackGetTagItem(w, "CUESHEET", NULL, 0);
-            if (tag_size > 0 && (unsigned)tag_size <= CUE_TEXT_MAX && (tag = malloc((size_t)tag_size + 1))) {
-                len = (size_t)tag_size;
-                if (WavpackGetTagItem(w, "CUESHEET", tag, tag_size + 1) != tag_size) {
-                    free(tag);
-                    tag = NULL;
-                }
-            }
-            WavpackCloseFile(w);
-        } else {
-            struct ape_cue ac = {0};
-            metadata_ape_text_items(path, ape_cue_item, &ac);
-            tag = ac.text;
-            len = ac.len;
-        }
-        if (!tag)
+    if (!strcasecmp(ext, ".wv") || !strcasecmp(ext, ".ape")) {
+        /* Both keep the sheet as an APEv2 item, whatever the codec inside. */
+        struct ape_cue ac = {0};
+        metadata_ape_text_items(path, ape_cue_item, &ac);
+        if (!ac.text)
             return false;
-        tag[len] = 0;
-        bool ok = parse_text(tag, len, path, true, out);
-        free(tag);
+        ac.text[ac.len] = 0;
+        bool ok = parse_text(ac.text, ac.len, path, true, out);
+        free(ac.text);
         if (ok) {
             strncpy(out->audio_path, path, sizeof(out->audio_path) - 1);
             for (int i = 0; i < out->track_count; i++)
@@ -567,13 +570,13 @@ bool cue_parse_embedded(const char *path, cue_sheet_t *out) {
     FILE *f = fopen(path, "rb");
     if (!f)
         return false;
-    unsigned char magic[4];
-    if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "fLaC", 4)) {
+    if (!flac_stream_start(f)) {
         fclose(f);
         return false;
     }
-    off_t file_end;
-    if (fseeko(f, 0, SEEK_END) || (file_end = ftello(f)) < 0 || fseeko(f, 4, SEEK_SET)) {
+    off_t file_end, metadata_start = ftello(f);
+    if (metadata_start < 0 || fseeko(f, 0, SEEK_END) || (file_end = ftello(f)) < 0 ||
+        fseeko(f, metadata_start, SEEK_SET)) {
         fclose(f);
         return false;
     }

@@ -1,3 +1,4 @@
+#define _FILE_OFFSET_BITS 64
 #include "../parsing/metadata.h"
 #include "../parsing/metadata_parser_internal.h"
 #include "../../artwork/coordinator/artwork_memory.h"

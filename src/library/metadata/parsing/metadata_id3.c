@@ -1,3 +1,4 @@
+#define _FILE_OFFSET_BITS 64
 #include "metadata.h"
 #include "metadata_parser_internal.h"
 #include "../../text/lyrics/lyrics.h"
@@ -8,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 
 /* Text and TXXX frames larger than this are skipped while streaming. Pictures
  * use METADATA_BLOB_MAX_BYTES (also the buffered ID3 tag limit and the base64
@@ -295,7 +297,7 @@ static bool id3_stream_read(id3_stream_t * s, uint8_t * out, uint32_t count) {
 
 static bool id3_stream_skip(id3_stream_t * s, uint32_t count) {
     if (!s->tag_unsync) {
-        if (count > s->raw_remaining || fseek(s->f, (long) count, SEEK_CUR) != 0) return false;
+        if (count > s->raw_remaining || fseeko(s->f, (off_t) count, SEEK_CUR) != 0) return false;
         s->raw_remaining -= count;
         s->previous_ff = false;
         return true;
@@ -472,9 +474,9 @@ static uint32_t id3_stream_frame_limit(const id3_frame_def_t * def) {
  * every read and seek; no allocation is based on the overall tag size. */
 static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major_version,
                                  uint8_t tag_flags, uint32_t tag_size, bool include_blobs) {
-    long body_start = ftell(f);
-    if (body_start < 0 || tag_size > (uint32_t) LONG_MAX || body_start > LONG_MAX - (long) tag_size) return false;
-    long tag_end = body_start + (long) tag_size;
+    off_t body_start = ftello(f);
+    if (body_start < 0 || body_start > INT64_MAX - (off_t) tag_size) return false;
+    off_t tag_end = body_start + (off_t) tag_size;
     bool found_any = false;
     bool v22 = major_version <= 2;
     /* v2.2/v2.3 unsynchronization applies to the complete tag body, so keep
@@ -539,7 +541,7 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
             if (!id3_stream_skip(&stream, frame_size)) break;
         }
     }
-    (void) fseek(f, tag_end, SEEK_SET);
+    (void) fseeko(f, tag_end, SEEK_SET);
     return found_any;
 }
 
@@ -547,7 +549,7 @@ static bool read_id3v2_streaming(FILE * f, track_metadata_t * out, uint8_t major
  * extends past a regular, seekable file before walking frames. Non-seekable
  * streams retain the streaming reader's own byte bound. */
 static bool id3_tag_fits_file(FILE * f, uint32_t tag_size) {
-    long body_start = ftell(f);
+    off_t body_start = ftello(f);
     if (body_start < 0) return true;
     /* Regular files already expose their size through the open descriptor.
      * Avoid an EOF seek and a second seek back for every MP3/AAC tag; this
@@ -558,12 +560,12 @@ static bool id3_tag_fits_file(FILE * f, uint32_t tag_size) {
         return st.st_size >= 0 && (uint64_t) st.st_size >= (uint64_t) body_start &&
                (uint64_t) st.st_size - (uint64_t) body_start >= (uint64_t) tag_size;
     }
-    if (fseek(f, 0, SEEK_END) != 0) {
+    if (fseeko(f, 0, SEEK_END) != 0) {
         clearerr(f);
-        return fseek(f, body_start, SEEK_SET) == 0;
+        return fseeko(f, body_start, SEEK_SET) == 0;
     }
-    long file_end = ftell(f);
-    bool restored = fseek(f, body_start, SEEK_SET) == 0;
+    off_t file_end = ftello(f);
+    bool restored = fseeko(f, body_start, SEEK_SET) == 0;
     return restored && file_end >= body_start &&
            (uint64_t) (file_end - body_start) >= (uint64_t) tag_size;
 }

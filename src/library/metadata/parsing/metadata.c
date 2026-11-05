@@ -1,3 +1,4 @@
+#define _FILE_OFFSET_BITS 64
 #include "metadata.h"
 #include "metadata_parser_internal.h"
 #include "../../../core/text/utf8_util.h"
@@ -6,23 +7,23 @@
 #include "../../../audio/decoders/ogg/ogg_probe.h"
 #include "mbedtls/base64.h"
 
-#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/types.h>
 
 /* Validates that adding size and pad to chunk_start will not overflow a
- * signed long. Returns true and writes the next seek offset to *out_next on
- * success, or false if size exceeds safe bounds. */
-bool safe_chunk_advance(long chunk_start, uint64_t size, long pad, long * out_next) {
+ * signed 64-bit file offset. Returns true and writes the next seek offset to
+ * *out_next on success, or false if size exceeds safe bounds. */
+bool safe_file_advance(off_t chunk_start, uint64_t size, off_t pad, off_t * out_next) {
     if (chunk_start < 0 || pad < 0) return false;
-    if (size > (uint64_t) (LONG_MAX - pad)) return false;
-    long size_l = (long) size; /* provably in-range now -- no implementation-defined truncation */
-    if (chunk_start > LONG_MAX - size_l - pad) return false; /* would overflow the addition below */
-    *out_next = chunk_start + size_l + pad;
+    if (size > (uint64_t) (INT64_MAX - pad)) return false;
+    off_t size_o = (off_t) size; /* provably in-range now -- no implementation-defined truncation */
+    if (chunk_start > INT64_MAX - size_o - pad) return false; /* would overflow the addition below */
+    *out_next = chunk_start + size_o + pad;
     return true;
 }
 

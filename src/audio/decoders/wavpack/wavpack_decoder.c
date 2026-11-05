@@ -8,6 +8,8 @@
 
 #define WAVPACK_READ_CHUNK 4096U
 #define WAVPACK_OPEN_FLAGS (OPEN_WVC | OPEN_DSD_AS_PCM | OPEN_NORMALIZE)
+/* Tag reads must accept DSD files too, or libwavpack refuses to open them. */
+#define WAVPACK_TAG_OPEN_FLAGS (OPEN_TAGS | OPEN_DSD_NATIVE)
 
 struct wavpack_decoder {
     WavpackContext *context;
@@ -181,7 +183,7 @@ static const char *const TAGS[] = {
 void wavpack_get_tags(const char *path, wavpack_tag_callback_t callback, void *user) {
     if (!path || !callback) return;
     char error[128] = {0};
-    WavpackContext *context = WavpackOpenFileInput(path, error, OPEN_TAGS, 0);
+    WavpackContext *context = WavpackOpenFileInput(path, error, WAVPACK_TAG_OPEN_FLAGS, 0);
     if (!context) return;
     for (size_t i = 0; i < sizeof(TAGS) / sizeof(TAGS[0]); ++i) {
         char value[256] = {0};
@@ -198,7 +200,7 @@ unsigned char *wavpack_get_cover(const char *path, size_t max_size, size_t *out_
     if (out_size) *out_size = 0;
     if (!path || !max_size) return NULL;
     char error[128] = {0};
-    WavpackContext *context = WavpackOpenFileInput(path, error, OPEN_TAGS, 0);
+    WavpackContext *context = WavpackOpenFileInput(path, error, WAVPACK_TAG_OPEN_FLAGS, 0);
     if (!context) return NULL;
     const char *const keys[] = { "Cover Art (Front)", "Cover Art (Back)" };
     unsigned char *image = NULL;
