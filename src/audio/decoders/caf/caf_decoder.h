@@ -13,7 +13,6 @@ unsigned int caf_get_channels(const caf_decoder_t *dec);
 unsigned int caf_get_sample_rate(const caf_decoder_t *dec);
 unsigned int caf_get_bits_per_sample(const caf_decoder_t *dec);
 uint64_t caf_get_total_pcm_frame_count(const caf_decoder_t *dec);
-bool caf_is_alac(const caf_decoder_t *dec);
 decoder_read_result_t caf_read_pcm_frames_s16(caf_decoder_t *dec, uint64_t frames, int16_t *out);
 /* S32 samples are right-justified signed 24-bit values, matching S24_LE. */
 decoder_read_result_t caf_read_pcm_frames_s32(caf_decoder_t *dec, uint64_t frames, int32_t *out);

@@ -3,6 +3,7 @@
 #include "audio_helpers.h"
 #include "../../ui/text/i18n/i18n.h"
 #include "../demux/mp4/mp4_demux.h"
+#include "../demux/caf/caf_demux.h"
 #include "../demux/ape/ape_demux.h"
 #include "../decoders/ogg/ogg_probe.h"
 #include "../effects/peq.h"
@@ -230,6 +231,18 @@ static bool file_is_caf(const char * path) {
                    memcmp(magic, "caff", sizeof(magic)) == 0;
     fclose(file);
     return matches;
+}
+
+static bool open_alac_file(decoder_t * dec, const char * path) {
+    dec->type = DECODER_ALAC;
+    dec->as.alac = alac_open_file(path);
+    if (!dec->as.alac) return false;
+    dec->channels = alac_get_channels(dec->as.alac);
+    dec->sample_rate = alac_get_sample_rate(dec->as.alac);
+    dec->source_sample_rate = dec->sample_rate;
+    dec->source_bit_depth = alac_get_bit_depth(dec->as.alac);
+    dec->total_frames = alac_get_total_pcm_frame_count(dec->as.alac);
+    return true;
 }
 
 static bool open_opus_file(decoder_t * dec, const char * path) {
@@ -606,17 +619,7 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
             return false;
         }
 
-        if (strcmp(fourcc, "alac") == 0) {
-            dec->type = DECODER_ALAC;
-            dec->as.alac = alac_open_file(path);
-            if (!dec->as.alac) return false;
-            dec->channels = alac_get_channels(dec->as.alac);
-            dec->sample_rate = alac_get_sample_rate(dec->as.alac);
-            dec->source_sample_rate = dec->sample_rate;
-            dec->source_bit_depth = alac_get_bit_depth(dec->as.alac);
-            dec->total_frames = alac_get_total_pcm_frame_count(dec->as.alac);
-            return true;
-        }
+        if (strcmp(fourcc, "alac") == 0) return open_alac_file(dec, path);
         if (strcmp(fourcc, "mp4a") == 0) {
             if (!decoder_take_aac(dec, aac_open_file_mp4(path))) return false;
             dec->total_frames = aac_get_total_pcm_frame_count(dec->as.aac);
@@ -639,6 +642,10 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
     }
 
     if (strcasecmp(ext, ".caf") == 0 || strcasecmp(ext, ".alac") == 0) {
+        /* ALAC inside CAF goes to the native ALAC decoder; PCM/float stays here. */
+        char fourcc[5];
+        if (caf_demux_peek_codec(path, fourcc) && strcmp(fourcc, "alac") == 0)
+            return open_alac_file(dec, path);
         dec->type = DECODER_CAF;
         dec->as.caf = caf_open_file(path);
         if (!dec->as.caf) return false;
@@ -873,7 +880,7 @@ bool decoder_open_next(decoder_t * dec, const char * path) {
 audio_codec_t public_codec_for_decoder(const decoder_t * dec) {
     switch (dec->type) {
         case DECODER_WAVPACK: return AUDIO_CODEC_WAVPACK;
-        case DECODER_CAF: return caf_is_alac(dec->as.caf) ? AUDIO_CODEC_ALAC : AUDIO_CODEC_PCM;
+        case DECODER_CAF: return AUDIO_CODEC_PCM;
         case DECODER_FLAC: return AUDIO_CODEC_FLAC;
         case DECODER_MP3: return AUDIO_CODEC_MP3;
         case DECODER_WAV:

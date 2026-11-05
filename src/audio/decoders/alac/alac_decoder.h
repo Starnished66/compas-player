@@ -11,7 +11,7 @@ extern "C" {
 /* ALAC (Apple Lossless) decoding via Apple's own reference decoder
  * (github.com/mikebrady/alac, a maintained mirror -- Apache 2.0, so unlike
  * FAAD2 this doesn't affect the project's licensing), reading samples out
- * of an MP4/M4A container via mp4_demux.h. Only 16-bit and 24-bit source
+ * of an MP4/M4A container (mp4_demux.h) or a CAF file (caf_demux.h). Only 16-bit and 24-bit source
  * material is handled (16-bit is the vast majority of real ALAC content);
  * other bit depths are rejected rather than silently mishandled. */
 

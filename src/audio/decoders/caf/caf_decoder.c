@@ -15,7 +15,6 @@ struct caf_decoder {
     unsigned int bits;
     uint64_t total_frames;
     uint64_t current_frame;
-    bool alac;
     bool is_float;
     decoder_read_status_t terminal_status;
     int32_t *scratch;
@@ -32,10 +31,6 @@ static unsigned int subtype_bits(int subtype) {
         case SF_FORMAT_PCM_32: return 32;
         case SF_FORMAT_FLOAT: return 32;
         case SF_FORMAT_DOUBLE: return 64;
-        case SF_FORMAT_ALAC_16: return 16;
-        case SF_FORMAT_ALAC_20: return 20;
-        case SF_FORMAT_ALAC_24: return 24;
-        case SF_FORMAT_ALAC_32: return 32;
         default: return 0;
     }
 }
@@ -76,7 +71,6 @@ caf_decoder_t *caf_open_file(const char *path) {
     dec->sample_rate = (unsigned int)info.samplerate;
     dec->bits = bits;
     dec->total_frames = (uint64_t)info.frames;
-    dec->alac = subtype >= SF_FORMAT_ALAC_16 && subtype <= SF_FORMAT_ALAC_32;
     dec->is_float = subtype == SF_FORMAT_FLOAT || subtype == SF_FORMAT_DOUBLE;
     if (subtype == SF_FORMAT_FLOAT) {
         dec->float_scratch = malloc(samples * sizeof(*dec->float_scratch));
@@ -96,7 +90,6 @@ unsigned int caf_get_channels(const caf_decoder_t *dec) { return dec ? dec->chan
 unsigned int caf_get_sample_rate(const caf_decoder_t *dec) { return dec ? dec->sample_rate : 0; }
 unsigned int caf_get_bits_per_sample(const caf_decoder_t *dec) { return dec ? dec->bits : 0; }
 uint64_t caf_get_total_pcm_frame_count(const caf_decoder_t *dec) { return dec ? dec->total_frames : 0; }
-bool caf_is_alac(const caf_decoder_t *dec) { return dec && dec->alac; }
 
 static decoder_read_result_t read_frames(caf_decoder_t *dec, uint64_t requested, void *out, bool to_s16) {
     decoder_read_result_t result = { .frames = 0, .status = DECODER_READ_OK };
