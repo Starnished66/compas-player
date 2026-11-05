@@ -736,6 +736,8 @@ static void quick_drawer_place_widget(lv_obj_t * obj, lv_obj_t * parent,
 /* Repositions existing objects in semantic order. The first row remains
  * visible when the drawer is collapsed; the next four toggles occupy the
  * first revealed row and the remaining five fit in the second. */
+_Static_assert(UI_DRAWER_COUNT + PLUGIN_MAX_QUICK_TOGGLES <= UI_ORDER_MAX,
+               "Quick Drawer order cannot hold every plugin toggle");
 void quick_drawer_reflow_customization(void) {
     if (!quick_drawer || !quick_drawer_expansion_box) return;
 
@@ -754,17 +756,17 @@ void quick_drawer_reflow_customization(void) {
                     quick_drawer_toggle_state[id], (int)id
                 };
             }
-        } else if (id == 9) {
-            for (int p = 0; p < quick_drawer_plugin_toggle_count; ++p) {
-                int index = 9 + p;
-                int state_index = QD_TOGGLE_COUNT + p;
-                if (quick_drawer_toggle_icon[index] && quick_drawer_toggle_name[index] &&
-                    quick_drawer_toggle_state[state_index]) {
-                    items[count++] = (quick_drawer_layout_item_t){
-                        quick_drawer_toggle_icon[index], quick_drawer_toggle_name[index],
-                        quick_drawer_toggle_state[state_index], index
-                    };
-                }
+        } else if (id >= UI_DRAWER_COUNT) {
+            /* One plugin toggle; id 9 ("plugins") only marks where new ones go. */
+            int index = 9 + (int)(id - UI_DRAWER_COUNT);
+            int state_index = QD_TOGGLE_COUNT + (int)(id - UI_DRAWER_COUNT);
+            if (id - UI_DRAWER_COUNT < (unsigned)quick_drawer_plugin_toggle_count &&
+                quick_drawer_toggle_icon[index] && quick_drawer_toggle_name[index] &&
+                quick_drawer_toggle_state[state_index]) {
+                items[count++] = (quick_drawer_layout_item_t){
+                    quick_drawer_toggle_icon[index], quick_drawer_toggle_name[index],
+                    quick_drawer_toggle_state[state_index], index
+                };
             }
         }
     }

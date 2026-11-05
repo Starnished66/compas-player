@@ -406,6 +406,10 @@ static void load_plugin_file(const char * path) {
 }
 
 void plugin_manager_init(void) {
+    ui_order_set_extras(UI_ORDER_MUSIC, plugin_manager_get_music_list_item_count,
+                        plugin_manager_get_music_list_item_key, plugin_manager_get_music_list_item_label);
+    ui_order_set_extras(UI_ORDER_DRAWER, plugin_manager_get_quick_toggle_count,
+                        plugin_manager_get_quick_toggle_key, plugin_manager_get_quick_toggle_label);
     plugin_last_volume_percent = current_volume_percent();
     plugin_disabled_list_load();
 

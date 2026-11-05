@@ -298,6 +298,8 @@ void plugin_manager_get_books_list_item_options(int index, const char ** out_ico
 int plugin_manager_get_music_list_item_count(void);
 const char * plugin_manager_get_music_list_item_label(int index);
 void plugin_manager_music_list_item_clicked(int index);
+/* Stable key for the Music order setting; false when the entry has no owner. */
+bool plugin_manager_get_music_list_item_key(int index, char * out, size_t cap);
 void plugin_manager_get_music_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                  int32_t * out_width, const char ** out_text_size);
 
@@ -504,6 +506,8 @@ int plugin_manager_get_quick_toggle_count(void);
 /* Registered toggle index, or -1 when its plugin is absent or disabled. */
 int plugin_manager_find_quick_toggle_by_id(const char * id);
 const char * plugin_manager_get_quick_toggle_label(int index);
+/* Stable key for the Quick Drawer order setting; false when it has no owner. */
+bool plugin_manager_get_quick_toggle_key(int index, char * out, size_t cap);
 const char * plugin_manager_get_quick_toggle_icon(int index);
 const char * plugin_manager_get_quick_toggle_icon_selected(int index);
 

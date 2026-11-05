@@ -497,6 +497,31 @@ PLUGIN_LIST_TARGET_ACCESSORS(books, BOOKS)
 
 PLUGIN_LIST_TARGET_ACCESSORS(music, MUSIC)
 
+/* Stable order key "plugin:<plugin id>:<n>"; n is the entry's ordinal among
+ * the same plugin's entries in registration order. */
+static bool plugin_order_key(lua_State * L, int ordinal, char * out, size_t cap) {
+    const plugin_instance_t * inst = plugin_instance_for_state(L);
+    return inst && snprintf(out, cap, "plugin:%s:%d", inst->id, ordinal) < (int) cap;
+}
+
+bool plugin_manager_get_music_list_item_key(int index, char * out, size_t cap) {
+    const plugin_list_item_t * items = plugin_list_items[PLUGIN_LIST_TARGET_MUSIC];
+    if (index < 0 || index >= plugin_list_item_counts[PLUGIN_LIST_TARGET_MUSIC] ||
+        index >= plugin_list_targets[PLUGIN_LIST_TARGET_MUSIC].max_items) return false;
+    int ordinal = 0;
+    for (int i = 0; i < index; i++)
+        if (items[i].L == items[index].L) ordinal++;
+    return plugin_order_key(items[index].L, ordinal, out, cap);
+}
+
+bool plugin_manager_get_quick_toggle_key(int index, char * out, size_t cap) {
+    if (index < 0 || index >= plugin_quick_toggle_count) return false;
+    int ordinal = 0;
+    for (int i = 0; i < index; i++)
+        if (plugin_quick_toggles[i].L == plugin_quick_toggles[index].L) ordinal++;
+    return plugin_order_key(plugin_quick_toggles[index].L, ordinal, out, cap);
+}
+
 PLUGIN_LIST_TARGET_ACCESSORS(settings, SETTINGS)
 
 static bool settings_item_matches_file(const plugin_list_item_t * item, const char * filename) {

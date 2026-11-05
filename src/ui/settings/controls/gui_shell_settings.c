@@ -38,11 +38,22 @@ static lv_obj_t * settings_topbar_screen;
 static lv_obj_t * settings_topbar_list;
 static lv_obj_t * settings_topbar_clock_position_screen;
 static lv_obj_t * settings_topbar_clock_position_list;
+/* Both orders are saved as keys, so edit a resolved copy and write it back. */
+static ui_item_order_t order_edit;
+static char * ui_order_text(void) {
+    ui_customization_t * c = &current_settings.ui_customization;
+    return ui_order_kind == UI_ORDER_MUSIC ? c->music_order_text : c->drawer_order_text;
+}
 static ui_item_order_t * ui_saved_order(void) {
-    switch (ui_order_kind) {
-        case UI_ORDER_MUSIC: return &current_settings.ui_customization.music;
-        default: return &current_settings.ui_customization.drawer;
-    }
+    ui_order_resolve(ui_order_kind, ui_order_text(), &order_edit);
+    return &order_edit;
+}
+static void ui_order_store(void) {
+    char * text = ui_order_text();
+    char merged[UI_ORDER_TEXT_MAX];
+    if (ui_order_to_text(ui_order_kind, &order_edit, text, merged, sizeof(merged)))
+        memcpy(text, merged, sizeof(merged));
+    settings_save_async(&current_settings);
 }
 static void populate_ui_order_screen(void);
 static void ui_order_open_kind(ui_order_kind_t kind, const char * title);
@@ -62,7 +73,7 @@ static void ui_order_control_cb(lv_event_t * e) {
         for (unsigned i = (unsigned)at + 1; i < order->count; ++i) order->ids[i - 1] = order->ids[i];
         --order->count;
     } else return;
-    settings_save_async(&current_settings);
+    ui_order_store();
     populate_ui_order_screen();
     if (ui_order_kind == UI_ORDER_DRAWER) gui_shell_apply_customization();
     else gui_theme_refresh_request();
@@ -87,7 +98,7 @@ static void ui_order_drag_commit_drawer(gui_list_reorder_state_t * state) {
     if (!changed) return;
     saved->count = (uint8_t)drag_count;
     for (int i = 0; i < drag_count; ++i) saved->ids[i] = (uint8_t)state->ids[i];
-    settings_save_async(&current_settings);
+    ui_order_store();
     if (ui_order_kind == UI_ORDER_DRAWER) gui_shell_apply_customization();
     else gui_theme_refresh_request();
 }
@@ -166,9 +177,8 @@ static lv_obj_t * build_ui_order_screen(void) {
     memset(ui_order_drag_handles, 0, sizeof(ui_order_drag_handles));
     memset(ui_order_visible_buttons, 0, sizeof(ui_order_visible_buttons));
     for (int id = 0; id < UI_ORDER_MAX; ++id) {
-        const char * label = ui_order_label(UI_ORDER_DRAWER, id);
-        if (!label) continue;
-        lv_obj_t * row = add_pill_row_base(ui_order_list, TR(label));
+        /* Labels are set in populate; spare rows stay hidden. */
+        lv_obj_t * row = add_pill_row_base(ui_order_list, "");
         ui_order_rows[id] = row;
         lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_USER_1);

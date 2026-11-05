@@ -714,11 +714,12 @@ bool settings_load(player_settings_t * out) {
             int mode = atoi(value);
             out->genre_view_mode = mode >= 0 && mode <= 3 ? mode : 0;
         } else if (strcmp(key, "quick_drawer_order") == 0) {
-            ui_item_order_t order;
-            if (ui_order_parse(UI_ORDER_DRAWER, value, &order)) out->ui_customization.drawer = order;
+            if (strlen(value) < sizeof(out->ui_customization.drawer_order_text))
+                strcpy(out->ui_customization.drawer_order_text, value);
         } else if (strcmp(key, "music_order") == 0) {
-            ui_item_order_t order;
-            if (ui_order_parse(UI_ORDER_MUSIC, value, &order)) out->ui_customization.music = order;
+            /* Raw keys: plugin entries are resolved later, unknown keys are kept. */
+            if (strlen(value) < sizeof(out->ui_customization.music_order_text))
+                strcpy(out->ui_customization.music_order_text, value);
         } else if (strcmp(key, "car_mode_startup_volume_percent") == 0) {
             legacy_car_mode_volume_percent = atoi(value);
             legacy_car_mode_volume_percent_seen = true;
@@ -830,16 +831,6 @@ static void fsync_settings_dir(void) {
     close(dir_fd);
 }
 
-static bool ui_drawer_order_matches_default(const ui_item_order_t * order,
-                                     const ui_customization_t * defaults) {
-    if (!order || !defaults) return false;
-    const ui_item_order_t * default_order = &defaults->drawer;
-    if (order->count != default_order->count) return false;
-    for (unsigned i = 0; i < order->count; ++i)
-        if (order->ids[i] != default_order->ids[i]) return false;
-    return true;
-}
-
 static void settings_write_file(const player_settings_t * settings) {
     ui_customization_t ui_defaults;
     ui_customization_defaults(&ui_defaults);
@@ -914,13 +905,9 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "artist_albums_sort_mode=%d\n", settings->artist_albums_sort_mode >= 0 && settings->artist_albums_sort_mode <= 2 ? settings->artist_albums_sort_mode : 0);
     fprintf(f, "album_artist_albums_sort_mode=%d\n", settings->album_artist_albums_sort_mode >= 0 && settings->album_artist_albums_sort_mode <= 2 ? settings->album_artist_albums_sort_mode : 0);
     fprintf(f, "genre_view_mode=%d\n", settings->genre_view_mode >= 0 && settings->genre_view_mode <= 3 ? settings->genre_view_mode : 0);
-    char ui_order_text[UI_ORDER_MAX * 24];
-    ui_order_format(UI_ORDER_MUSIC, &settings->ui_customization.music, ui_order_text, sizeof(ui_order_text));
-    fprintf(f, "music_order=%s\n", ui_order_text);
-    if (!ui_drawer_order_matches_default(&settings->ui_customization.drawer, &ui_defaults)) {
-        ui_order_format(UI_ORDER_DRAWER, &settings->ui_customization.drawer, ui_order_text, sizeof(ui_order_text));
-        fprintf(f, "quick_drawer_order=%s\n", ui_order_text);
-    }
+    fprintf(f, "music_order=%s\n", settings->ui_customization.music_order_text);
+    if (strcmp(settings->ui_customization.drawer_order_text, ui_defaults.drawer_order_text) != 0)
+        fprintf(f, "quick_drawer_order=%s\n", settings->ui_customization.drawer_order_text);
     fprintf(f, "car_mode_volume_percent=%d\n", settings->car_mode_volume_percent);
     int keyboard_layout = normalize_keyboard_layout(settings->keyboard_layout);
     fprintf(f, "keyboard_layout=%d\n", keyboard_layout);
