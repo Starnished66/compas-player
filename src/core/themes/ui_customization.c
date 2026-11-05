@@ -190,6 +190,25 @@ static bool order_text_add(char *out, size_t cap, size_t *used, bool hidden, con
     return true;
 }
 
+static bool order_key_unloaded(ui_order_kind_t kind, const char *key) {
+    return key[0] && order_find_id(kind, key) < 0;
+}
+
+/* Appends the first UI_ORDER_UNLOADED_MAX old-text keys that match no current
+ * entry, in their saved order. A plugin unloaded since the last save still sits
+ * at its old place, ahead of the keys kept from earlier saves, so writing them
+ * in one pass keeps the most recently seen first and drops the oldest. */
+static void order_keep_unloaded(ui_order_kind_t kind, const char *old_text,
+                                char *out, size_t cap, size_t *used) {
+    const char *p = old_text ? old_text : "";
+    char key[UI_ORDER_KEY_MAX];
+    bool hidden;
+    int index = 0;
+    while (order_next_key(&p, key, sizeof(key), &hidden))
+        if (order_key_unloaded(kind, key) && index++ < UI_ORDER_UNLOADED_MAX)
+            (void)order_text_add(out, cap, used, hidden, key);
+}
+
 bool ui_order_to_text(ui_order_kind_t kind, const ui_item_order_t *visible, const char *old_text,
                       char *out, size_t cap) {
     bool shown[UI_ORDER_MAX] = { false };
@@ -206,11 +225,10 @@ bool ui_order_to_text(ui_order_kind_t kind, const ui_item_order_t *visible, cons
     for (int id = order_desc_for(kind)->count; id < ui_order_size(kind); ++id)
         if (!shown[id] && order_id_key(kind, id, key, sizeof(key)) &&
             !order_text_add(out, cap, &used, true, key)) return false;
-    /* Keys of plugins that are not loaded now keep their place for later. */
-    const char *p = old_text ? old_text : "";
-    bool hidden;
-    while (order_next_key(&p, key, sizeof(key), &hidden))
-        if (key[0] && order_find_id(kind, key) < 0) order_text_add(out, cap, &used, hidden, key);
+    /* Keys of plugins that are not loaded now keep their place for later.
+     * Only the newest UI_ORDER_UNLOADED_MAX are kept, so UI_ORDER_TEXT_MAX
+     * always holds them and no key is ever cut. */
+    order_keep_unloaded(kind, old_text, out, cap, &used);
     return true;
 }
 

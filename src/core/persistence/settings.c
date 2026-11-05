@@ -571,7 +571,10 @@ bool settings_load(player_settings_t * out) {
     /* Pre-setup settings files belong to existing users. An explicit zero
      * survives early boot saves and restarts until setup is finished. */
     out->setup_complete = true;
-    char line[600];
+    /* Room for the longest order text plus its key name. */
+    static char line[UI_ORDER_TEXT_MAX + 32]; /* off the stack; settings_load runs on the main thread only */
+    _Static_assert(sizeof(line) > sizeof("quick_drawer_order=") + UI_ORDER_TEXT_MAX + 1,
+                   "a full order text must fit one settings line");
     while (fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\n")] = '\0';
 

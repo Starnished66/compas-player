@@ -6,8 +6,10 @@
 
 /* Native ids come first in each namespace; plugin entries follow. */
 enum { UI_ORDER_MAX = 16, UI_MUSIC_COUNT = 7, UI_MUSIC_TOOLBAR_COUNT = 3,
-       UI_DRAWER_COUNT = 10, UI_ORDER_KEY_MAX = 80,
-       UI_ORDER_TEXT_MAX = UI_ORDER_MAX * (UI_ORDER_KEY_MAX + 2) };
+       UI_DRAWER_COUNT = 10, UI_ORDER_KEY_MAX = 80, UI_ORDER_UNLOADED_MAX = 16,
+       /* Every loaded entry plus the remembered unloaded ones, each a full
+        * key with its "!" and separator. */
+       UI_ORDER_TEXT_MAX = (UI_ORDER_MAX + UI_ORDER_UNLOADED_MAX) * (UI_ORDER_KEY_MAX + 2) };
 typedef enum { UI_ORDER_MUSIC, UI_ORDER_MUSIC_TOOLBAR, UI_ORDER_DRAWER } ui_order_kind_t;
 typedef struct { uint8_t count; uint8_t ids[UI_ORDER_MAX]; } ui_item_order_t;
 
