@@ -1225,10 +1225,9 @@ bool wma_seek_to_pcm_frame(wma_decoder_t * dec, uint64_t frame_index) {
     if (!dec) return false;
     uint64_t total_packets = asf_demux_get_packet_count(dec->demux);
     if (total_packets == 0 || dec->total_pcm_frames == 0) return false;
-    /* packets span the audio plus the preroll */
-    uint64_t preroll = asf_demux_get_preroll_100ns(dec->demux);
-    uint64_t pos_100ns = frame_index * 10000000ull / dec->sample_rate + preroll;
-    uint64_t span_100ns = asf_demux_get_duration_100ns(dec->demux) + preroll;
+    /* packets are spread evenly over the audio duration, starting at 0 */
+    uint64_t pos_100ns = frame_index * 10000000ull / dec->sample_rate;
+    uint64_t span_100ns = asf_demux_get_duration_100ns(dec->demux);
     uint64_t packet_index = span_100ns ? pos_100ns * total_packets / span_100ns : 0;
     if (packet_index >= total_packets) packet_index = total_packets - 1;
     asf_demux_seek_to_packet(dec->demux, packet_index);
