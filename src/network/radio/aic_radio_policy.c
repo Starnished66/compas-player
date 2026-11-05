@@ -36,8 +36,6 @@ aic_base_state_t aic_radio_parse_base(const char * text) {
 aic_radio_decision_t aic_radio_decide(const aic_radio_state_t * state, aic_radio_request_t request) {
     if (request == AIC_RADIO_WIFI_OFF || request == AIC_RADIO_BT_OFF) return AIC_RADIO_RUN;
     if (state->base != AIC_BASE_READY) return AIC_RADIO_REFUSE_UNAVAILABLE;
-    if (request == AIC_RADIO_WIFI_ON && state->bt_active) return AIC_RADIO_REFUSE_BT_ACTIVE;
-    if (request == AIC_RADIO_BT_ON && state->wifi_active) return AIC_RADIO_REFUSE_WIFI_ACTIVE;
     return AIC_RADIO_RUN;
 }
 

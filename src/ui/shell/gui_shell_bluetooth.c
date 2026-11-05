@@ -649,9 +649,6 @@ void poll_bt_toggle(void) {
     pthread_join(bt_toggle_thread, NULL);
     bt_toggle_epoch++;
 
-    if (aic_radio_take_notice() == AIC_RADIO_NOTICE_BT_BLOCKED_BY_WIFI)
-        show_info_toast(TR("Turn off Wi-Fi to use Bluetooth"));
-
     if (bt_toggle_forced_dac_off) {
         current_settings.bt_dac_mode_enabled = false;
         settings_save(&current_settings);

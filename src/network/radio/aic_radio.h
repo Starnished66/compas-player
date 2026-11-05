@@ -8,12 +8,6 @@
  * inert unless that file says "aic"; Broadcom units, and any unit where the
  * file is missing, never reach these functions' work. */
 
-typedef enum {
-    AIC_RADIO_NOTICE_NONE,
-    AIC_RADIO_NOTICE_WIFI_BLOCKED_BY_BT,
-    AIC_RADIO_NOTICE_BT_BLOCKED_BY_WIFI
-} aic_radio_notice_t;
-
 /* True on an AIC unit. The type file is read until it exists, then cached
  * for the life of the process. */
 bool aic_radio_active(void);
@@ -24,14 +18,13 @@ bool aic_radio_active(void);
 bool aic_radio_boot_settled(void);
 
 /* Wi-Fi on/off through /usr/bin/wifi_on.sh and wifi_off.sh, which carry the
- * power-gate logic on v2.0. Enable returns false (and records a notice) when
+ * power-gate logic on v2.0. Enable returns false when
  * refused or when the script fails. Callers run these off the UI thread. */
 bool aic_radio_wifi_enable(void);
 void aic_radio_wifi_disable(void);
 
-/* Bluetooth bring-up and tear-down: takes /run/aic_bt_power_gate, runs
- * /usr/bin/bt_enable_aic.sh, and on the way out runs /usr/bin/bt_disable and
- * releases the gate. */
+/* Bluetooth bring-up and tear-down: runs /usr/bin/bt_enable_aic.sh, and on the way
+ * out runs /usr/bin/bt_disable. */
 bool aic_radio_bt_power_on(void);
 void aic_radio_bt_power_off(void);
 
@@ -39,8 +32,5 @@ void aic_radio_bt_power_off(void);
  * hci0 or aic8800_fdrv survived the shutdown, in which case the caller must
  * not suspend (same rule as the stock player). */
 bool aic_radio_suspend_prepare(void);
-
-/* The most recent refusal since the last call, cleared by reading. */
-aic_radio_notice_t aic_radio_take_notice(void);
 
 #endif /* AIC_RADIO_H */

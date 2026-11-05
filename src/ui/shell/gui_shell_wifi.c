@@ -318,10 +318,7 @@ void poll_wifi_toggle(void) {
     refresh_wifi_icon(); /* re-reads the real state -- updates both the status bar and drawer icons */
     gui_network_wifi_toggle_completed(enabled); /* authoritative rows + scan state */
     if (enabled != wifi_toggle_target_enabled) {
-        if (aic_radio_take_notice() == AIC_RADIO_NOTICE_WIFI_BLOCKED_BY_BT)
-            show_error_toast(TR("Turn off Bluetooth to use Wi-Fi"));
-        else
-            show_error_toast(TR("Wi-Fi failed to change state"));
+        show_error_toast(TR("Wi-Fi failed to change state"));
     }
 
     /* Only shut AirPlay/DLNA/Remote Control/Import down once the disable is
