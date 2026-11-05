@@ -511,7 +511,7 @@ static void ab_switch_clear_locked(void) {
 static bool ab_switch_decoder_supported(const decoder_t * d) {
     bool supported_pcm = d && d->source_bit_depth == 16 &&
            (d->type == DECODER_FLAC || d->type == DECODER_WAV ||
-            d->type == DECODER_AIFF || d->type == DECODER_CAF);
+            d->type == DECODER_AIFF || d->type == DECODER_CAF || d->type == DECODER_ALAC);
     /* MP3 has no meaningful encoded sample bit depth. Keep it eligible by
      * codec and its actual finite local PCM frame count instead of assigning
      * a fictitious 16-bit source depth. */

@@ -236,7 +236,7 @@ bool decoder_supports_sample_accurate_loop(const decoder_t * dec) {
         dec->sample_rate == 0 || dec->total_frames == 0)
         return false;
     return dec->type == DECODER_FLAC || dec->type == DECODER_WAV ||
-           dec->type == DECODER_AIFF || dec->type == DECODER_CAF;
+           dec->type == DECODER_AIFF || dec->type == DECODER_CAF || dec->type == DECODER_ALAC;
 }
 
 /* Every branch nulls the union member it just freed, making this safe to

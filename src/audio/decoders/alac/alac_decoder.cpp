@@ -70,7 +70,7 @@ static bool validate_alac_cookie(const uint8_t *cookie, uint32_t size,
     *sample_rate = read_be32(cookie + 20);
     return *frame_length > 0 && *frame_length <= 65536 &&
            *channels > 0 && *channels <= 8 &&
-           (*bit_depth == 16 || *bit_depth == 24) &&
+           (*bit_depth == 16 || *bit_depth == 20 || *bit_depth == 24 || *bit_depth == 32) &&
            *sample_rate >= 8000 && *sample_rate <= 384000;
 }
 
@@ -139,6 +139,31 @@ static bool src_map_frame(const alac_source * src, uint64_t frame, uint32_t * pa
     return true;
 }
 
+/* Native ALAC output as 16-bit, and as 24-bit right-justified when wanted.
+ * 20-bit comes out left-justified in 3 bytes, so it reads like 24-bit. */
+static void convert_output(alac_decoder_t * dec, uint32_t frames) {
+    size_t count = (size_t) frames * dec->channels;
+    const uint8_t * raw = dec->raw_output_buf;
+    for (size_t i = 0; i < count; i++) {
+        int32_t v16, v24;
+        if (dec->bit_depth == 16) {
+            int16_t s;
+            memcpy(&s, raw + i * 2, sizeof(s));
+            v16 = v24 = s;
+        } else if (dec->bit_depth == 32) {
+            int32_t w;
+            memcpy(&w, raw + i * 4, sizeof(w));
+            v16 = w >> 16;
+            v24 = w >> 8;
+        } else { /* packed 3-byte little-endian samples */
+            v24 = raw[i * 3] | (raw[i * 3 + 1] << 8) | ((int8_t) raw[i * 3 + 2] * 65536);
+            v16 = v24 >> 8;
+        }
+        dec->carry_buffer[i] = (int16_t) v16;
+        if (dec->carry_buffer_s32) dec->carry_buffer_s32[i] = v24;
+    }
+}
+
 static bool decode_next_sample_ex(alac_decoder_t * dec, decoder_read_status_t * out_status) {
     if (dec->current_sample_index >= src_count(&dec->src)) {
         if (out_status) *out_status = DECODER_READ_EOF;
@@ -174,30 +199,7 @@ static bool decode_next_sample_ex(alac_decoder_t * dec, decoder_read_status_t * 
         return false;
     }
 
-    if (dec->bit_depth == 16) {
-        memcpy(dec->carry_buffer, dec->raw_output_buf, (size_t) out_frames * dec->channels * sizeof(int16_t));
-        if (dec->carry_buffer_s32) {
-            const int16_t * src16 = (const int16_t *) dec->raw_output_buf;
-            size_t sample_count = (size_t) out_frames * dec->channels;
-            for (size_t i = 0; i < sample_count; i++) {
-                dec->carry_buffer_s32[i] = (int32_t) src16[i];
-            }
-        }
-    } else { /* 24-bit: packed 3-byte little-endian samples per copyPredictorTo24/unmix24 */
-        const uint8_t * src = dec->raw_output_buf;
-        size_t sample_count = (size_t) out_frames * dec->channels;
-        for (size_t i = 0; i < sample_count; i++) {
-            int32_t v = src[i * 3] | (src[i * 3 + 1] << 8) | (src[i * 3 + 2] << 16);
-            if (v & 0x800000) v |= (int32_t) 0xFF000000; /* sign-extend */
-            dec->carry_buffer[i] = (int16_t) (v >> 8);
-            if (dec->carry_buffer_s32) {
-                /* ALAC decoded sample v is already a right-justified, sign-extended
-                 * true-magnitude int32 value -- do NOT shift, it is already in the
-                 * low 24 bits matching ALSA S24_LE layout. */
-                dec->carry_buffer_s32[i] = v;
-            }
-        }
-    }
+    convert_output(dec, out_frames);
 
     dec->consecutive_errors = 0;
     dec->carry_frames = out_frames;
@@ -211,7 +213,7 @@ static bool decode_next_sample(alac_decoder_t * dec) {
     return decode_next_sample_ex(dec, NULL);
 }
 
-/* Builds the ALAC decoder from the stream's cookie, accepting 16/24-bit only. */
+/* Builds the ALAC decoder from the stream's cookie, accepting 16/20/24/32-bit. */
 static ALACDecoder * create_codec(const alac_source * src) {
     uint32_t config_size;
     const uint8_t * config = src_config(src, &config_size);
@@ -228,7 +230,7 @@ static ALACDecoder * create_codec(const alac_source * src) {
         decoder->mConfig.frameLength != frame_length ||
         decoder->mConfig.sampleRate != sample_rate ||
         decoder->mConfig.numChannels != channels ||
-        decoder->mConfig.bitDepth != bit_depth) { /* 20/32-bit ALAC not handled -- rare in practice */
+        decoder->mConfig.bitDepth != bit_depth) {
         delete decoder;
         return NULL;
     }
@@ -257,7 +259,7 @@ static bool alloc_buffers(alac_decoder_t * dec) {
     dec->compressed_buf_capacity = dec->frame_size * dec->channels * 4 + 4096;
     dec->compressed_buf = (uint8_t *) malloc(dec->compressed_buf_capacity);
 
-    size_t bytes_per_sample = (dec->bit_depth == 16) ? sizeof(int16_t) : 3;
+    size_t bytes_per_sample = dec->bit_depth == 16 ? 2 : dec->bit_depth == 32 ? 4 : 3;
     dec->raw_output_buf = (uint8_t *) malloc((size_t) dec->frame_size * dec->channels * bytes_per_sample);
     dec->carry_buffer = (int16_t *) malloc((size_t) dec->frame_size * dec->channels * sizeof(int16_t));
     return dec->compressed_buf && dec->raw_output_buf && dec->carry_buffer;
@@ -351,23 +353,7 @@ decoder_read_result_t alac_read_pcm_frames_s16(alac_decoder_t * dec, uint64_t fr
 decoder_read_result_t alac_read_pcm_frames_s32(alac_decoder_t * dec, uint64_t frames_to_read, int32_t * buffer_out) {
     if (dec && !dec->carry_buffer_s32) {
         dec->carry_buffer_s32 = (int32_t *) malloc((size_t) dec->frame_size * dec->channels * sizeof(int32_t));
-        if (dec->carry_buffer_s32 && dec->carry_frames > 0) {
-            if (dec->bit_depth == 16) {
-                const int16_t * src16 = (const int16_t *) dec->raw_output_buf;
-                size_t sample_count = (size_t) dec->carry_frames * dec->channels;
-                for (size_t i = 0; i < sample_count; i++) {
-                    dec->carry_buffer_s32[i] = (int32_t) src16[i];
-                }
-            } else {
-                const uint8_t * src = dec->raw_output_buf;
-                size_t sample_count = (size_t) dec->carry_frames * dec->channels;
-                for (size_t i = 0; i < sample_count; i++) {
-                    int32_t v = src[i * 3] | (src[i * 3 + 1] << 8) | (src[i * 3 + 2] << 16);
-                    if (v & 0x800000) v |= (int32_t) 0xFF000000;
-                    dec->carry_buffer_s32[i] = v;
-                }
-            }
-        }
+        if (dec->carry_buffer_s32 && dec->carry_frames > 0) convert_output(dec, dec->carry_frames);
     }
 
     decoder_read_result_t res = { .frames = 0, .status = DECODER_READ_OK };
