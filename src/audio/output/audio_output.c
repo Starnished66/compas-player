@@ -279,7 +279,7 @@ static void apply_dac_preferences(bool dop) {
  * the volume path also reads it to apply the DSD gain. */
 static _Atomic int dop_switch_written = -1;
 
-static void refresh_hw_volume(void);
+static bool refresh_hw_volume(void);
 
 /* A DoP rate the DAC refused (hw_params or the switch), so later tracks at
  * that rate are converted without another failed open. Owner thread only. */
@@ -377,6 +377,8 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         /* A PCM stream must never start with the DAC still in DoP mode; a
          * failed clear is retried by the caller's next open. */
         if (!dop && !set_dop_switch(false)) return false;
+        /* A restore that failed earlier is retried before PCM starts. */
+        if (!dop && !refresh_hw_volume()) return false;
         struct pcm_config config;
         memset(&config, 0, sizeof(config));
         config.channels = channels;
@@ -991,26 +993,28 @@ static int gained_raw(int raw) {
 }
 
 /* Writes the requested volume (with gain) unless it is already in place.
- * Call with hw_volume_mutex held. */
-static void write_hw_volume_locked(void) {
+ * True when the DAC holds the desired value afterwards (a control the card
+ * lacks counts as nothing to write). Call with hw_volume_mutex held. */
+static bool write_hw_volume_locked(void) {
     static struct mixer_ctl * left_ctl = NULL;
     static struct mixer_ctl * right_ctl = NULL;
     static int last_left = INT_MIN;
     static int last_right = INT_MIN;
-    if (requested_raw_left == INT_MIN) return;
+    if (requested_raw_left == INT_MIN) return true;
     int raw_left = gained_raw(requested_raw_left);
     int raw_right = gained_raw(requested_raw_right);
 
-    if (raw_left == last_left && raw_right == last_right) return;
+    if (raw_left == last_left && raw_right == last_right) return true;
 
     struct mixer * mixer = get_alsa_mixer();
-    if (!mixer) return;
+    if (!mixer) return false;
     if (!left_ctl) left_ctl = mixer_get_ctl_by_name(mixer, "Left Playback Volume");
     if (!right_ctl) right_ctl = mixer_get_ctl_by_name(mixer, "Right Playback Volume");
     if (left_ctl && raw_left != last_left && mixer_ctl_set_value(left_ctl, 0, raw_left) == 0)
         last_left = raw_left;
     if (right_ctl && raw_right != last_right && mixer_ctl_set_value(right_ctl, 0, raw_right) == 0)
         last_right = raw_right;
+    return (!left_ctl || last_left == raw_left) && (!right_ctl || last_right == raw_right);
 }
 
 static void audio_output_set_hw_volume_raw(int raw_left, int raw_right) {
@@ -1021,17 +1025,19 @@ static void audio_output_set_hw_volume_raw(int raw_left, int raw_right) {
     pthread_mutex_unlock(&hw_volume_mutex);
 }
 
-/* DoP switch edge: re-apply the volume, but only when a gain is set. */
-static void refresh_hw_volume(void) {
+/* Makes the DAC hold the volume for the current DoP state; a no-op when it
+ * already does. False if a write failed. */
+static bool refresh_hw_volume(void) {
     pthread_mutex_lock(&hw_volume_mutex);
-    if (dsd_gain_steps) write_hw_volume_locked();
+    bool ok = write_hw_volume_locked();
     pthread_mutex_unlock(&hw_volume_mutex);
+    return ok;
 }
 
 void audio_output_set_dsd_gain_db(int db) {
     pthread_mutex_lock(&hw_volume_mutex);
     dsd_gain_steps = (db < 0 ? 0 : db > 6 ? 6 : db) * 2; /* 0.5 dB per raw step */
-    if (dop_switch_written == 1) write_hw_volume_locked();
+    write_hw_volume_locked();
     pthread_mutex_unlock(&hw_volume_mutex);
 }
 
