@@ -171,6 +171,15 @@ static bool coef_vlc_build(coef_vlc_ctx_t * ctx, const wma_coef_vlc_table_t * sr
 
 /* ---- decoder state ---- */
 
+/* Per block size IMDCT tables (see wma_imdct). */
+typedef struct {
+    int m;          /* block_len */
+    float * tw;     /* pre/post twiddle, m/2 complex */
+    float * ftw;    /* FFT twiddle, m/4 complex */
+    uint16_t * rev; /* bit-reverse permutation, m/2 */
+    float * buf;    /* scratch, 2*m floats */
+} imdct_tab_t;
+
 struct wma_decoder {
     asf_demux_t * demux;
 
@@ -212,6 +221,7 @@ struct wma_decoder {
     coef_vlc_ctx_t coef_vlc[2];
 
     float * windows[BLOCK_NB_SIZES]; /* windows[bsize] has length frame_len>>bsize */
+    imdct_tab_t imdct[BLOCK_NB_SIZES]; /* imdct[bsize] handles block_len frame_len>>bsize */
 
     /* per-block state, persists across calls (variable block length /
      * exponent-reuse bookkeeping) */
@@ -406,34 +416,92 @@ static int wma_run_level_decode(bitreader_t * gb, const coef_vlc_ctx_t * vlc, fl
     return offset > num_coefs ? -1 : 0;
 }
 
-/* ---- IMDCT: direct type-IV DCT synthesis (standard MDCT reconstruction
- * formula, e.g. Vorbis spec 4.3.4), using an angle-recurrence instead of
- * calling cos() per sample/coefficient pair to keep it affordable on an
- * FPU-less-accelerated embedded target. block_len input coefficients ->
- * 2*block_len output samples. ---- */
+/* ---- IMDCT: block_len coefficients -> 2*block_len samples. Computed as a
+ * DCT-IV through a block_len/2-point complex FFT (pre-twiddle, FFT,
+ * post-twiddle), then unfolded to the 2*block_len outputs. Tables are built
+ * once per block size at open. ---- */
 
-static void wma_imdct(const float * coefs, float * out, int block_len) {
-    int M = block_len;
-    int N = 2 * M;
-    double wdel = M_PI / (4.0 * M);
-    double base_delta = 2.0 * wdel;
-    double base = wdel * (1.0 + M);
+static void imdct_tab_free(imdct_tab_t * t) {
+    free(t->tw);
+    free(t->ftw);
+    free(t->rev);
+    free(t->buf);
+    memset(t, 0, sizeof(*t));
+}
 
-    for (int n = 0; n < N; n++) {
-        double delta = 2.0 * base;
-        double cd = cos(delta), sd = sin(delta);
-        double cur_c = cos(base), cur_s = sin(base);
-        double sum = 0.0;
-        for (int k = 0; k < M; k++) {
-            sum += coefs[k] * cur_c;
-            double nc = cur_c * cd - cur_s * sd;
-            double ns = cur_c * sd + cur_s * cd;
-            cur_c = nc;
-            cur_s = ns;
-        }
-        out[n] = (float) -sum;
-        base += base_delta;
+static int imdct_tab_init(imdct_tab_t * t, int m) {
+    int n2 = m / 2;
+    int bits = 0;
+    while ((1 << bits) < n2) bits++;
+    t->m = m;
+    t->tw = malloc((size_t) n2 * 2 * sizeof(float));
+    t->ftw = malloc((size_t) n2 * sizeof(float)); /* n2/2 complex */
+    t->rev = malloc((size_t) n2 * sizeof(uint16_t));
+    t->buf = malloc((size_t) m * 2 * sizeof(float));
+    if (!t->tw || !t->ftw || !t->rev || !t->buf) {
+        imdct_tab_free(t);
+        return -1;
     }
+    for (int n = 0; n < n2; n++) {
+        double a = M_PI * (n + 0.125) / m; /* same angle pre and post */
+        t->tw[2 * n] = (float) cos(a);
+        t->tw[2 * n + 1] = (float) -sin(a);
+        int r = 0;
+        for (int b = 0; b < bits; b++) r |= ((n >> b) & 1) << (bits - 1 - b);
+        t->rev[n] = (uint16_t) r;
+    }
+    for (int j = 0; j < n2 / 2; j++) {
+        t->ftw[2 * j] = (float) cos(2.0 * M_PI * j / n2);
+        t->ftw[2 * j + 1] = (float) -sin(2.0 * M_PI * j / n2);
+    }
+    return 0;
+}
+
+/* In-place radix-2 FFT on interleaved complex data already in bit-reversed order. */
+static void imdct_fft(const imdct_tab_t * t, float * z) {
+    int n2 = t->m / 2;
+    for (int len = 2; len <= n2; len <<= 1) {
+        int half = len / 2, step = n2 / len;
+        for (int i = 0; i < n2; i += len) {
+            for (int j = 0; j < half; j++) {
+                float wr = t->ftw[2 * j * step], wi = t->ftw[2 * j * step + 1];
+                float * a = z + 2 * (i + j);
+                float * b = a + 2 * half;
+                float tr = b[0] * wr - b[1] * wi, ti = b[0] * wi + b[1] * wr;
+                b[0] = a[0] - tr;
+                b[1] = a[1] - ti;
+                a[0] += tr;
+                a[1] += ti;
+            }
+        }
+    }
+}
+
+/* Unnormalised DCT-IV of x (m values) into c. */
+static void imdct_dct4(const imdct_tab_t * t, const float * x, float * c, float * z) {
+    int m = t->m, n2 = m / 2;
+    for (int n = 0; n < n2; n++) {
+        float re = x[2 * n], im = x[m - 1 - 2 * n];
+        float wr = t->tw[2 * n], wi = t->tw[2 * n + 1];
+        float * d = z + 2 * t->rev[n];
+        d[0] = re * wr - im * wi;
+        d[1] = re * wi + im * wr;
+    }
+    imdct_fft(t, z);
+    for (int k = 0; k < n2; k++) {
+        float wr = t->tw[2 * k], wi = t->tw[2 * k + 1];
+        c[2 * k] = z[2 * k] * wr - z[2 * k + 1] * wi;
+        c[m - 1 - 2 * k] = -(z[2 * k] * wi + z[2 * k + 1] * wr);
+    }
+}
+
+static void wma_imdct(const imdct_tab_t * t, const float * coefs, float * out) {
+    int m = t->m, h = m / 2;
+    float * c = t->buf + m;
+    imdct_dct4(t, coefs, c, t->buf);
+    for (int n = 0; n < h; n++) out[n] = -c[n + h];
+    for (int n = h; n < 3 * h; n++) out[n] = c[3 * h - 1 - n];
+    for (int n = 3 * h; n < 2 * m; n++) out[n] = c[n - 3 * h];
 }
 
 static void vec_fmul_add(float * dst, const float * a, const float * b, const float * c, int n) {
@@ -691,7 +759,7 @@ next:
     for (int ch = 0; ch < channels; ch++) {
         int n4 = s->block_len / 2;
         if (s->channel_coded[ch]) {
-            wma_imdct(s->coefs[ch], s->output, s->block_len);
+            wma_imdct(&s->imdct[s->frame_len_bits - s->block_len_bits], s->coefs[ch], s->output);
         } else if (!(s->ms_stereo && ch == 1)) {
             memset(s->output, 0, sizeof(s->output));
         }
@@ -976,7 +1044,7 @@ wma_decoder_t * wma_open_file(const char * path) {
     for (int k = 0; k < s->nb_block_sizes; k++) {
         int n = s->frame_len >> k;
         s->windows[k] = malloc(sizeof(float) * (size_t) n);
-        if (!s->windows[k]) {
+        if (!s->windows[k] || imdct_tab_init(&s->imdct[k], n) < 0) {
             wma_close(s);
             return NULL;
         }
@@ -1157,7 +1225,12 @@ bool wma_seek_to_pcm_frame(wma_decoder_t * dec, uint64_t frame_index) {
     if (!dec) return false;
     uint64_t total_packets = asf_demux_get_packet_count(dec->demux);
     if (total_packets == 0 || dec->total_pcm_frames == 0) return false;
-    uint64_t packet_index = frame_index * total_packets / dec->total_pcm_frames;
+    /* packets span the audio plus the preroll */
+    uint64_t preroll = asf_demux_get_preroll_100ns(dec->demux);
+    uint64_t pos_100ns = frame_index * 10000000ull / dec->sample_rate + preroll;
+    uint64_t span_100ns = asf_demux_get_duration_100ns(dec->demux) + preroll;
+    uint64_t packet_index = span_100ns ? pos_100ns * total_packets / span_100ns : 0;
+    if (packet_index >= total_packets) packet_index = total_packets - 1;
     asf_demux_seek_to_packet(dec->demux, packet_index);
 
     dec->reservoir_len = 0;
@@ -1187,7 +1260,10 @@ void wma_close(wma_decoder_t * dec) {
         free(dec->coef_vlc[i].run_table);
         free(dec->coef_vlc[i].level_table);
     }
-    for (int i = 0; i < BLOCK_NB_SIZES; i++) free(dec->windows[i]);
+    for (int i = 0; i < BLOCK_NB_SIZES; i++) {
+        free(dec->windows[i]);
+        imdct_tab_free(&dec->imdct[i]);
+    }
     for (int i = 0; i < MAX_CHANNELS; i++) free(dec->frame_out[i]);
     free(dec->noise_table);
     free(dec->reservoir);

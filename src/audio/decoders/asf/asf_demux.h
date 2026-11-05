@@ -37,6 +37,8 @@ const uint8_t * asf_demux_get_codec_data(const asf_demux_t * d, uint32_t * out_s
  * (an author-supplied estimate, not exact -- fine for a seek-bar/duration
  * display but not sample-accurate). */
 uint64_t asf_demux_get_duration_100ns(const asf_demux_t * d);
+/* Preroll (already excluded from the duration above); packets cover duration + preroll. */
+uint64_t asf_demux_get_preroll_100ns(const asf_demux_t * d);
 
 uint64_t asf_demux_get_packet_count(const asf_demux_t * d);
 

@@ -41,7 +41,8 @@ struct asf_demux {
     uint32_t default_packet_size; /* from File Properties' min packet size; used when a packet's own length field defaults to it */
     uint64_t data_packets_total;
     uint64_t data_packets_read;
-    uint64_t duration_100ns;
+    uint64_t duration_100ns; /* audio only, preroll removed */
+    uint64_t preroll_100ns;
     long first_packet_pos;
 
     /* Packets are fixed-size slots (default_packet_size, per the File
@@ -326,6 +327,10 @@ asf_demux_t * asf_demux_open(const char * path) {
             d->data_packets_total = read_u64le(f);
             fseek(f, sub.data_start + 40, SEEK_SET);
             d->duration_100ns = read_u64le(f);
+            fseek(f, sub.data_start + 56, SEEK_SET);
+            d->preroll_100ns = read_u64le(f) * 10000ull; /* preroll is in ms */
+            /* play duration includes the preroll; report only the audio */
+            d->duration_100ns = d->duration_100ns > d->preroll_100ns ? d->duration_100ns - d->preroll_100ns : 0;
             fseek(f, sub.data_start + 68, SEEK_SET);
             d->default_packet_size = read_u32le(f);
         } else if (guid_eq(sub.guid, GUID_STREAM_PROPERTIES) && d->audio_stream_number < 0) {
@@ -392,6 +397,7 @@ const uint8_t * asf_demux_get_codec_data(const asf_demux_t * d, uint32_t * out_s
 }
 
 uint64_t asf_demux_get_duration_100ns(const asf_demux_t * d) { return d->duration_100ns; }
+uint64_t asf_demux_get_preroll_100ns(const asf_demux_t * d) { return d->preroll_100ns; }
 uint64_t asf_demux_get_packet_count(const asf_demux_t * d) { return d->data_packets_total; }
 
 void asf_demux_seek_to_packet(asf_demux_t * d, uint64_t packet_index) {
