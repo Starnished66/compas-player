@@ -1,5 +1,6 @@
 #include "plugin_store_internal.h"
 #include "store_common.h"
+#include "../../../core/files/file_integrity.h"
 #include "../../../ui/text/i18n/i18n.h"
 #include "../../http/client/http_client.h"
 #include "../../../plugins/manager/plugin_api_version.h"
@@ -126,12 +127,13 @@ void * ps_refresh_worker(void * unused) {
 
 static bool disk_space(uint64_t bytes) {
     struct statvfs fs;
+    uint64_t available;
     return statvfs(STORE_SD_ROOT, &fs) == 0 && !(fs.f_flag & ST_RDONLY) &&
-           (uint64_t) fs.f_bavail * fs.f_frsize >= bytes + STORE_MARGIN;
+           filesystem_available_bytes(STORE_SD_ROOT, &available) && available >= bytes + STORE_MARGIN;
 }
 
 /* A staging folder of this operation's own. The name is new each time, so
- * a failed download (http_get_to_file_redirects removes its partial file)
+ * a failed download (the download module removes its temporary file)
  * or a cleanup can never hit files another card left at a fixed path. */
 static void make_stage_path(char * out, size_t size, const char * kind, const char * id) {
     static unsigned stage_counter;

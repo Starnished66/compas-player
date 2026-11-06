@@ -1,7 +1,8 @@
 #include "store_common.h"
 #include "../../../ui/text/i18n/i18n.h"
 
-#include "mbedtls/sha256.h"
+#include "../../download/download.h"
+#include "../../../core/files/file_integrity.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -192,48 +193,18 @@ bool store_json_uint(const cJSON * o, const char * name, uint32_t min, uint32_t 
 }
 
 bool store_hash_file(const char * path, uint64_t * size, char hex[65]) {
-    FILE * f = fopen(path, "rb");
-    if (!f) {
-        return false;
-    }
-    mbedtls_sha256_context c;
-    mbedtls_sha256_init(&c);
-    bool ok = mbedtls_sha256_starts(&c, 0) == 0;
-    uint8_t buf[8192], dig[32];
-    uint64_t total = 0;
-    size_t n;
-    while (ok && (n = fread(buf, 1, sizeof(buf), f)) > 0) {
-        ok = mbedtls_sha256_update(&c, buf, n) == 0;
-        total += n;
-    }
-    if (ferror(f)) {
-        ok = false;
-    }
-    fclose(f);
-    if (ok) {
-        ok = mbedtls_sha256_finish(&c, dig) == 0;
-    }
-    mbedtls_sha256_free(&c);
-    if (!ok) {
-        return false;
-    }
-    for (int i = 0; i < 32; i++) {
-        snprintf(hex + i * 2, 3, "%02x", dig[i]);
-    }
-    *size = total;
-    return true;
+    return file_sha256(path, size, hex);
 }
 
 bool store_download_verified(const char * url, const char * dest, uint32_t size, const char * sha256,
                              size_t max_bytes, http_progress_cb_t progress, void * context) {
-    int status = 0;
-    if (!http_get_to_file_redirects(url, true, dest, max_bytes, progress, context, STORE_TIMEOUT_CONNECT,
-                                    STORE_TIMEOUT_READ, NULL, 5, &status)) {
-        return false;
-    }
-    char sha[65];
-    uint64_t got;
-    return store_hash_file(dest, &got, sha) && got == size && strcmp(sha, sha256) == 0;
+    download_request_t request = { .url = url, .dest_path = dest,
+        .max_bytes = max_bytes, .has_expected_size = true, .expected_size = size,
+        .expected_sha256 = sha256, .verify_tls = true, .max_redirects = 5,
+        .connect_timeout_ms = STORE_TIMEOUT_CONNECT, .read_timeout_ms = STORE_TIMEOUT_READ };
+    download_result_t result;
+    /* Real directory I/O errors remain failures even after commit. */
+    return download_to_file(&request, NULL, progress, context, &result) == DOWNLOAD_OK;
 }
 
 static const char * connection_error(const char * e, const char * generic) {

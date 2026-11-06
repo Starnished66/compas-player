@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <stdio.h>
 
 #define HTTP_MAX_HEADERS 32
 #define HTTP_HEADER_NAME_MAX 64
@@ -26,10 +27,12 @@
 #define HTTP_ERR_TIMEOUT "timeout"
 #define HTTP_ERR_MALFORMED "malformed"
 #define HTTP_ERR_IO "io"
+#define HTTP_ERR_WRITE "write"
 #define HTTP_ERR_RESPONSE_TOO_LARGE "response_too_large"
 #define HTTP_ERR_INVALID_URL "invalid_url"
 #define HTTP_ERR_INVALID_REQUEST "invalid_request"
 #define HTTP_ERR_TOO_MANY_REDIRECTS "too_many_redirects"
+#define HTTP_ERR_INVALID_REDIRECT "invalid_redirect"
 #define HTTP_ERR_INSECURE_REDIRECT "insecure_redirect"
 
 typedef struct http_cancel_token {
@@ -112,6 +115,27 @@ bool http_post_to_buffer_limited(const char * url, bool verify_tls, const char *
  * from Content-Length (0 if unknown). Returning false cancels the download. */
 typedef bool (*http_progress_cb_t)(uint64_t bytes_downloaded, uint64_t total_bytes, void * user_data);
 
+/* Borrowed open stream: never flushed, closed, or reopened by HTTP. */
+typedef struct {
+    const char *url;
+    bool verify_tls;
+    uint64_t max_bytes;
+    unsigned max_redirects;
+    uint32_t connect_timeout_ms, read_timeout_ms, total_timeout_ms;
+} http_file_request_t;
+
+typedef struct {
+    int status;
+    const char *error;
+    int system_errno;
+    uint64_t bytes_written;
+    char content_type[128];
+} http_file_result_t;
+
+bool http_get_to_open_file(const http_file_request_t *request, FILE *file,
+                           http_cancel_token_t *cancel, http_progress_cb_t progress,
+                           void *user, http_file_result_t *result);
+
 /* Streams the response body directly to a local file at dest_path. */
 bool http_get_to_file(const char * url, bool verify_tls, const char * dest_path,
                       http_progress_cb_t progress_cb, void * progress_user_data);
@@ -134,8 +158,7 @@ bool http_get_to_file_cancelable(const char * url, bool verify_tls, const char *
 
 /* Like http_get_to_file_cancelable(), but follows up to max_redirects
  * absolute http(s) redirects (Location values up to 2047 bytes, as signed
- * storage URLs need), refuses an https -> http downgrade while verify_tls
- * is set, and writes only the final response body, bounded by
+ * storage URLs need), refuses every https -> http downgrade, and writes only the final response body, bounded by
  * max_body_size (0 for the default 2 GiB cap). *out_status, when non-NULL,
  * receives the final HTTP status. The file is removed on any failure. */
 bool http_get_to_file_redirects(const char * url, bool verify_tls, const char * dest_path, size_t max_body_size,

@@ -1,6 +1,7 @@
 #include "plugin_http_bindings.h"
 
 #include "../../../network/http/client/http_client.h"
+#include "../../../network/download/download.h"
 #include "../../lua/plugin_lua_runtime.h"
 #include "../../storage/plugin_storage.h"
 #include "../../storage/plugin_reserved_dirs.h"
@@ -95,50 +96,26 @@ static void plugin_dedupe_headers_case_insensitive(http_header_t * headers, int 
     *count = out;
 }
 
+static bool plugin_async_download(plugin_async_http_t *req) {
+    /* Recheck restrictions in the worker before opening the destination parent. */
+    if (plugin_storage_path_is_reserved(req->dest_path) || plugin_path_in_program_dirs(req->dest_path))
+        return false;
+    download_request_t request = {.url = req->url, .dest_path = req->dest_path,
+        .max_bytes = UINT64_C(2) << 30, .verify_tls = req->verify_tls,
+        .connect_timeout_ms = 10000U, .read_timeout_ms = 30000U};
+    download_result_t result;
+    download_error_t error = download_to_file(&request, &req->cancel, plugin_async_download_progress, req, &result);
+    if (error == DOWNLOAD_ERR_DIR_SYNC && result.committed) {
+        fprintf(stderr, "plugin: download committed but directory sync failed: %s\n", req->dest_path);
+        return true;
+    }
+    return error == DOWNLOAD_OK;
+}
+
 static void * plugin_async_http_thread_func(void * arg) {
     plugin_async_http_t * req = (plugin_async_http_t *) arg;
     if (req->is_download) {
-        char temp_path[PATH_MAX];
-        /* Defense in depth: l_plugin_download_file_async() already
-         * rejected a reserved dest_path before ever starting this thread,
-         * but re-check here too, immediately before touching the
-         * filesystem, rather than trusting that the only path into this
-         * branch is the one already-guarded call site -- the same
-         * discipline this codebase already applies to bounds/validity
-         * checks that matter (re-verify at the point of use, not just at
-         * the call site three frames up). Must NOT return early here --
-         * req->done still needs to be set below, via the function's
-         * normal shared tail, or plugin_manager_poll() would never reap
-         * this slot and it would leak permanently as "active". */
-        int n;
-        if (plugin_storage_path_is_reserved(req->dest_path) || plugin_path_in_program_dirs(req->dest_path)) {
-            n = -1; /* forces the "invalid" branch below without touching the filesystem */
-        } else {
-            n = snprintf(temp_path, sizeof(temp_path), "%s.part.XXXXXX", req->dest_path);
-        }
-        if (n <= 0 || (size_t) n >= sizeof(temp_path)) {
-            req->ok = false;
-        } else {
-            int fd = mkstemp(temp_path);
-            if (fd < 0) {
-                req->ok = false;
-            } else {
-                close(fd);
-                /* Review finding: http_get_to_file() had no size bound at
-                 * all for its file-sink write path -- http_get_to_file_
-                 * bounded() (0 = a generous 2 GiB built-in default) closes
-                 * that gap for plugin-driven downloads specifically,
-                 * without touching http_get_to_file() itself (DLNA/cover-
-                 * art downloads keep their original unlimited behavior). */
-                req->ok = http_get_to_file_bounded(req->url, req->verify_tls, temp_path, 0,
-                                                    plugin_async_download_progress, req);
-                bool cancelled = http_cancel_token_is_cancelled(&req->cancel);
-                if (req->ok && !cancelled) {
-                    req->ok = rename(temp_path, req->dest_path) == 0;
-                }
-                if (!req->ok || cancelled) remove(temp_path);
-            }
-        }
+        req->ok = plugin_async_download(req);
     } else {
         /* plugin.http_request()'s plain (non-download) path -- shares the
          * extended http_request_ex() (headers, methods beyond GET/POST,

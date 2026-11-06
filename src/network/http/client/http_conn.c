@@ -124,7 +124,7 @@ static void * dns_resolve_thread_func(void * arg) {
  * behavior for that case. */
 #define DNS_RESOLVE_TIMED_OUT (-1000)
 static int dns_resolve_bounded(const char * host, const char * port, uint32_t timeout_ms,
-                               struct addrinfo ** out_result) {
+                               struct addrinfo ** out_result, bool require_bounded) {
     dns_resolve_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx) return EAI_MEMORY;
     snprintf(ctx->host, sizeof(ctx->host), "%s", host);
@@ -138,6 +138,7 @@ static int dns_resolve_bounded(const char * host, const char * port, uint32_t ti
          * rather than failing the request outright. */
         pthread_mutex_destroy(&ctx->mutex);
         free(ctx);
+        if (require_bounded) return EAI_AGAIN;
         struct addrinfo hints;
         memset(&hints, 0, sizeof(hints));
         hints.ai_family = AF_UNSPEC;
@@ -184,14 +185,25 @@ static int dns_resolve_bounded(const char * host, const char * port, uint32_t ti
     return DNS_RESOLVE_TIMED_OUT;
 }
 
+static uint32_t conn_remaining_ms(uint32_t requested, uint64_t deadline) {
+    if (!deadline) return requested;
+    uint64_t now = monotonic_now_ms();
+    if (now >= deadline) return 1;
+    uint64_t remaining = deadline - now;
+    if (requested && remaining > requested) return requested;
+    return remaining > UINT32_MAX ? UINT32_MAX : (uint32_t)remaining;
+}
+
+static bool conn_apply_deadline(http_conn_t *conn);
+
 /* Connects to host:port with a timeout using non-blocking connect() and poll().
  * Registers socket into cancel token to allow cancellation during connect. */
 static http_conn_error_t net_connect_timeout(mbedtls_net_context * ctx, const char * host, const char * port,
-                                              uint32_t connect_timeout_ms, struct http_cancel_token * cancel) {
+                                              uint32_t connect_timeout_ms, struct http_cancel_token * cancel, uint64_t deadline) {
     if (cancel_requested_conn(cancel)) return HTTP_CONN_ERR_CANCELLED;
 
     struct addrinfo * addr_list, * cur;
-    int dns_rc = dns_resolve_bounded(host, port, connect_timeout_ms, &addr_list);
+    int dns_rc = dns_resolve_bounded(host, port, conn_remaining_ms(connect_timeout_ms, deadline), &addr_list, deadline != 0);
     if (dns_rc == DNS_RESOLVE_TIMED_OUT) return HTTP_CONN_ERR_DNS_TIMEOUT;
     if (dns_rc != 0) return HTTP_CONN_ERR_DNS;
 
@@ -199,6 +211,7 @@ static http_conn_error_t net_connect_timeout(mbedtls_net_context * ctx, const ch
 
     http_conn_error_t result = HTTP_CONN_ERR_CONNECT;
     for (cur = addr_list; cur != NULL; cur = cur->ai_next) {
+        if (deadline && monotonic_now_ms() >= deadline) { result = HTTP_CONN_ERR_CONNECT_TIMEOUT; break; }
         int fd = socket(cur->ai_family, cur->ai_socktype, cur->ai_protocol);
         if (fd < 0) { result = HTTP_CONN_ERR_SOCKET; continue; }
 
@@ -217,7 +230,8 @@ static http_conn_error_t net_connect_timeout(mbedtls_net_context * ctx, const ch
             /* poll()'s own -1 means "wait indefinitely" -- exactly
              * connect_timeout_ms == 0's intended meaning, and shutdown()
              * (from a cancel) still unblocks it immediately either way. */
-            int pr = poll(&pfd, 1, connect_timeout_ms > 0 ? (int) connect_timeout_ms : -1);
+            uint32_t wait_ms = conn_remaining_ms(connect_timeout_ms, deadline);
+            int pr = poll(&pfd, 1, wait_ms > 0 ? (int)(wait_ms > INT32_MAX ? INT32_MAX : wait_ms) : -1);
             if (pr == 0) {
                 cancel_unregister_and_close(cancel, fd);
                 result = HTTP_CONN_ERR_CONNECT_TIMEOUT;
@@ -250,130 +264,136 @@ static http_conn_error_t net_connect_timeout(mbedtls_net_context * ctx, const ch
     return result;
 }
 
-bool http_conn_open_ex(http_conn_t * conn, const char * host, const char * port, bool https, bool verify_tls,
-                        uint32_t connect_timeout_ms, uint32_t read_timeout_ms,
-                        struct http_cancel_token * cancel, http_conn_error_t * out_error) {
-    http_conn_error_t local_error = HTTP_CONN_OK;
-    if (!out_error) out_error = &local_error;
-    *out_error = HTTP_CONN_OK;
+/* TLS may perform several BIO calls within one handshake/read/write. */
+static int conn_tls_send(void *context, const unsigned char *data, size_t size) {
+    http_conn_t *conn = context;
+    if (!conn_apply_deadline(conn)) return MBEDTLS_ERR_SSL_TIMEOUT;
+    return mbedtls_net_send(&conn->net, data, size);
+}
 
-    memset(conn, 0, sizeof(*conn));
-    conn->is_https = https;
-    conn->cancel_token = cancel;
-    mbedtls_net_init(&conn->net);
+static int conn_tls_recv(void *context, unsigned char *data, size_t size) {
+    http_conn_t *conn = context;
+    if (!conn_apply_deadline(conn)) return MBEDTLS_ERR_SSL_TIMEOUT;
+    return mbedtls_net_recv(&conn->net, data, size);
+}
 
-    *out_error = net_connect_timeout(&conn->net, host, port, connect_timeout_ms, cancel);
-    if (*out_error != HTTP_CONN_OK) return false;
-
-    if (read_timeout_ms > 0) {
-        struct timeval tv = { .tv_sec = (time_t) (read_timeout_ms / 1000), .tv_usec = (suseconds_t) (read_timeout_ms % 1000) * 1000 };
-        setsockopt(conn->net.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        setsockopt(conn->net.fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    }
-
-    if (!https) return true;
-
+static bool conn_tls_configure(http_conn_t *conn, bool verify_tls) {
     mbedtls_ssl_init(&conn->ssl);
     mbedtls_ssl_config_init(&conn->conf);
     mbedtls_x509_crt_init(&conn->cacert);
     mbedtls_ctr_drbg_init(&conn->ctr_drbg);
     mbedtls_entropy_init(&conn->entropy);
     conn->ssl_initialized = true;
-
-    if (mbedtls_ctr_drbg_seed(&conn->ctr_drbg, mbedtls_entropy_func, &conn->entropy, NULL, 0) != 0) {
-        *out_error = HTTP_CONN_ERR_TLS_SETUP;
+    if (mbedtls_ctr_drbg_seed(&conn->ctr_drbg, mbedtls_entropy_func, &conn->entropy, NULL, 0) != 0)
         return false;
-    }
-
     if (mbedtls_ssl_config_defaults(&conn->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
-                                     MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
-        *out_error = HTTP_CONN_ERR_TLS_SETUP;
-        return false;
-    }
+                                     MBEDTLS_SSL_PRESET_DEFAULT) != 0) return false;
     mbedtls_ssl_conf_rng(&conn->conf, mbedtls_ctr_drbg_random, &conn->ctr_drbg);
-
     if (verify_tls) {
-        if (mbedtls_x509_crt_parse(&conn->cacert, ca_bundle_pem, ca_bundle_pem_len) < 0) {
-            *out_error = HTTP_CONN_ERR_TLS_SETUP;
-            return false;
-        }
+        if (mbedtls_x509_crt_parse(&conn->cacert, ca_bundle_pem, ca_bundle_pem_len) < 0) return false;
         mbedtls_ssl_conf_ca_chain(&conn->conf, &conn->cacert, NULL);
         mbedtls_ssl_conf_authmode(&conn->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     } else {
-        /* Explicit, per-connection opt-out (subsonic_client.h's
-         * "trust this self-signed server" setting) -- never a silent
-         * default. */
+        /* Explicit per-connection trust of a self-signed server. */
         mbedtls_ssl_conf_authmode(&conn->conf, MBEDTLS_SSL_VERIFY_NONE);
     }
+    return true;
+}
 
-    if (mbedtls_ssl_setup(&conn->ssl, &conn->conf) != 0) {
-        *out_error = HTTP_CONN_ERR_TLS_SETUP;
-        return false;
-    }
-    if (mbedtls_ssl_set_hostname(&conn->ssl, host) != 0) {
-        *out_error = HTTP_CONN_ERR_TLS_SETUP;
-        return false;
-    }
-    mbedtls_ssl_set_bio(&conn->ssl, &conn->net, mbedtls_net_send, mbedtls_net_recv, NULL);
-
-    /* Correction to the comment this replaced: it assumed a SO_RCVTIMEO
-     * timeout surfaces as MBEDTLS_ERR_SSL_WANT_READ. On this fd it does
-     * not -- see http_conn_read()'s own comment for the full explanation
-     * (net_would_block() only ever fires for a non-blocking fd, and this
-     * connection is deliberately restored to blocking after connect).
-     * An EAGAIN here instead makes mbedtls_ssl_handshake() surface a
-     * real, non-WANT_READ/WRITE error from its underlying f_recv -- which
-     * would previously have been misreported as a bare handshake failure
-     * on the very first timeout, never even reaching the wall-clock
-     * check below. Check errno for EAGAIN/EWOULDBLOCK the same way
-     * http_conn_read() does, immediately after the call, and treat it as
-     * the equivalent of WANT_READ so the deadline logic below actually
-     * runs. Retrying unconditionally on would-block (as the original,
-     * timeout-less version of this loop did) would silently turn a real
-     * socket timeout into an infinite retry loop instead of a bounded
-     * failure -- track wall-clock elapsed time explicitly and give up
-     * once it exceeds read_timeout_ms, only when a timeout was actually
-     * requested; read_timeout_ms == 0 keeps the original
-     * unconditional-retry behavior exactly. A cancel-driven shutdown()
-     * during this loop instead surfaces as a clean EOF (recv() returning
-     * 0) from the transport, which mbedTLS turns into a real (non-would-
-     * block) handshake error -- already correctly handled by the
-     * existing "not would-block" branch. */
-    uint64_t handshake_deadline = read_timeout_ms > 0 ? monotonic_now_ms() + read_timeout_ms : 0;
-    int ret;
+static bool conn_tls_handshake(http_conn_t *conn, bool verify_tls, http_conn_error_t *error) {
+    uint64_t deadline = conn->read_timeout_ms ? monotonic_now_ms() + conn->read_timeout_ms : 0;
+    if (conn->deadline_ms && (!deadline || conn->deadline_ms < deadline)) deadline = conn->deadline_ms;
     for (;;) {
+        if (!conn_apply_deadline(conn)) { *error = HTTP_CONN_ERR_TLS_HANDSHAKE_TIMEOUT; return false; }
         errno = 0;
-        ret = mbedtls_ssl_handshake(&conn->ssl);
+        int ret = mbedtls_ssl_handshake(&conn->ssl);
         if (ret == 0) break;
-        bool would_block = (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) ||
-                            (errno == EAGAIN || errno == EWOULDBLOCK);
-        if (!would_block) {
-            *out_error = cancel_requested_conn(cancel) ? HTTP_CONN_ERR_CANCELLED : HTTP_CONN_ERR_TLS_HANDSHAKE;
+        bool would_block = ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE ||
+                           errno == EAGAIN || errno == EWOULDBLOCK;
+        if (ret == MBEDTLS_ERR_SSL_TIMEOUT || (deadline && monotonic_now_ms() >= deadline)) {
+            *error = HTTP_CONN_ERR_TLS_HANDSHAKE_TIMEOUT;
             return false;
         }
-        if (handshake_deadline != 0 && monotonic_now_ms() >= handshake_deadline) {
-            *out_error = HTTP_CONN_ERR_TLS_HANDSHAKE_TIMEOUT;
+        if (!would_block) {
+            *error = cancel_requested_conn(conn->cancel_token) ? HTTP_CONN_ERR_CANCELLED : HTTP_CONN_ERR_TLS_HANDSHAKE;
             return false;
         }
     }
-
     if (verify_tls && mbedtls_ssl_get_verify_result(&conn->ssl) != 0) {
-        *out_error = HTTP_CONN_ERR_TLS_VERIFY;
+        *error = HTTP_CONN_ERR_TLS_VERIFY;
         return false;
     }
     return true;
+}
+
+static bool conn_tls_open(http_conn_t *conn, const char *host, bool verify_tls, http_conn_error_t *error) {
+    if (!conn_tls_configure(conn, verify_tls) || mbedtls_ssl_setup(&conn->ssl, &conn->conf) != 0 ||
+        mbedtls_ssl_set_hostname(&conn->ssl, host) != 0) {
+        *error = HTTP_CONN_ERR_TLS_SETUP;
+        return false;
+    }
+    mbedtls_ssl_set_bio(&conn->ssl, conn, conn_tls_send, conn_tls_recv, NULL);
+    return conn_tls_handshake(conn, verify_tls, error);
+}
+
+bool http_conn_open_deadline_ex(http_conn_t *conn, const char *host, const char *port, bool https, bool verify_tls,
+    uint32_t connect_timeout_ms, uint32_t read_timeout_ms, struct http_cancel_token *cancel,
+    http_conn_error_t *out_error, uint64_t deadline_ms) {
+    http_conn_error_t local_error = HTTP_CONN_OK;
+    if (!out_error) out_error = &local_error;
+    *out_error = HTTP_CONN_OK;
+    memset(conn, 0, sizeof(*conn));
+    conn->is_https = https;
+    conn->read_timeout_ms = read_timeout_ms;
+    conn->deadline_ms = deadline_ms;
+    conn->cancel_token = cancel;
+    mbedtls_net_init(&conn->net);
+    *out_error = net_connect_timeout(&conn->net, host, port, connect_timeout_ms, cancel, deadline_ms);
+    if (*out_error != HTTP_CONN_OK) return false;
+    if (read_timeout_ms > 0) {
+        struct timeval tv = { .tv_sec = (time_t)(read_timeout_ms / 1000),
+                              .tv_usec = (suseconds_t)(read_timeout_ms % 1000) * 1000 };
+        setsockopt(conn->net.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(conn->net.fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    }
+    if (!conn_apply_deadline(conn)) { *out_error = HTTP_CONN_ERR_CONNECT_TIMEOUT; return false; }
+    return !https || conn_tls_open(conn, host, verify_tls, out_error);
+}
+
+bool http_conn_open_ex(http_conn_t *conn, const char *host, const char *port, bool https, bool verify_tls,
+    uint32_t connect_ms, uint32_t read_ms, struct http_cancel_token *cancel, http_conn_error_t *error) {
+    return http_conn_open_deadline_ex(conn, host, port, https, verify_tls, connect_ms, read_ms, cancel, error, 0);
 }
 
 bool http_conn_open(http_conn_t * conn, const char * host, const char * port, bool https, bool verify_tls) {
     return http_conn_open_ex(conn, host, port, https, verify_tls, 0, 0, NULL, NULL);
 }
 
+/* Re-clamp before every socket operation, including buffered reader refills. */
+static bool conn_apply_deadline(http_conn_t *conn) {
+    if (!conn->deadline_ms) return true;
+    uint64_t now = monotonic_now_ms();
+    if (now >= conn->deadline_ms) {
+        conn->last_read_timed_out = true;
+        errno = ETIMEDOUT;
+        return false;
+    }
+    uint64_t ms = conn->deadline_ms - now;
+    if (conn->read_timeout_ms && ms > conn->read_timeout_ms) ms = conn->read_timeout_ms;
+    struct timeval tv = { .tv_sec = (time_t)(ms / 1000), .tv_usec = (suseconds_t)(ms % 1000) * 1000 };
+    setsockopt(conn->net.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(conn->net.fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    return true;
+}
+
 int http_conn_write(http_conn_t * conn, const uint8_t * data, size_t len) {
+    if (!conn_apply_deadline(conn)) return -1;
     if (conn->is_https) return mbedtls_ssl_write(&conn->ssl, data, len);
     return mbedtls_net_send(&conn->net, data, len);
 }
 
 int http_conn_read(http_conn_t * conn, uint8_t * buf, size_t len) {
+    if (!conn_apply_deadline(conn)) return -1;
     errno = 0;
     int n = conn->is_https ? mbedtls_ssl_read(&conn->ssl, buf, len) : mbedtls_net_recv(&conn->net, buf, len);
     if (n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
@@ -382,7 +402,7 @@ int http_conn_read(http_conn_t * conn, uint8_t * buf, size_t len) {
     }
     /* Check errno directly for timeout (EAGAIN/EWOULDBLOCK) in addition to
      * mbedTLS want-read/want-write status codes. */
-    conn->last_read_timed_out = (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE) ||
+    conn->last_read_timed_out = (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE || n == MBEDTLS_ERR_SSL_TIMEOUT) ||
                                  (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK));
     return n;
 }
@@ -390,7 +410,7 @@ int http_conn_read(http_conn_t * conn, uint8_t * buf, size_t len) {
 void http_conn_close(http_conn_t * conn) {
     if (conn->is_https) {
         if (conn->ssl_initialized) {
-            mbedtls_ssl_close_notify(&conn->ssl);
+            if (conn_apply_deadline(conn)) mbedtls_ssl_close_notify(&conn->ssl);
             mbedtls_ssl_free(&conn->ssl);
             mbedtls_ssl_config_free(&conn->conf);
             mbedtls_x509_crt_free(&conn->cacert);
@@ -440,6 +460,21 @@ bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size) 
     return http_conn_reader_line_ex(r, out, out_size, NULL);
 }
 
+bool http_conn_reader_line_strict(http_conn_reader_t *r, char *out, size_t out_size) {
+    size_t used = 0;
+    for (;;) {
+        uint8_t c;
+        if (!http_conn_reader_read_exact(r, &c, 1)) return false;
+        if (c == '\r') {
+            if (!http_conn_reader_read_exact(r, &c, 1) || c != '\n') return false;
+            out[used] = '\0';
+            return true;
+        }
+        if (c == '\n' || !c || used + 1 >= out_size) return false;
+        out[used++] = (char)c;
+    }
+}
+
 static bool parse_content_length(const char * value, uint64_t * out) {
     if (!*value) return false;
     uint64_t n = 0;
@@ -453,29 +488,43 @@ static bool parse_content_length(const char * value, uint64_t * out) {
     return true;
 }
 
+static http_head_result_t read_head_line(http_conn_reader_t *r, bool strict,
+                                         char *line, size_t size) {
+    if (strict) {
+        if (http_conn_reader_line_strict(r, line, size)) return HTTP_HEAD_OK;
+        return r->conn->last_read_timed_out ? HTTP_HEAD_IO : HTTP_HEAD_MALFORMED;
+    }
+    bool truncated;
+    if (!http_conn_reader_line_ex(r, line, size, &truncated)) return HTTP_HEAD_IO;
+    return truncated ? HTTP_HEAD_MALFORMED : HTTP_HEAD_OK;
+}
+
 http_head_result_t http_conn_read_head(http_conn_reader_t * r, http_head_t * h,
                                        http_header_fn fn, void * ctx) {
     char line[4096];
-    bool truncated;
     h->status = 0;
     h->chunked = false;
     h->has_length = false;
     h->content_length = 0;
     if (h->location && h->location_size) h->location[0] = '\0';
-    bool ok = http_conn_reader_line_ex(r, line, sizeof(line), &truncated);
-    if (!ok) return HTTP_HEAD_IO;
-    if (truncated) return HTTP_HEAD_MALFORMED;
+    http_head_result_t result = read_head_line(r, h->strict, line, sizeof(line));
+    if (result != HTTP_HEAD_OK) return result;
     const char * sp = strchr(line, ' ');
     if (!sp) return HTTP_HEAD_MALFORMED;
+    if (h->strict && (strncmp(line, "HTTP/1.1 ", 9) != 0 && strncmp(line, "HTTP/1.0 ", 9) != 0))
+        return HTTP_HEAD_MALFORMED;
+    if (h->strict && (strlen(sp + 1) < 3 || sp[1] < '1' || sp[1] > '5' ||
+        sp[2] < '0' || sp[2] > '9' || sp[3] < '0' || sp[3] > '9' || (sp[4] && sp[4] != ' ')))
+        return HTTP_HEAD_MALFORMED;
     h->status = atoi(sp + 1);
 
     for (;;) {
-        ok = http_conn_reader_line_ex(r, line, sizeof(line), &truncated);
-        if (!ok) return h->allow_header_eof ? HTTP_HEAD_OK : HTTP_HEAD_IO;
-        if (truncated) return HTTP_HEAD_MALFORMED;
-        if (!line[0]) return HTTP_HEAD_OK;
+        result = read_head_line(r, h->strict, line, sizeof(line));
+        if (result != HTTP_HEAD_OK)
+            return !h->strict && h->allow_header_eof && result == HTTP_HEAD_IO ? HTTP_HEAD_OK : result;
+        if (!line[0]) return h->strict && h->chunked && h->has_length ? HTTP_HEAD_MALFORMED : HTTP_HEAD_OK;
         char * colon = strchr(line, ':');
-        if (!colon) continue;
+        if (!colon) { if (h->strict) return HTTP_HEAD_MALFORMED; continue; }
         *colon = '\0';
         char * value = colon + 1;
         while (*value == ' ' || *value == '\t') value++;
@@ -490,8 +539,9 @@ http_head_result_t http_conn_read_head(http_conn_reader_t * r, http_head_t * h,
                 return HTTP_HEAD_MALFORMED;
             h->has_length = true;
             h->content_length = n;
-        } else if (strcasecmp(line, "Transfer-Encoding") == 0 && strcasecmp(value, "chunked") == 0) {
-            h->chunked = true;
+        } else if (strcasecmp(line, "Transfer-Encoding") == 0) {
+            if (h->strict && (h->chunked || strcasecmp(value, "chunked") != 0)) return HTTP_HEAD_MALFORMED;
+            if (strcasecmp(value, "chunked") == 0) h->chunked = true;
         } else if (strcasecmp(line, "Location") == 0 && h->location && h->location_size) {
             h->location[0] = '\0';
             if (len < h->location_size) memcpy(h->location, value, len + 1);

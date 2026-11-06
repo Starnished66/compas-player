@@ -42,6 +42,8 @@ typedef struct {
     mbedtls_entropy_context entropy;
     bool ssl_initialized; /* only the https fields above need mbedtls_*_free() */
     bool last_read_timed_out;
+    uint64_t deadline_ms; /* Optional absolute monotonic transfer deadline. */
+    uint32_t read_timeout_ms;
     struct http_cancel_token * cancel_token;
 } http_conn_t;
 
@@ -55,6 +57,11 @@ bool http_conn_open(http_conn_t * conn, const char * host, const char * port, bo
 bool http_conn_open_ex(http_conn_t * conn, const char * host, const char * port, bool https, bool verify_tls,
                         uint32_t connect_timeout_ms, uint32_t read_timeout_ms,
                         struct http_cancel_token * cancel, http_conn_error_t * out_error);
+
+/* Like open_ex, with one deadline covering DNS, connect, TLS and later I/O. */
+bool http_conn_open_deadline_ex(http_conn_t *conn, const char *host, const char *port,
+    bool https, bool verify_tls, uint32_t connect_timeout_ms, uint32_t read_timeout_ms,
+    struct http_cancel_token *cancel, http_conn_error_t *out_error, uint64_t deadline_ms);
 
 int http_conn_write(http_conn_t * conn, const uint8_t * data, size_t len);
 
@@ -78,6 +85,7 @@ typedef struct {
  * terminator) into out. Returns false on EOF/error before any terminator
  * was found. */
 bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size);
+bool http_conn_reader_line_strict(http_conn_reader_t *r, char *out, size_t out_size);
 
 typedef struct {
     int status;
@@ -86,6 +94,7 @@ typedef struct {
     uint64_t content_length;
     char * location;
     size_t location_size;
+    bool strict; /* Transactional downloads reject ambiguous framing. */
     bool allow_header_eof; /* accept EOF/error after the status line */
 } http_head_t;
 

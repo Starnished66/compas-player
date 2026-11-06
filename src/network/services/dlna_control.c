@@ -1,6 +1,8 @@
 #include "dlna_control.h"
 #include "../../core/process/subprocess.h"
 #include "../http/client/http_client.h"
+#include "../download/download.h"
+#include "../../core/files/file_integrity.h"
 #include "../../core/system/logging/debug_log.h"
 
 #include <poll.h>
@@ -109,63 +111,65 @@ static const char * extension_for_content_type(const char * content_type) {
     return NULL;
 }
 
-static void * dlna_download_thread_func(void * arg) {
-    dlna_download_request_t * req = (dlna_download_request_t *) arg;
-
-    mkdir(DLNA_TEMP_DOWNLOAD_DIR, 0755); /* Ignore EEXIST */
-
+static bool dlna_download_audio(const dlna_download_request_t *req, char final_path[512]) {
     char temp_path[600];
     snprintf(temp_path, sizeof(temp_path), DLNA_TEMP_DOWNLOAD_DIR "/dlna_track.%llu.download",
              (unsigned long long) req->generation);
-
-    char content_type[128];
-    bool ok = http_get_to_file_ex(req->uri, true, temp_path, NULL, NULL,
-                                   content_type, sizeof(content_type));
-    if (!ok) {
+    download_request_t request = {.url = req->uri, .dest_path = temp_path,
+        .max_bytes = UINT64_C(2) << 30, .verify_tls = true,
+        .connect_timeout_ms = 10000U, .read_timeout_ms = 30000U};
+    download_result_t result;
+    download_error_t error = download_to_file(&request, NULL, NULL, NULL, &result);
+    if (error != DOWNLOAD_OK && !(error == DOWNLOAD_ERR_DIR_SYNC && result.committed)) {
         DBG_LOG("dlna_control: download failed for '%s'\n", req->uri);
         remove(temp_path);
-        free(req);
-        return NULL;
+        return false;
     }
-
-    const char * ext = extension_for_content_type(content_type);
+    if (error == DOWNLOAD_ERR_DIR_SYNC)
+        DBG_LOG("dlna_control: download committed but directory sync failed\n");
+    const char *ext = extension_for_content_type(result.content_type);
     if (!ext) {
-        DBG_LOG("dlna_control: unrecognized/non-audio Content-Type '%s', not playing\n", content_type);
+        DBG_LOG("dlna_control: unrecognized/non-audio Content-Type '%s'\n", result.content_type);
         remove(temp_path);
-        free(req);
-        return NULL;
+        return false;
     }
-
-    /* Target path with extension corresponding to the detected Content-Type. */
-    char final_path[512];
-    snprintf(final_path, sizeof(final_path), DLNA_TEMP_DOWNLOAD_DIR "/dlna_track.%llu%s",
+    snprintf(final_path, 512, DLNA_TEMP_DOWNLOAD_DIR "/dlna_track.%llu%s",
              (unsigned long long) req->generation, ext);
     if (rename(temp_path, final_path) != 0) {
         DBG_LOG("dlna_control: rename to '%s' failed\n", final_path);
         remove(temp_path);
-        free(req);
-        return NULL;
+        return false;
     }
+    if (!filesystem_sync_parent(final_path)) {
+        DBG_LOG("dlna_control: committed '%s' but directory sync failed\n", final_path);
+    }
+    return true;
+}
 
+static void dlna_publish_download(const dlna_download_request_t *req, const char *final_path) {
     pthread_mutex_lock(&dlna_mutex);
     if (req->generation != dlna_download_generation) {
-        /* a newer play request has since arrived, or stop() was called -- discard this stale completion */
+        /* A newer play request or stop invalidates this completion. */
         pthread_mutex_unlock(&dlna_mutex);
         remove(final_path);
-        free(req);
-        return NULL;
+        return;
     }
-    if (last_produced_path[0] != '\0' && strcmp(last_produced_path, final_path) != 0) {
+    if (last_produced_path[0] != '\0' && strcmp(last_produced_path, final_path) != 0)
         remove(last_produced_path);
-    }
     snprintf(last_produced_path, sizeof(last_produced_path), "%s", final_path);
     snprintf(ready_path, sizeof(ready_path), "%s", final_path);
     snprintf(ready_title, sizeof(ready_title), "%s", req->title);
     snprintf(ready_artist, sizeof(ready_artist), "%s", req->artist);
     snprintf(ready_album, sizeof(ready_album), "%s", req->album);
-    track_ready = true; /* Written last after path and metadata are updated */
+    track_ready = true;
     pthread_mutex_unlock(&dlna_mutex);
+}
 
+static void * dlna_download_thread_func(void *arg) {
+    dlna_download_request_t *req = arg;
+    mkdir(DLNA_TEMP_DOWNLOAD_DIR, 0755);
+    char final_path[512];
+    if (dlna_download_audio(req, final_path)) dlna_publish_download(req, final_path);
     free(req);
     return NULL;
 }
@@ -246,6 +250,8 @@ static void handle_connection(int cfd) {
     } else if ((size_t) n >= 4 && memcmp(buf, "stop", 4) == 0) {
         pthread_mutex_lock(&dlna_mutex);
         cast_intent_playing = false;
+        ++dlna_download_generation;
+        track_ready = false;
         pthread_mutex_unlock(&dlna_mutex);
         atomic_store_explicit(&stop_requested, true, memory_order_release); /* Consumed by LVGL/main thread */
     }

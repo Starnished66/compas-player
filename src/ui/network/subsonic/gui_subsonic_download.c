@@ -11,6 +11,9 @@
 #include "../../../library/metadata/parsing/metadata.h"
 #include "../../../network/services/subsonic_client.h"
 #include "../../../network/http/client/http_client.h"
+#include "../../../network/download/download.h"
+#include "../../../core/files/file_integrity.h"
+#include "../../../core/system/logging/debug_log.h"
 #include "../../../library/artwork/albumart/albumart.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -29,7 +32,7 @@ typedef struct {
     char url[1536];
     char dest_path[512];
     bool verify_tls;
-} download_request_t;
+} subsonic_track_download_request_t;
 
 typedef struct {
     subsonic_server_t server;
@@ -56,11 +59,23 @@ static gui_busy_handle_t subsonic_library_download_token = 0;
 static pthread_t download_thread;
 static http_cancel_token_t download_cancel;
 
+static bool subsonic_download_file(const char *url, bool verify_tls, const char *path,
+    http_cancel_token_t *cancel) {
+    download_request_t request = {.url = url, .dest_path = path, .max_bytes = UINT64_C(2) << 30,
+        .verify_tls = verify_tls, .connect_timeout_ms = SUBSONIC_FILE_CONNECT_TIMEOUT_MS,
+        .read_timeout_ms = SUBSONIC_FILE_READ_TIMEOUT_MS};
+    download_result_t result;
+    download_error_t error = download_to_file(&request, cancel, NULL, NULL, &result);
+    if (error == DOWNLOAD_ERR_DIR_SYNC && result.committed) {
+        DBG_LOG("subsonic: song committed but directory sync failed: %s\n", path);
+        return true;
+    }
+    return error == DOWNLOAD_OK;
+}
+
 static void * download_thread_func(void * arg) {
-    download_request_t * req = (download_request_t *) arg;
-    bool ok = http_get_to_file_cancelable(req->url, req->verify_tls, req->dest_path, NULL, NULL,
-                                           SUBSONIC_FILE_CONNECT_TIMEOUT_MS, SUBSONIC_FILE_READ_TIMEOUT_MS,
-                                           &download_cancel);
+    subsonic_track_download_request_t * req = (subsonic_track_download_request_t *) arg;
+    bool ok = subsonic_download_file(req->url, req->verify_tls, req->dest_path, &download_cancel);
     download_success_flag = ok;
     atomic_store_explicit(&download_done_flag, true, memory_order_release); /* written last -- update_timer_cb only checks this flag */
     worker_notify_ui();
@@ -71,7 +86,7 @@ static void * download_thread_func(void * arg) {
 void gui_subsonic_download_track(const char * url, bool verify_tls, const char * dest_path, const char * display_title) {
     snprintf(download_dest_path, sizeof(download_dest_path), "%s", dest_path);
 
-    download_request_t * req = malloc(sizeof(*req));
+    subsonic_track_download_request_t * req = malloc(sizeof(*req));
     if (!req) return;
     snprintf(req->url, sizeof(req->url), "%s", url);
     snprintf(req->dest_path, sizeof(req->dest_path), "%s", dest_path);
@@ -384,13 +399,15 @@ static bool subsonic_download_cover_temp(const subsonic_server_t * server, const
     if (n < 0 || (size_t) n >= 1024) return false;
     remove(temp_path);
 
-    /* Capped: a cover is a few MB at most, and a misbehaving server must
-     * not be able to fill the card. */
-    int status = 0;
-    bool ok = http_get_to_file_redirects(cover_url, server->verify_tls, temp_path, 20u << 20, NULL, NULL,
-                                         SUBSONIC_FILE_CONNECT_TIMEOUT_MS, SUBSONIC_FILE_READ_TIMEOUT_MS,
-                                         cancel, 3, &status) &&
-              status == 200;
+    download_request_t request = {.url = cover_url, .dest_path = temp_path,
+        .max_bytes = 20u << 20, .verify_tls = server->verify_tls, .max_redirects = 3,
+        .connect_timeout_ms = SUBSONIC_FILE_CONNECT_TIMEOUT_MS,
+        .read_timeout_ms = SUBSONIC_FILE_READ_TIMEOUT_MS, .required_status = 200};
+    download_result_t result;
+    download_error_t error = download_to_file(&request, cancel, NULL, NULL, &result);
+    if (error == DOWNLOAD_ERR_DIR_SYNC && result.committed)
+        DBG_LOG("subsonic: cover committed but directory sync failed: %s\n", temp_path);
+    bool ok = error == DOWNLOAD_OK || (error == DOWNLOAD_ERR_DIR_SYNC && result.committed);
     if (!ok) {
         remove(temp_path);
         return false;
@@ -416,6 +433,8 @@ static void subsonic_install_cover_file(const char * album_dir, const char * tem
 
     if (rename(temp_path, dest_cover) != 0) {
         remove(temp_path);
+    } else if (!filesystem_sync_parent(dest_cover)) {
+        DBG_LOG("subsonic: cover committed but directory sync failed: %s\n", dest_cover);
     }
 }
 
@@ -533,9 +552,7 @@ static bool subsonic_download_one_song(const subsonic_library_download_request_t
 
     char url[1536];
     subsonic_build_stream_url(&req->server, song->id, url, sizeof(url));
-    bool ok = http_get_to_file_cancelable(url, req->server.verify_tls, dest_path, NULL, NULL,
-                                           SUBSONIC_FILE_CONNECT_TIMEOUT_MS, SUBSONIC_FILE_READ_TIMEOUT_MS,
-                                           &subsonic_library_download_cancel);
+    bool ok = subsonic_download_file(url, req->server.verify_tls, dest_path, &subsonic_library_download_cancel);
 
     if (ok) {
         if (!album_dir_tracker_contains(album_tracker, album_dir)) {

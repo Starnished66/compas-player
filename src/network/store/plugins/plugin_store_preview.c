@@ -1,6 +1,7 @@
 #include "plugin_store_internal.h"
 #include "store_common.h"
-#include "../../http/client/http_client.h"
+#include "../../download/download.h"
+#include "../../../core/files/file_integrity.h"
 #include "../../../library/artwork/cache/image_thumb.h"
 
 #include <dirent.h>
@@ -286,14 +287,19 @@ static void preview_drain_evictions(const preview_job_t * job) {
 static bool preview_fetch_jpeg(preview_job_t * job, const preview_item_t * item, const char * path) {
     if (preview_file_verified(path, &item->preview)) return true;
     char part[PATH_MAX], url[512];
-    int status = 0;
     snprintf(part, sizeof(part), "%s/.part-%s", STORE_PREVIEW_ROOT, item->preview.sha256);
     unlink(part); /* Private directory, owned by this worker's process lock. */
+    download_request_t request = { .url = url, .dest_path = part,
+        .max_bytes = STORE_PREVIEW_LIMIT, .has_expected_size = true,
+        .expected_size = item->preview.size, .expected_sha256 = item->preview.sha256,
+        .verify_tls = true, .max_redirects = 5, .connect_timeout_ms = 5000,
+        .read_timeout_ms = 8000 };
+    download_result_t result;
+    /* Real directory I/O errors remain failures even after commit. */
     bool ready = ps_make_asset_url(url, sizeof(url), job->tag, item->preview.asset) &&
-        http_get_to_file_redirects(url, true, part, STORE_PREVIEW_LIMIT, preview_progress,
-            job, 5000, 8000, NULL, 5, &status) &&
-        preview_progress(0, 0, job) && preview_file_verified(part, &item->preview) &&
-        rename(part, path) == 0;
+        download_to_file(&request, NULL, preview_progress, job, &result) == DOWNLOAD_OK &&
+        preview_progress(0, 0, job) && preview_jpeg_valid(part, &item->preview) &&
+        rename(part, path) == 0 && filesystem_sync_parent(path);
     if (!ready) unlink(part);
     return ready;
 }

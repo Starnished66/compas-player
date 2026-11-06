@@ -191,6 +191,7 @@ enum {
 };
 
 static bool skip_name(const char * name, unsigned flags) {
+    if (strncmp(name, ".compas-download-", 17) == 0) return true;
     if (name[0] != '.') return false;
     if (!(flags & LIST_HIDDEN)) return true;
     return strcmp(name, ".") == 0 || strcmp(name, "..") == 0;

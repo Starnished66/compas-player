@@ -1,4 +1,5 @@
 #include "emulator_store.h"
+#include "../../../core/files/file_integrity.h"
 #include "../../../core/system/runtime/board_config.h"
 #include "../../../core/device/emulator_registry.h"
 #include "../plugins/store_common.h"
@@ -262,7 +263,8 @@ static bool root_ready(const char * root, uint64_t need, char * error, size_t er
         store_error_text(error, error_size, TR("The emulator folder is not writable."));
         return false;
     }
-    if ((uint64_t) fs.f_bavail * fs.f_frsize < need + STORE_MARGIN) {
+    uint64_t available;
+    if (!filesystem_available_bytes(root, &available) || available < need + STORE_MARGIN) {
         store_error_text(error, error_size, TR("Not enough free space on the player."));
         return false;
     }
