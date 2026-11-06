@@ -11,14 +11,14 @@ static gui_subsonic_menu_actions_t menu_actions;
 static lv_obj_t * build_menu(void) {
     /* Same icons as the Music page; add rows here as the menu grows. */
     const icon_grid_item_t items[] = {
+        { row_icon_or("submenu/cover_flow.png", "submenu/albums.png"), NULL, TR("Cover Flow"),
+          menu_actions.cover_flow, NULL },
         { "submenu/artists.png", NULL, TR("Artists"), menu_actions.artists, NULL },
         { "submenu/albums.png", NULL, TR("Albums"), menu_actions.albums, NULL },
         { "submenu/genres.png", NULL, TR("Genres"), menu_actions.genres, NULL },
         { "submenu/all_songs.png", NULL, TR("Random Songs"), menu_actions.random_songs, NULL },
         { "submenu/playlists.png", NULL, TR("Playlists"), menu_actions.playlists, NULL },
         { "submenu/favorites.png", NULL, TR("Favorites"), menu_actions.favorites, NULL },
-        { row_icon_or("submenu/cover_flow.png", "submenu/albums.png"), NULL, TR("Cover Flow"),
-          menu_actions.cover_flow, NULL },
     };
     lv_obj_t * scr = build_category_menu_screen(TR("Subsonic"), generic_back_cb, items,
                                                 (int) (sizeof(items) / sizeof(items[0])),
