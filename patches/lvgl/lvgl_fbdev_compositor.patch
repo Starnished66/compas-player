@@ -98,7 +98,10 @@
 +        dsc->draw_buf_1 = draw_buf;
 +        dsc->draw_buf_2 = draw_buf_2;
 +    }
-@@ -264,0 +344,119 @@
+@@ -247,0 +327,2 @@
++    /* Render the first frame into the hidden page so it is panned in like every later one. */
++    if(dsc->pan_double_buffer) configure_pan_buffers(disp, dsc);
+@@ -264,0 +346,119 @@
 +const void * lv_linux_fbdev_get_active_page(lv_display_t * disp)
 +{
 +    if(!disp) return NULL;
@@ -218,12 +221,12 @@
 +    return true;
 +}
 +
-@@ -269 +467 @@
+@@ -269 +469 @@
 -static void write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
 +static bool write_to_fb(lv_linux_fb_t * dsc, uint32_t fb_pos, const void * data, size_t sz)
-@@ -273,0 +472 @@
+@@ -273,0 +474 @@
 +    return true;
-@@ -275,2 +474,6 @@
+@@ -275,2 +476,6 @@
 -    if(pwrite(dsc->fbfd, data, sz, fb_pos) < 0)
 -        LV_LOG_ERROR("write failed: %d", errno);
 +    ssize_t written = pwrite(dsc->fbfd, data, sz, fb_pos);
@@ -232,7 +235,7 @@
 +        return false;
 +    }
 +    return true;
-@@ -300,2 +503,14 @@
+@@ -300,2 +505,14 @@
 -    if(dsc->draw_buf_1) lv_free(dsc->draw_buf_1);
 -    if(dsc->draw_buf_2) lv_free(dsc->draw_buf_2);
 +    if(dsc->ram_stage_buf) {
@@ -249,7 +252,7 @@
 +        lv_free(dsc->draw_buf_2);
 +        dsc->draw_buf_2 = NULL;
 +    }
-@@ -307,0 +523,287 @@
+@@ -307,0 +525,287 @@
 +static void res_changed_event_cb(lv_event_t * e)
 +{
 +    lv_display_t * disp = lv_event_get_target(e);
@@ -537,9 +540,9 @@
 +#endif
 +}
 +
-@@ -310,0 +813 @@
+@@ -310,0 +815 @@
 +    if(lv_display_flush_is_last(disp)) dsc->last_present_successful = false;
-@@ -318,0 +822,103 @@
+@@ -318,0 +824,103 @@
 +#if LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD
 +    if(dsc->ram_stage_buf) {
 +        if(!ram_stage_matches_display(disp, dsc)) {
@@ -643,17 +646,17 @@
 +    }
 +#endif /* LV_LINUX_FBDEV_MMAP && !LV_LINUX_FBDEV_BSD */
 +
-@@ -392,0 +999 @@
+@@ -392,0 +1001 @@
 +    bool presented = true;
-@@ -403 +1010 @@
+@@ -403 +1012 @@
 -            write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size);
 +            if(!write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size)) presented = false;
-@@ -417 +1024 @@
+@@ -417 +1026 @@
 -            write_to_fb(dsc, fb_pos, color_p, w * px_size);
 +            if(!write_to_fb(dsc, fb_pos, color_p, w * px_size)) presented = false;
-@@ -426,0 +1034 @@
+@@ -426,0 +1036 @@
 +            presented = false;
-@@ -429,0 +1038 @@
+@@ -429,0 +1040 @@
 +    if(is_last_flush) dsc->last_present_successful = presented;
 --- a/src/drivers/display/fb/lv_linux_fbdev.h
 +++ b/src/drivers/display/fb/lv_linux_fbdev.h

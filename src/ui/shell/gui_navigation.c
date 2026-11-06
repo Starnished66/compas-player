@@ -407,8 +407,23 @@ void register_static_snapshot(int index, lv_obj_t * scr) {
 static void player_transition_discard_cache(void);
 static void back_target_cache_discard(void);
 
-static void rebuild_font_snapshots_async_cb(void * unused) {
-    (void) unused;
+static lv_timer_t * font_snapshot_rebuild_timer;
+
+static bool first_frame_presented;
+
+/* Only the last flush of a frame presents it (the fbdev pan happens there). */
+static void first_frame_event_cb(lv_event_t * e) {
+    if (!lv_display_flush_is_last(lv_event_get_target(e))) return;
+    first_frame_presented = true;
+    lv_display_remove_event_cb_with_user_data(lv_event_get_target(e), first_frame_event_cb, NULL);
+}
+
+/* Waits for the first presented frame and for an idle UI, then rebuilds once. */
+static void rebuild_font_snapshots_timer_cb(lv_timer_t * timer) {
+    if (!first_frame_presented || gui_navigation_transition_in_progress() ||
+        static_snapshot_rebuild_input_active()) return;
+    lv_timer_delete(timer);
+    font_snapshot_rebuild_timer = NULL;
     for (int i = 0; i < STATIC_SNAPSHOT_SCREEN_COUNT; i++) {
         if (!static_snapshot_screen[i]) continue;
         screen_builders_refresh_font_geometry(static_snapshot_screen[i]);
@@ -430,7 +445,12 @@ void gui_navigation_invalidate_font_snapshots(void) {
     }
     player_transition_discard_cache();
     back_target_cache_discard();
-    lv_async_call(rebuild_font_snapshots_async_cb, NULL);
+    if (font_snapshot_rebuild_timer) {
+        lv_timer_reset(font_snapshot_rebuild_timer);
+        return;
+    }
+    if (!first_frame_presented) lv_display_add_event_cb(lv_display_get_default(), first_frame_event_cb, LV_EVENT_FLUSH_FINISH, NULL);
+    font_snapshot_rebuild_timer = lv_timer_create(rebuild_font_snapshots_timer_cb, THEME_SNAPSHOT_REBUILD_DELAY_MS, NULL);
 }
 
 static void theme_snapshot_rebuild_timer_cb(lv_timer_t * timer) {
@@ -1795,6 +1815,10 @@ void gui_navigation_teardown(void) {
     if (fixed_transition_start_ctx) {
         slide_transition_ctx_t *pending = fixed_transition_start_ctx;
         slide_transition_cancel(&pending);
+    }
+    if (font_snapshot_rebuild_timer) {
+        lv_timer_delete(font_snapshot_rebuild_timer);
+        font_snapshot_rebuild_timer = NULL;
     }
     if (theme_snapshot_rebuild_timer) {
         lv_timer_delete(theme_snapshot_rebuild_timer);
