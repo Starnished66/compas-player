@@ -43,6 +43,10 @@ const setting_desc_t settings_reg_device[] = {
     BOOL_ENTRY("safe_charging_enabled", "power", "Safe Charging (500mA)", safe_charging_enabled, SET_APPLY_LIVE),
     BOOL_ENTRY("led_indicator_enabled", "power", "LED charge indicator", led_indicator_enabled, SET_APPLY_LIVE),
 
+    BOOL_ENTRY("wifi_restore_at_startup", "connections", N_("Restore Wi-Fi at Startup"), wifi_restore_at_startup,
+               SET_APPLY_LIVE),
+    BOOL_ENTRY("bt_restore_at_startup", "connections", N_("Restore Bluetooth at Startup"), bt_restore_at_startup,
+               SET_APPLY_LIVE),
     BOOL_ENTRY("bt_hide_unnamed_devices", "connections", "Hide Unnamed Devices", bt_hide_unnamed_devices,
                SET_APPLY_LIVE),
     BOOL_ENTRY("bt_volume_sync_enabled", "connections", "Bluetooth Volume Sync", bt_volume_sync_enabled,

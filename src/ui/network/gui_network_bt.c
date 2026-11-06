@@ -570,6 +570,7 @@ static void populate_bt_advanced_screen(void);
  * the rows now but the callbacks stay next to the state they touch. */
 static void bt_volume_sync_toggle_cb(lv_event_t * e);
 static void bt_hide_unnamed_toggle_cb(lv_event_t * e);
+static void bt_restore_at_startup_toggle_cb(lv_event_t * e);
 static void bt_codec_settings_row_cb(lv_event_t * e);
 
 /* Cycling the accessory's link blocks for seconds, so it runs on a worker
@@ -738,6 +739,8 @@ static void populate_bt_advanced_screen(void) {
                         current_settings.bt_speexrate_enabled, bt_speexrate_toggle_cb);
     add_pill_toggle_row(bt_advanced_list, TR("Hide Unnamed Devices"),
                         current_settings.bt_hide_unnamed_devices, bt_hide_unnamed_toggle_cb);
+    add_pill_toggle_row(bt_advanced_list, TR("Restore at Startup"),
+                        current_settings.bt_restore_at_startup, bt_restore_at_startup_toggle_cb);
 }
 
 static void bt_advanced_settings_row_cb(lv_event_t * e) {
@@ -768,6 +771,15 @@ static void bt_hide_unnamed_toggle_cb(lv_event_t * e) {
     settings_save_async(&current_settings);
     populate_bt_advanced_screen(); /* moves the switch the user just tapped */
     populate_bt_screen();          /* and the device list it filters, for the way back */
+}
+
+static void bt_restore_at_startup_toggle_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    current_settings.bt_restore_at_startup = !current_settings.bt_restore_at_startup;
+    if (current_settings.bt_restore_at_startup)
+        current_settings.bt_last_on = bt_is_powered_cached;
+    settings_save_async(&current_settings);
+    populate_bt_advanced_screen();
 }
 
 static uint64_t bt_sig_add(uint64_t h, const void * data, size_t len) {

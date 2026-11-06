@@ -247,9 +247,41 @@ static void wifi_dns_settings_row_cb(lv_event_t * e) {
     nav_push(wifi_dns_screen);
 }
 
+/* ---- Advanced screen: settings that are rarely changed. Info and DNS need
+ * a live radio, so they show only while Wi-Fi is on. ---- */
+
+static lv_obj_t * wifi_advanced_screen;
+static lv_obj_t * wifi_advanced_list;
+
+static void wifi_restore_at_startup_toggle_cb(lv_event_t * e);
+
+static void populate_wifi_advanced_screen(void) {
+    lv_obj_clean(wifi_advanced_list);
+    add_pill_toggle_row(wifi_advanced_list, TR("Restore at Startup"), current_settings.wifi_restore_at_startup,
+                        wifi_restore_at_startup_toggle_cb);
+    if (!gui_shell_wifi_effective_enabled()) return;
+    add_pill_chevron_row(wifi_advanced_list, TR("Wi-Fi Info"), wifi_info_row_cb);
+    add_pill_chevron_row(wifi_advanced_list, TR("DNS Settings"), wifi_dns_settings_row_cb);
+}
+
+static void wifi_restore_at_startup_toggle_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    current_settings.wifi_restore_at_startup = !current_settings.wifi_restore_at_startup;
+    if (current_settings.wifi_restore_at_startup)
+        current_settings.wifi_last_on = gui_shell_wifi_effective_enabled();
+    settings_save_async(&current_settings);
+    populate_wifi_advanced_screen();
+}
+
+static void wifi_advanced_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    populate_wifi_advanced_screen();
+    nav_push(wifi_advanced_screen);
+}
+
 /* ---- Master rebuild for the Wi-Fi screen's one dynamic list: toggle row,
- * then (only while enabled) the info/manual-entry/DNS rows, memorized
- * networks, and available networks -- called after every state change
+ * the Advanced row, and (only while enabled) manual entry, memorized
+ * networks and available networks -- called after every state change
  * (toggle, scan, connect, disconnect, forget) rather than patched
  * incrementally, same full-rebuild convention as every other list in this
  * file. ---- */
@@ -274,14 +306,13 @@ void populate_wifi_screen(bool enabled) {
      * boilerplate. poll_wifi_toggle() repopulates this screen once the
      * toggle completes. */
     add_pill_toggle_row(wifi_list, TR("Wi-Fi"), enabled, quick_drawer_wifi_event_cb);
+    if (enabled) add_pill_chevron_row(wifi_list, TR("Manual SSID Entry"), wifi_manual_entry_row_cb);
+    /* Stays reachable while Wi-Fi is off: Restore at Startup lives there. */
+    add_pill_chevron_row(wifi_list, TR("Advanced"), wifi_advanced_row_cb);
 
     if (!enabled) goto restore_scroll;
 
     wifi_settings_snapshot_start();
-
-    add_pill_chevron_row(wifi_list, TR("Wi-Fi Info"), wifi_info_row_cb);
-    add_pill_chevron_row(wifi_list, TR("Manual SSID Entry"), wifi_manual_entry_row_cb);
-    add_pill_chevron_row(wifi_list, TR("DNS Settings"), wifi_dns_settings_row_cb);
 
     const lv_font_t * body_font = gui_theme_font(GUI_FONT_ROLE_BODY);
     const lv_font_t * subtext_font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
@@ -412,6 +443,7 @@ void gui_network_wifi_screen_build(void) {
     wifi_screen = build_wifi_screen();
     wifi_info_screen = network_list_screen(TR("Wi-Fi Info"), &wifi_info_list);
     wifi_dns_screen = network_list_screen(TR("DNS Settings"), &wifi_dns_list);
+    wifi_advanced_screen = network_list_screen(TR("Advanced"), &wifi_advanced_list);
     build_wifi_action_popup();
 }
 
@@ -420,8 +452,10 @@ void gui_network_wifi_screen_teardown(void) {
     network_delete_screen(&wifi_screen);
     network_delete_screen(&wifi_info_screen);
     network_delete_screen(&wifi_dns_screen);
+    network_delete_screen(&wifi_advanced_screen);
     wifi_list = NULL;
     wifi_rescan_btn = NULL;
     wifi_info_list = NULL;
     wifi_dns_list = NULL;
+    wifi_advanced_list = NULL;
 }

@@ -592,7 +592,14 @@ void quick_drawer_bt_event_cb(lv_event_t * e) {
         quick_drawer_bt_long_press_fired = false;
         return;
     }
-    bool bt_will_be_powered = !bt_is_powered_cached;
+    gui_shell_bt_request_power(!bt_is_powered_cached);
+}
+
+void gui_shell_bt_request_power(bool bt_will_be_powered) {
+    if (current_settings.bt_last_on != bt_will_be_powered) {
+        current_settings.bt_last_on = bt_will_be_powered;
+        settings_save_async(&current_settings);
+    }
 
     if (!bt_will_be_powered) {
         /* Explicit OFF is user intent immediately, before the slow toggle

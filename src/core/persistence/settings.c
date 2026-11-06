@@ -104,6 +104,10 @@ static const pfield_t plain_fields[] = {
     PF("bt_speexrate", PF_BOOL, bt_speexrate_enabled),
     PF("bt_codec", PF_STR, bt_codec),
     PF("bt_hide_unnamed_devices", PF_BOOL, bt_hide_unnamed_devices),
+    PF("wifi_restore_at_startup", PF_BOOL, wifi_restore_at_startup),
+    PF("bt_restore_at_startup", PF_BOOL, bt_restore_at_startup),
+    PF("wifi_last_on", PF_BOOL, wifi_last_on),
+    PF("bt_last_on", PF_BOOL, bt_last_on),
     PF("wifi_dac_mode", PF_BOOL, wifi_dac_mode_enabled),
     PF("dlna_renderer_enabled", PF_BOOL, dlna_renderer_enabled),
     PF("remote_control_enabled", PF_BOOL, remote_control_enabled),
@@ -410,6 +414,10 @@ static void set_defaults(player_settings_t * out) {
     snprintf(out->bt_codec, sizeof(out->bt_codec), "auto");
     out->bt_last_output_mac[0] = '\0';
     out->bt_hide_unnamed_devices = true;
+    out->wifi_restore_at_startup = false;
+    out->bt_restore_at_startup = false;
+    out->wifi_last_on = false;
+    out->bt_last_on = false;
     out->wifi_dac_mode_enabled = false;
     out->dlna_renderer_enabled = false;
     out->remote_control_enabled = false;

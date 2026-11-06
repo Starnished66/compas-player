@@ -221,6 +221,10 @@ void gui_shell_init(uint32_t screen_width, uint32_t screen_height) {
     gui_shell_build_screens(screen_width, screen_height);
     start_bt_source_codec_reconcile_if_needed();
     start_bt_dac_startup_reapply_if_needed();
+    if (current_settings.wifi_restore_at_startup && current_settings.wifi_last_on)
+        gui_shell_wifi_ensure_enabled();
+    if (current_settings.bt_restore_at_startup && current_settings.bt_last_on)
+        gui_shell_bt_request_power(true);
 #ifndef HOST_BUILD
     boot_checkpoint("start_refresh_bt_icon about to be called");
 #endif

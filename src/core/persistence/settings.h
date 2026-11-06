@@ -244,6 +244,10 @@ typedef struct {
      * "Available Devices" list (shown as raw MAC addresses otherwise).
      * Paired devices are always shown regardless of this setting. */
     bool bt_hide_unnamed_devices;
+    bool wifi_restore_at_startup;
+    bool bt_restore_at_startup;
+    bool wifi_last_on;
+    bool bt_last_on;
 
     /* AirPlay receive mode -- see airplay_control.h. Mutually exclusive with
      * bt_dac_mode_enabled (both would fight over the same physical audio

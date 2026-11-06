@@ -248,6 +248,12 @@ static void wifi_toggle_apply_optimistic_ui(bool will_be_enabled) {
     if (gui_navigation_is_top(gui_network_get_wifi_screen()))
         gui_network_show_wifi_toggle_pending(will_be_enabled);
 }
+static void wifi_remember_user_target(bool enabled) {
+    if (current_settings.wifi_last_on == enabled) return;
+    current_settings.wifi_last_on = enabled;
+    settings_save_async(&current_settings);
+}
+
 void quick_drawer_wifi_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (quick_drawer_wifi_long_press_fired) { /* see quick_drawer_wifi_long_press_cb()'s own comment */
@@ -260,11 +266,13 @@ void quick_drawer_wifi_event_cb(lv_event_t * e) {
          * poll_wifi_toggle() launches this once the current attempt lands,
          * and only if it actually disagrees with the settled state. */
         wifi_toggle_queued_target = !gui_shell_wifi_effective_enabled();
+        wifi_remember_user_target(wifi_toggle_queued_target);
         wifi_toggle_queued = true;
         wifi_toggle_apply_optimistic_ui(wifi_toggle_queued_target);
         return;
     }
     bool wifi_will_be_enabled = !wifi_control_is_enabled();
+    wifi_remember_user_target(wifi_will_be_enabled);
     wifi_toggle_active = true;
     wifi_toggle_is_radio_suspend = false; /* a real user tap, not the idle radio-suspend cycle */
     atomic_store_explicit(&wifi_toggle_done_flag, false, memory_order_relaxed);
@@ -280,6 +288,7 @@ void quick_drawer_wifi_event_cb(lv_event_t * e) {
     }
 }
 bool gui_shell_wifi_ensure_enabled(void) {
+    wifi_remember_user_target(true);
     if (wifi_toggle_active) {
         if (wifi_toggle_queued && wifi_toggle_queued_target) return true;
         if (!wifi_toggle_queued && wifi_toggle_target_enabled) return true;
