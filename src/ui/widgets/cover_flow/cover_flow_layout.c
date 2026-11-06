@@ -98,31 +98,21 @@ static int32_t warp_cost(const cover_flow_tilt_t * t, int step) {
     return t->steps[step].width * (step ? t->out_h : t->out_h - t->face_px);
 }
 
-/* The bitmap slot `i` shows at `step`. A slot without a face borrows the shared placeholder of its
- * side, which tilts through the same steps. A missing warp is built if the pass has the pixels
- * left for it; otherwise the nearest ready step stands in. With none ready it is built anyway, so
- * a slot is never left empty: a rare pass goes one warp over. */
-static const uint16_t * pick_image(cover_flow_t * cf, int i, int step, int side, int32_t * budget, bool * rebuilt, int * picked) {
+/* Choose the cached tilt before clipping, so fallback geometry determines the visible span. */
+static cf_content_t * pick_content(cover_flow_t * cf, int i, int step, int side, int * picked) {
     cf_content_t * c = cf->slot[i];
-    if (step == 0) side = 0;
     if (!c->face) c = &cf->ph[side > 0];
     *picked = step;
-    cf_warp_t * w = &c->warp[step];
-    if (warp_ready(w, side)) return w->buf;
-    int32_t cost = warp_cost(cf->warps.tilt, step);
-    const uint16_t * near = cost > *budget ? nearest_ready(c, step, side, picked) : NULL;
-    if (near || !cf_warp_build(&cf->warps, w, step, side, c->face)) {
-        cf->relayout = true;
-        return near ? near : nearest_ready(c, step, side, picked);
+    if (!warp_ready(&c->warp[step], side) && warp_cost(cf->warps.tilt, step) > cf->warp_budget) {
+        if (nearest_ready(c, step, side, picked)) cf->relayout = true;
     }
-    *budget -= cost;
-    *rebuilt = true;
-    return w->buf;
+    if (!warp_ready(&c->warp[*picked], side)) cf->warp_budget -= warp_cost(cf->warps.tilt, *picked);
+    return c;
 }
 
 /* One slot's place in this pass, before the covers in front clip it. */
 typedef struct {
-    const uint16_t * px;        /* NULL: nothing to show */
+    cf_content_t * content;    /* NULL: nothing to show */
     cover_flow_span_t ext;      /* its columns on screen */
     int step, side;
 } cf_placed_t;
@@ -135,34 +125,47 @@ static void hide_view(cf_view_t * v) {
     v->shown = false;
 }
 
-static void place_slot(cover_flow_t * cf, int i, int32_t * budget, cf_placed_t * out) {
+static void place_slot(cover_flow_t * cf, int i, cf_placed_t * out) {
     int item = cf->base + i - CF_CENTRE;
     *out = (cf_placed_t) { 0 };
     if (item < 0 || item >= cf->count) return;
     int32_t d = item * CF_ONE - cf->pos;
     int32_t ad = d < 0 ? -d : d;
-    bool rebuilt = false;
-    int step, side = d < 0 ? -1 : 1;
-    const uint16_t * px = pick_image(cf, i, cover_flow_step_for(ad), side, budget, &rebuilt, &step);
-    if (!px) return;
+    int step = cover_flow_step_for(ad), side = step ? (d < 0 ? -1 : 1) : 0;
+    out->content = pick_content(cf, i, step, side, &step);
     int width = cf->warps.tilt->steps[step].width;
-    if (rebuilt) cf->view[i].data = NULL; /* same buffer, new pixels: set the source again to redraw */
     int32_t off = cover_flow_offset_for(ad, CF_OFF1, CF_PITCH_FAR);
     int32_t x = cf->g.cx + (d < 0 ? -off : off) - width / 2;
-    out->px = px;
     out->ext = (cover_flow_span_t) { x, x + width };
     out->step = step;
     out->side = step ? side : 0;
+}
+
+/* Build only columns exposed by the covers in front, retaining them as they move. */
+static const uint16_t * visible_pixels(cover_flow_t * cf, const cf_placed_t * pl, cover_flow_span_t vis) {
+    cf_warp_t * w = &pl->content->warp[pl->step];
+    UI_TRACE_SPAN_BEGIN(perf_warp);
+    int columns = cf_warp_require(&cf->warps, w, pl->step, pl->side, pl->content->face,
+                                 vis.from - pl->ext.from, vis.to - pl->ext.from);
+    if (columns > 0) {
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_COVER_FLOW_WARP, perf_warp);
+        if (!pl->step) UI_TRACE_SPAN_END(UI_TRACE_SPAN_COVER_FLOW_FLAT, perf_warp);
+    }
+    if (columns < 0) { cf->relayout = true; return NULL; }
+    int height = pl->step ? cf->warps.tilt->out_h : cf->warps.tilt->out_h - cf->warps.tilt->face_px;
+    cf->warp_budget -= columns * height;
+    return w->buf + (vis.from - pl->ext.from);
 }
 
 /* Shows columns `vis` of the placed bitmap: a descriptor over the same pixels, no copy. */
 static void show_view(cover_flow_t * cf, int i, const cf_placed_t * pl, cover_flow_span_t vis) {
     cf_view_t * v = &cf->view[i];
     if (vis.to <= vis.from) { hide_view(v); return; }
-    const void * data = pl->px + (vis.from - pl->ext.from);
+    const void * data = visible_pixels(cf, pl, vis);
+    if (!data) { hide_view(v); return; }
     uint32_t w = (uint32_t) (vis.to - vis.from), stride = (uint32_t) (pl->ext.to - pl->ext.from) * 2;
     lv_obj_set_pos(v->img, vis.from, cf->g.cover_y); /* before the source, so that only the final place is invalidated */
-    if (v->data != data || v->dsc.header.w != w || v->dsc.header.stride != stride) {
+    if (v->data != data || v->side != pl->side || v->dsc.header.w != w || v->dsc.header.stride != stride) {
         cf_dsc_init(&v->dsc, (int) w, cf->warps.tilt->out_h, stride, data);
         lv_image_set_src(v->img, &v->dsc);
         v->data = data;
@@ -177,7 +180,12 @@ static void apply_visible(cover_flow_t * cf, const cf_placed_t * pl) {
     cover_flow_span_t ext[CF_SLOTS], vis[CF_SLOTS];
     for (int i = 0; i < CF_SLOTS; i++) ext[i] = pl[i].ext; /* empty for a slot with nothing to show */
     cover_flow_visible(ext, CF_SLOTS, CF_CENTRE, vis);
-    for (int i = 0; i < CF_SLOTS; i++) show_view(cf, i, &pl[i], vis[i]);
+    for (int k = 0; k < CF_SLOTS; k++) {
+        int i = cf_centre_out(k);
+        if (vis[i].from < 0) vis[i].from = 0;
+        if (vis[i].to > cf->g.screen_w) vis[i].to = cf->g.screen_w;
+        show_view(cf, i, &pl[i], vis[i]);
+    }
 }
 
 static void trim_steps(cf_content_t * c) {
@@ -209,18 +217,25 @@ void cf_layout_update(void) {
     if (cf->pos > max_pos) cf->pos = max_pos;
     int base = (cf->pos + CF_ONE / 2) / CF_ONE;
     if (base != cf->base) {
+        UI_TRACE_SPAN_BEGIN(perf_shift);
         shift_slots(cf, base);
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_COVER_FLOW_SHIFT, perf_shift);
+        UI_TRACE_SPAN_BEGIN(perf_labels);
         cf_update_labels();
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_COVER_FLOW_LABELS, perf_labels);
         cf_pump_kick();
     }
     cf->relayout = false;
     refill_budget(cf);
+    int32_t budget = cf->warp_budget;
     cf_placed_t placed[CF_SLOTS];
     for (int k = 0; k < CF_SLOTS; k++) { /* centre outward, so the budget goes to what is seen first */
         int i = cf_centre_out(k);
-        place_slot(cf, i, &cf->warp_budget, &placed[i]);
+        place_slot(cf, i, &placed[i]);
     }
+    cf->warp_budget = budget;
     apply_visible(cf, placed);
+    cf_az_update(cf);
     if (cf->relayout) cf_pump_kick();
     UI_TRACE_SPAN_END(UI_TRACE_SPAN_COVER_FLOW_LAYOUT, perf_layout);
 }

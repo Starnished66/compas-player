@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/statfs.h>
-#include <sys/resource.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -20,7 +19,7 @@
 /* Fixed, statically allocated rings: frame records are written once per
  * presentation; sparse records carry stage boundaries and counters. */
 #define FRAME_CAPACITY 4096u
-#define EVENT_CAPACITY 4096u
+#define EVENT_CAPACITY 6144u
 #define TRACE_BUDGET_BYTES (384u * 1024u)
 #define EXPORT_BATCH_RECORDS 64u
 #define TRACE_SD_DIR "/usr/data/mnt/sd_0"
@@ -70,8 +69,6 @@ static struct {
     uint64_t pending_invalidated_area;
     uint32_t pending_sync_us, pending_drawflush_us, pending_drawflush_area, pending_pan_us;
     uint32_t pending_sleep_us;
-    long handler_majflt, handler_minflt;
-    bool handler_faults_valid;
     uint64_t sync_start_us, pan_start_us, handler_start_us, sleep_start_us;
     uint64_t capture_start_us, capture_stop_us;
     uint32_t handler_frame_pos, handler_frame_sequence;
@@ -85,6 +82,7 @@ static struct {
     bool mount_verified;
 } trace;
 static uint64_t render_start_us;
+static uint64_t refresh_start_us, flush_start_us;
 
 /* Some libc filesystems report statfs only for the containing root. Requiring
  * a real mount entry at the configured directory and rejecting RAM filesystems
@@ -173,13 +171,6 @@ void ui_frame_trace_event(ui_frame_trace_event_kind_t kind, uint32_t a, uint32_t
         case UI_FRAME_TRACE_EVENT_HANDLER_BEGIN: {
             trace.handler_start_us = now;
             trace.handler_frame_valid = false;
-            struct rusage usage;
-            trace.handler_faults_valid = false;
-            if (getrusage(RUSAGE_THREAD, &usage) == 0) {
-                trace.handler_faults_valid = true;
-                trace.handler_majflt = usage.ru_majflt;
-                trace.handler_minflt = usage.ru_minflt;
-            }
             break;
         }
         case UI_FRAME_TRACE_EVENT_HANDLER_END: {
@@ -189,14 +180,7 @@ void ui_frame_trace_event(ui_frame_trace_event_kind_t kind, uint32_t a, uint32_t
                 frames[trace.handler_frame_pos].sequence == trace.handler_frame_sequence)
                 frames[trace.handler_frame_pos].handler_us = duration;
             trace.handler_frame_valid = false;
-            if (trace.armed && duration >= 16000u) {
-                record_event_at(kind, now, duration, a);
-                struct rusage usage;
-                if (trace.handler_faults_valid && getrusage(RUSAGE_THREAD, &usage) == 0)
-                    record_event_at(UI_FRAME_TRACE_EVENT_HANDLER_FAULTS, now,
-                                    (uint32_t) (usage.ru_majflt - trace.handler_majflt),
-                                    (uint32_t) (usage.ru_minflt - trace.handler_minflt));
-            }
+            if (trace.armed && duration >= 16000u) record_event_at(kind, now, duration, a);
             break;
         }
         case UI_FRAME_TRACE_EVENT_SLEEP_BEGIN: trace.sleep_start_us = now; break;
@@ -257,8 +241,28 @@ static void record_frame(uint64_t now, uint32_t work_us, bool composited) {
     }
 }
 
+/* Display event boundaries avoid changing LVGL's refresh implementation. */
+static void display_span(lv_event_code_t code) {
+    if (!trace.armed) return;
+    uint64_t now = ui_perf_now_us();
+    if (code == LV_EVENT_REFR_START) refresh_start_us = now;
+    else if (code == LV_EVENT_REFR_READY) refresh_start_us = 0;
+    else if (code == LV_EVENT_RENDER_START && refresh_start_us) {
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SPAN, UI_TRACE_SPAN_REFRESH_PREP,
+                             elapsed_u32(refresh_start_us, now));
+        refresh_start_us = 0;
+    }
+    else if (code == LV_EVENT_FLUSH_START) flush_start_us = now;
+    else if (code == LV_EVENT_FLUSH_FINISH && flush_start_us) {
+        ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SPAN, UI_TRACE_SPAN_FLUSH,
+                             elapsed_u32(flush_start_us, now));
+        flush_start_us = 0;
+    }
+}
+
 static void display_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
+    display_span(code);
     if (code == LV_EVENT_RENDER_READY) {
         uint64_t now = ui_perf_now_us();
         trace.last_activity_us = now;
@@ -319,7 +323,7 @@ static void start_capture(void) {
     trace.sync_start_us = trace.pan_start_us = trace.handler_start_us = trace.sleep_start_us = 0;
     trace.handler_frame_valid = false;
     trace.pan_external = false;
-    render_start_us = 0;
+    render_start_us = refresh_start_us = flush_start_us = 0;
     trace.capture_start_us = ui_perf_now_us();
     trace.capture_stop_us = 0;
     ui_draw_trace_fb_bench();
@@ -357,7 +361,10 @@ static void write_status(const char * status);
  * invalidate_count,invalidate_area; E seq,time,kind,a,b; D seq,time then
  * ns,tasks,pixels per draw-task class (see ui_draw_trace.c), seq = its F record. Durations are wall
  * microseconds. work is render-start to render-ready; drawflush ends at flush
- * entry and excludes flush/pan waiting. Sync/pan are nested in handler time,
+ * entry and excludes flush/pan waiting. Normal fbdev work INCLUDES synchronous
+ * flush and pan; Cover Flow layout/warp and buffer sync precede render-start.
+ * REFRESH_PREP includes sync; FLUSH includes pan. Neither span is additive to
+ * its enclosing duration. Sync/pan are nested in handler time,
  * so these columns must not be summed as independent CPU costs. invalidated
  * area is the sum of requested rectangles before LVGL merges them. handler_us
  * belongs to the last present in that same main-loop handler. sleep_us sums
@@ -500,6 +507,10 @@ void ui_frame_trace_install(lv_display_t * disp) {
     lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_RENDER_START, NULL);
     lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_RENDER_READY, NULL);
+    lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_REFR_START, NULL);
+    lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_REFR_READY, NULL);
+    lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_FLUSH_START, NULL);
+    lv_display_add_event_cb(disp, display_event_cb, LV_EVENT_FLUSH_FINISH, NULL);
     lv_timer_create(control_timer_cb, 500, NULL);
     lv_timer_create(idle_timer_cb, 200, NULL);
 }

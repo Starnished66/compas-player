@@ -135,20 +135,45 @@ static void warp_column(const cover_flow_tilt_t * t, const cover_flow_tilt_col_t
     for (; y < stop; y++, p += w) *p = bg;
 }
 
-void cover_flow_tilt_warp(const cover_flow_tilt_t * tilt, int step, bool near_left,
-                          const uint16_t * src, uint16_t * dst, uint16_t bg) {
-    const cover_flow_tilt_step_t * st = &tilt->steps[step];
-    int face = tilt->face_px, w = st->width, done = 0;
-    if (step == 0) { /* the flat cover is the face: copy it (unless it is already there) and warp only the reflection */
-        if (dst != src) memcpy(dst, src, (size_t) face * (size_t) face * 2);
-        done = face;
+/* Flat covers share one row mapping and fade across every column. Walk rows so
+ * the newly decoded centre reflection reads and writes contiguous pixels. */
+static void warp_flat(const cover_flow_tilt_t * t, const uint16_t * src, uint16_t * dst,
+                      uint16_t bg, int left, int right) {
+    int face = t->face_px;
+    const cover_flow_tilt_col_t * c = &t->steps[0].cols[0];
+    if (dst != src)
+        for (int y = 0; y < face; y++)
+            memcpy(dst + y * face + left, src + y * face + left, (size_t) (right - left) * 2);
+    uint32_t alpha = t->alpha_fp - (c->refl_step >> 1);
+    for (int k = 0; k < c->refl; k++, alpha -= c->refl_step) {
+        const uint16_t * s = src + (face - 1 - k) * face;
+        uint16_t * d = dst + (face + k) * face;
+        for (int x = left; x < right; x++) d[x] = mix_px(s[x], bg, alpha >> 16);
     }
+    for (int y = face + c->refl; y < t->out_h; y++)
+        for (int x = left; x < right; x++) dst[y * face + x] = bg;
+}
+
+void cover_flow_tilt_warp_columns(const cover_flow_tilt_t * tilt, int step, bool near_left,
+                                  const uint16_t * src, uint16_t * dst, uint16_t bg, int left, int right) {
+    const cover_flow_tilt_step_t * st = &tilt->steps[step];
+    int face = tilt->face_px, w = st->width;
+    if (left < 0) left = 0;
+    if (right > w) right = w;
+    if (left >= right) return;
+    if (!step) { warp_flat(tilt, src, dst, bg, left, right); return; }
     const int dir = near_left ? 1 : -1;
     const uint16_t * s0 = src + (near_left ? 0 : face - 1);
-    /* Bands of rows keep the destination lines in cache across the columns. */
-    for (int from = done; from < tilt->out_h; from += CF_WARP_BAND_ROWS) {
+    for (int from = 0; from < tilt->out_h; from += CF_WARP_BAND_ROWS) {
         int to = from + CF_WARP_BAND_ROWS < tilt->out_h ? from + CF_WARP_BAND_ROWS : tilt->out_h;
-        for (int x = 0; x < w; x++)
-            warp_column(tilt, &st->cols[x], s0, dir, w, from, to, step != 0, dst + (near_left ? x : w - 1 - x), bg);
+        for (int x = left; x < right; x++) {
+            int col = near_left ? x : w - 1 - x;
+            warp_column(tilt, &st->cols[col], s0, dir, w, from, to, step != 0, dst + x, bg);
+        }
     }
+}
+
+void cover_flow_tilt_warp(const cover_flow_tilt_t * tilt, int step, bool near_left,
+                          const uint16_t * src, uint16_t * dst, uint16_t bg) {
+    cover_flow_tilt_warp_columns(tilt, step, near_left, src, dst, bg, 0, tilt->steps[step].width);
 }

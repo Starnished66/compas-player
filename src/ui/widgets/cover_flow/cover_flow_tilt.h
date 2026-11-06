@@ -63,3 +63,7 @@ size_t cover_flow_tilt_bytes(const cover_flow_tilt_t * tilt, int step);
  * `dst` == `src`, which then holds out_h rows. */
 void cover_flow_tilt_warp(const cover_flow_tilt_t * tilt, int step, bool near_left,
                           const uint16_t * src, uint16_t * dst, uint16_t bg);
+
+/* Same pixels, only destination columns [left, right); all other columns are untouched. */
+void cover_flow_tilt_warp_columns(const cover_flow_tilt_t * tilt, int step, bool near_left,
+                                  const uint16_t * src, uint16_t * dst, uint16_t bg, int left, int right);

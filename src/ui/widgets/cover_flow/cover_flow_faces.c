@@ -4,6 +4,7 @@
 #include "../../library/library_thumbnail_placeholder.h"
 #include "../builders/screen_builders.h"
 #include <stdlib.h>
+#include "../../diagnostics/ui_frame_trace.h"
 
 /* Blends the library's album glyph, centred, over the surface colour. */
 static void paint_placeholder(uint16_t * px, int face) {
@@ -111,8 +112,7 @@ static bool submit(cover_flow_t * cf, int i) {
     return cf->loader != NULL;
 }
 
-void cf_pump_cb(lv_timer_t * timer) {
-    cover_flow_t * cf = lv_timer_get_user_data(timer);
+static void pump(cover_flow_t * cf) {
     reap(cf);
     if (cf->relayout && !cf->animating) cf_layout_update(); /* an animation lays out every frame */
     bool settled = cf_settled(), busy = cf->loader != NULL;
@@ -122,9 +122,15 @@ void cf_pump_cb(lv_timer_t * timer) {
         cf->quiet_since = lv_tick_get();
         return;
     }
-    if (!settled) lv_timer_pause(timer); /* the end of the gesture wakes it */
+    if (!settled) lv_timer_pause(cf->pump); /* the end of the gesture wakes it */
     else if (wanted < 0 && lv_tick_elaps(cf->quiet_since) >= CF_TRIM_MS) {
         cf_trim_idle(cf);
-        lv_timer_pause(timer);
+        lv_timer_pause(cf->pump);
     }
+}
+
+void cf_pump_cb(lv_timer_t * timer) {
+    UI_TRACE_SPAN_BEGIN(perf_pump);
+    pump(lv_timer_get_user_data(timer));
+    UI_TRACE_SPAN_END(UI_TRACE_SPAN_COVER_FLOW_PUMP, perf_pump);
 }

@@ -58,20 +58,12 @@ static void animate_to(cover_flow_t * cf, int32_t target, uint32_t ms) {
 }
 
 /* Animates the scroll position to `item`. */
-static void cf_scroll_to(int item) {
+void cf_scroll_to(int item) {
     cover_flow_t * cf = cf_instance;
     if (!cf || item < 0 || item >= cf->count) return;
     int32_t dist = abs(item * CF_ONE - cf->pos) / CF_ONE;
     uint32_t ms = FLING_MIN_MS + (uint32_t) dist * 60;
     animate_to(cf, item * CF_ONE, ms > FLING_MAX_MS ? FLING_MAX_MS : ms);
-}
-
-void cf_jump_to(int item) {
-    cover_flow_t * cf = cf_instance;
-    if (!cf || item < 0 || item >= cf->count) return;
-    stop_anim(cf);
-    cf->pos = item * CF_ONE;
-    cf_layout_update();
 }
 
 static void add_sample(cover_flow_t * cf, int32_t x) {

@@ -2,13 +2,29 @@
 #include <stdlib.h>
 #include <string.h>
 
-bool cf_warp_build(cf_warps_t * ws, cf_warp_t * w, int step, int side, uint16_t * src) {
+/* Keep one initialized interval, filling gaps when a previously hidden slice appears. */
+int cf_warp_require(cf_warps_t * ws, cf_warp_t * w, int step, int side, uint16_t * src, int left, int right) {
+    if (left < 0) left = 0;
+    if (right > ws->tilt->steps[step].width) right = ws->tilt->steps[step].width;
+    if (left >= right) return 0;
     if (step == 0) w->buf = src;
     else if (!w->buf) w->buf = malloc(cover_flow_tilt_bytes(ws->tilt, step));
-    if (!w->buf) return false;
-    cover_flow_tilt_warp(ws->tilt, step, side < 0, src, w->buf, ws->bg);
+    if (!w->buf) return -1;
+    if (w->side != side || w->left == w->right) w->left = w->right = left;
+    int from = left < w->left ? left : w->left;
+    int to = right > w->right ? right : w->right;
+    int columns = (w->left - from) + (to - w->right);
+    if (from < w->left)
+        cover_flow_tilt_warp_columns(ws->tilt, step, side < 0, src, w->buf, ws->bg, from, w->left);
+    if (to > w->right)
+        cover_flow_tilt_warp_columns(ws->tilt, step, side < 0, src, w->buf, ws->bg, w->right, to);
+    w->left = from; w->right = to;
     w->side = side;
-    return true;
+    return columns;
+}
+
+bool cf_warp_build(cf_warps_t * ws, cf_warp_t * w, int step, int side, uint16_t * src) {
+    return cf_warp_require(ws, w, step, side, src, 0, ws->tilt->steps[step].width) >= 0;
 }
 
 void cf_warp_free(cf_warp_t * w, int step) {

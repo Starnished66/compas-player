@@ -1,11 +1,12 @@
 #include "../cover_flow_azmap.h"
+#include "../cover_flow_span.h"
 #include <assert.h>
 #include <stdio.h>
 
 static void build(const char * const * titles, int n, int * jump, bool * has) {
     cover_flow_item_t items[32];
     assert(n <= 32);
-    for (int i = 0; i < n; i++) items[i] = (cover_flow_item_t) { titles[i], "", 0 };
+    for (int i = 0; i < n; i++) items[i] = (cover_flow_item_t) { .title = titles[i], .subtitle = "" };
     cover_flow_az_build(items, n, jump, has);
 }
 
@@ -68,7 +69,46 @@ static void check_empty_tail(void) {
     for (int i = 0; i < 27; i++) assert(jump[i] == -1 && !has[i]);
 }
 
+static void check_mapping(void) {
+    assert(cover_flow_scrub_pos(-10, 20, 400, 5) == 0);
+    assert(cover_flow_scrub_pos(500, 20, 400, 5) == 4 * COVER_FLOW_ONE);
+    assert(cover_flow_scrub_pos(170, 20, 400, 5) == 3 * COVER_FLOW_ONE / 2);
+    assert(cover_flow_scrub_x(3 * COVER_FLOW_ONE / 2, 20, 400, 5) == 170);
+    assert(cover_flow_scrub_x(-1, 20, 400, 5) == 20);
+    assert(cover_flow_scrub_x(9 * COVER_FLOW_ONE, 20, 400, 5) == 420);
+    for (int n = 0; n <= 1; n++) {
+        assert(cover_flow_scrub_pos(300, 20, 400, n) == 0);
+        assert(cover_flow_scrub_x(100, 20, 400, n) == 20);
+    }
+    assert(cover_flow_scrub_pos(30, 20, 0, 5) == 0);
+    assert(cover_flow_scrub_x(100, 20, 0, 5) == 20);
+    for (int x = 20; x <= 420; x++) {
+        int32_t pos = cover_flow_scrub_pos(x, 20, 400, COVER_FLOW_MAX_ITEMS);
+        assert(cover_flow_scrub_x(pos, 20, 400, COVER_FLOW_MAX_ITEMS) == x);
+    }
+}
+
+static void check_notches(void) {
+    const char * t[] = { "#", "Abba", "Another", "Beck", "Zappa" };
+    int jump[27];
+    bool has[27];
+    build(t, 5, jump, has);
+    assert(cover_flow_scrub_notch(26, jump, has, 20, 400, 5) == 20);
+    assert(cover_flow_scrub_notch(0, jump, has, 20, 400, 5) == 120);
+    assert(cover_flow_scrub_notch(1, jump, has, 20, 400, 5) == 320);
+    assert(cover_flow_scrub_notch(25, jump, has, 20, 400, 5) == 420);
+    assert(cover_flow_scrub_notch(2, jump, has, 20, 400, 5) == -1);
+    assert(cover_flow_scrub_notch(-1, jump, has, 20, 400, 5) == -1);
+    assert(cover_flow_scrub_notch(27, jump, has, 20, 400, 5) == -1);
+    build(t, 1, jump, has);
+    assert(cover_flow_scrub_notch(26, jump, has, 20, 400, 1) == 20);
+    build(t, 0, jump, has);
+    assert(cover_flow_scrub_notch(26, jump, has, 20, 400, 0) == -1);
+}
+
 int main(void) {
+    check_mapping();
+    check_notches();
     check_letters();
     check_sorted();
     check_unsorted();

@@ -5,6 +5,7 @@
 
 typedef struct {
     uint16_t * buf;     /* opaque RGB565, background colour baked in; step 0 borrows the face */
+    int left, right;    /* initialized destination columns [left, right) */
     int side;           /* -1 left of the centre, +1 right, 0 flat */
 } cf_warp_t;
 
@@ -24,6 +25,8 @@ typedef struct {
 
 /* Builds `step` from the `src` face (out_h rows tall). Step 0 is the face itself, its reflection written below. */
 bool cf_warp_build(cf_warps_t * ws, cf_warp_t * w, int step, int side, uint16_t * src);
+/* Extends the initialized interval, returning the number of columns newly warped, or -1 on failure. */
+int cf_warp_require(cf_warps_t * ws, cf_warp_t * w, int step, int side, uint16_t * src, int left, int right);
 /* Frees the buffer. Step 0 only lets go of the face. */
 void cf_warp_free(cf_warp_t * w, int step);
 /* Frees what an item brought and rebinds it to `item`. */

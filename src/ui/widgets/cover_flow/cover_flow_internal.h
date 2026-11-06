@@ -48,7 +48,7 @@ typedef struct {
 
 typedef struct {
     int32_t cx, cover_y, label_y, area_top, area_bottom, screen_w;
-    int32_t strip_y, strip_h; /* the A-Z strip, when there is one */
+    int32_t strip_y, strip_h; /* the scrub track, when enabled */
 } cf_geometry_t;
 
 typedef struct {
@@ -56,13 +56,18 @@ typedef struct {
     uint32_t t;
 } cf_sample_t;
 
-/* The A-Z strip under the labels, and its letter bubble. */
+/* The album scrub track and its letter bubble. */
 typedef struct {
     lv_obj_t * touch, * bubble, * bubble_label;
-    lv_obj_t * letter[COVER_FLOW_AZ_LETTERS];
+    lv_obj_t * track, * fill, * grip, * notch[COVER_FLOW_AZ_LETTERS];
+    lv_draw_buf_t * cap;
+    lv_timer_t * poll;
+    lv_indev_t * pointer;
     int jump[COVER_FLOW_AZ_LETTERS];
     bool has[COVER_FLOW_AZ_LETTERS];
-    int32_t left, cell;  /* first letter's x, width of one letter cell */
+    int32_t left, width, offset, start_x;
+    bool moved;
+    char text[2];
     int shown;           /* letter in the bubble, -1 none */
     bool scrubbing;
 } cf_az_t;
@@ -72,7 +77,7 @@ typedef struct {
     lv_timer_t * pump;
     uint32_t quiet_since; /* tick of the last activity, for the idle trim */
     cf_geometry_t g;
-    bool az_on;          /* the A-Z strip is part of this screen */
+    bool az_on;          /* the scrub track is part of this screen */
     cf_az_t az;
     void (*on_select)(int);
     void (*on_hold)(int);
@@ -122,6 +127,7 @@ void cf_slots_destroy(cover_flow_t * cf);
 /* Rebinds every slot to the items around `base` and drops what they held. */
 void cf_slots_reset(cover_flow_t * cf, int base);
 void cf_layout_update(void);
+/* Apply input/animation geometry synchronously, before display preparation. */
 /* The slot whose cover is at (x, y), or -1. */
 int cf_slot_at(int32_t x, int32_t y);
 
@@ -137,13 +143,15 @@ void cf_pump_cb(lv_timer_t * timer);
 int32_t cf_az_height(void);
 /* Builds or removes the strip to match cf->az_on (geometry in cf->g is current). */
 void cf_az_sync(cover_flow_t * cf);
-/* The items changed: rebuild the jump table and dim the empty letters. */
+/* The items changed: rebuild the jump table and notches. */
 void cf_az_content(cover_flow_t * cf);
 void cf_az_destroy(cover_flow_t * cf);
+void cf_az_update(cover_flow_t * cf);
+void cf_az_cancel(cover_flow_t * cf);
 
 /* cover_flow_input.c */
 void cf_input_attach(lv_obj_t * touch);
 void cf_input_stop(void);
 bool cf_settled(void);
-/* Sets the scroll position at once, no animation. */
-void cf_jump_to(int item);
+/* Animates to an album with the covers' normal snap. */
+void cf_scroll_to(int item);

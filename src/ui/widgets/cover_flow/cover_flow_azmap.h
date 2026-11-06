@@ -12,3 +12,10 @@
  * sorted. */
 void cover_flow_az_build(const cover_flow_item_t * items, int count, int jump[COVER_FLOW_AZ_LETTERS],
                          bool has[COVER_FLOW_AZ_LETTERS]);
+
+/* Linear track mapping, in the carousel's 16.16 item position. */
+int32_t cover_flow_scrub_pos(int32_t x, int32_t left, int32_t width, int count);
+int32_t cover_flow_scrub_x(int32_t pos, int32_t left, int32_t width, int count);
+/* -1 for an absent letter, otherwise the first album's track coordinate. */
+int32_t cover_flow_scrub_notch(int letter, const int * jump, const bool * has,
+                              int32_t left, int32_t width, int count);

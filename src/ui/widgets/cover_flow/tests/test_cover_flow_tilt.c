@@ -189,9 +189,10 @@ static void ref_warp(const cover_flow_tilt_t * t, int step, bool near_left, cons
 
 /* Every step and both sides come out bit for bit as the reference makes them. */
 static void check_matches_reference(const cover_flow_tilt_t * t) {
-    uint16_t * src = malloc(FACE * FACE * 2);
+    int face = t->face_px;
+    uint16_t * src = malloc(face * face * 2);
     assert(src);
-    for (int i = 0; i < FACE * FACE; i++) src[i] = (uint16_t) ((i * 2654435761u) >> 13);
+    for (int i = 0; i < face * face; i++) src[i] = (uint16_t) ((i * 2654435761u) >> 13);
     for (int s = 0; s <= COVER_FLOW_TILT_STEPS; s++)
         for (int side = 0; side < 2; side++) {
             size_t bytes = cover_flow_tilt_bytes(t, s);
@@ -202,6 +203,19 @@ static void check_matches_reference(const cover_flow_tilt_t * t) {
             cover_flow_tilt_warp(t, s, side == 0, src, a, BG);
             ref_warp(t, s, side == 0, src, b, BG);
             assert(memcmp(a, b, bytes) == 0);
+            memset(a, 0xA5, bytes);
+            int w = t->steps[s].width;
+            cover_flow_tilt_warp_columns(t, s, side == 0, src, a, BG, -5, -1);
+            cover_flow_tilt_warp_columns(t, s, side == 0, src, a, BG, w + 1, w + 5);
+            cover_flow_tilt_warp_columns(t, s, side == 0, src, a, BG, 3, 2);
+            for (size_t i = 0; i < bytes / 2; i++) assert(a[i] == 0xA5A5);
+            for (int x = 0; x < w; x += 11) {
+                int end = x + 11 < w ? x + 11 : w;
+                cover_flow_tilt_warp_columns(t, s, side == 0, src, a, BG, x, end);
+                for (int y = 0; y < t->out_h; y++)
+                    for (int col = 0; col < w; col++)
+                        assert(a[y * w + col] == (col < end ? b[y * w + col] : 0xA5A5));
+            }
             free(a); free(b);
         }
     free(src);
@@ -223,6 +237,17 @@ int main(void) {
     check_soft_edge(t);
     check_matches_reference(t);
     cover_flow_tilt_destroy(t);
+    const int sizes[] = { 8, 93, 187 };
+    for (unsigned i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        for (int reflect = 0; reflect <= 35; reflect += 35) {
+            cover_flow_tilt_params_t scaled = params;
+            scaled.reflect_pct = reflect;
+            t = cover_flow_tilt_create(sizes[i], &scaled);
+            assert(t);
+            check_matches_reference(t);
+            cover_flow_tilt_destroy(t);
+        }
+    }
     puts("cover_flow_tilt: PASS");
     return 0;
 }

@@ -189,7 +189,7 @@ void cover_flow_note_nav_removed(void) {
 }
 
 static void unloaded_cb(lv_event_t * e) {
-    (void) e;
+    cf_az_cancel(lv_event_get_user_data(e));
     cover_flow_note_nav_removed();
 }
 
@@ -204,6 +204,26 @@ static void apply_params(cover_flow_t * cf, const cover_flow_params_t * p) {
     cf_slots_reset(cf, sel);
     cf_layout_update();
     cf_update_labels();
+}
+
+/* Exercise deferred text sizing and marquee setup before the screen opens.
+ * Scratch labels leave the selected item's text and animation untouched. */
+static void warm_labels(cover_flow_t * cf) {
+    const char * title = "", * subtitle = "";
+    size_t title_len = 0, subtitle_len = 0;
+    for (int i = 0; i < cf->count; i++) {
+        size_t n = strlen(cf->items[i].title);
+        if (n > title_len) { title = cf->items[i].title; title_len = n; }
+        n = strlen(cf->items[i].subtitle);
+        if (n > subtitle_len) { subtitle = cf->items[i].subtitle; subtitle_len = n; }
+    }
+    lv_obj_t * heading = make_label(cf, &style_theme_text_primary, GUI_FONT_ROLE_ROW);
+    lv_obj_t * detail = make_label(cf, &style_theme_text_muted, GUI_FONT_ROLE_SUBTEXT);
+    lv_label_set_text(heading, title);
+    lv_label_set_text(detail, subtitle);
+    lv_obj_update_layout(cf->screen);
+    lv_obj_delete(heading);
+    lv_obj_delete(detail);
 }
 
 static bool create(const cover_flow_params_t * p) {
@@ -223,6 +243,7 @@ static bool create(const cover_flow_params_t * p) {
     cf_az_content(cf);
     if (!cf_faces_create(cf)) goto fail;
     apply_params(cf, p);
+    warm_labels(cf);
     finalize_screen_navigation(cf->screen);
     cf->pump = lv_timer_create(cf_pump_cb, CF_PUMP_MS, cf);
     if (!cf->pump) goto fail;
@@ -249,6 +270,7 @@ static bool replace(cover_flow_t * cf, const cover_flow_params_t * p) {
     lv_label_set_text(cf->header_title, p->title ? p->title : "");
     screen_title_fit(cf->header_title);
     apply_params(cf, p);
+    warm_labels(cf);
     cf_pump_kick();
     return true;
 }

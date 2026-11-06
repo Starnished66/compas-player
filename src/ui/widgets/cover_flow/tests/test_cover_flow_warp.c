@@ -60,11 +60,37 @@ static void check_step(cf_warps_t * ws) {
     free(want);
 }
 
+static void check_intervals(cf_warps_t * ws) {
+    uint16_t * face = make_face(ws->tilt);
+    for (int step = 0; step <= COVER_FLOW_TILT_STEPS; step++) {
+        cf_warp_t w = {0};
+        int width = ws->tilt->steps[step].width;
+        for (int side = -1; side <= 1; side += 2) {
+            int direction = step ? side : 0;
+            uint16_t * want = reference(ws->tilt, face, step, side < 0);
+            int left = width / 3, right = width * 2 / 3;
+            int old_left = w.left, old_right = w.right;
+            int n = cf_warp_require(ws, &w, step, direction, face, left, right);
+            assert(n == ((!step && old_right > old_left) ? 0 : right - left));
+            assert(cf_warp_require(ws, &w, step, direction, face, left, right) == 0);
+            int missing = width - (w.right - w.left);
+            assert(cf_warp_require(ws, &w, step, direction, face, 0, width) == missing);
+            assert(w.left == 0 && w.right == width);
+            assert(memcmp(w.buf, want, cover_flow_tilt_bytes(ws->tilt, step)) == 0);
+            free(want);
+        }
+        cf_warp_free(&w, step);
+        assert(w.left == 0 && w.right == 0);
+    }
+    free(face);
+}
+
 int main(void) {
     cf_warps_t ws = { .tilt = cover_flow_tilt_create(FACE, &params), .bg = BG };
     assert(ws.tilt);
     check_flat_alias(&ws);
     check_step(&ws);
+    check_intervals(&ws);
     cover_flow_tilt_destroy(ws.tilt);
     puts("cover_flow_warp: PASS");
     return 0;
