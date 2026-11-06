@@ -59,14 +59,14 @@ typedef struct {
 /* The album scrub track and its letter bubble. */
 typedef struct {
     lv_obj_t * touch, * bubble, * bubble_label;
-    lv_obj_t * track, * fill, * grip, * notch[COVER_FLOW_AZ_LETTERS];
+    lv_obj_t * track, * fill, * grip;
     lv_draw_buf_t * cap;
     lv_timer_t * poll;
     lv_indev_t * pointer;
-    int jump[COVER_FLOW_AZ_LETTERS];
-    bool has[COVER_FLOW_AZ_LETTERS];
     int32_t left, width, offset, start_x;
     bool moved;
+    bool visible;        /* the track is faded in */
+    bool tap_reveals;    /* the press started on a hidden track */
     char text[2];
     int shown;           /* letter in the bubble, -1 none */
     bool scrubbing;
@@ -141,12 +141,15 @@ void cf_pump_cb(lv_timer_t * timer);
 /* cover_flow_az.c */
 /* Height the strip takes at the bottom of the screen. */
 int32_t cf_az_height(void);
+/* The track's centre, from the strip's top. */
+int32_t cf_az_track_center(void);
 /* Builds or removes the strip to match cf->az_on (geometry in cf->g is current). */
 void cf_az_sync(cover_flow_t * cf);
-/* The items changed: rebuild the jump table and notches. */
+/* The items changed: reset the scrub and move the handle. */
 void cf_az_content(cover_flow_t * cf);
 void cf_az_destroy(cover_flow_t * cf);
 void cf_az_update(cover_flow_t * cf);
+void cf_az_show(cover_flow_t * cf, bool show);
 void cf_az_cancel(cover_flow_t * cf);
 
 /* cover_flow_input.c */

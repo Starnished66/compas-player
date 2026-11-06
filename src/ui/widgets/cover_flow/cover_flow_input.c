@@ -20,6 +20,7 @@ static void anim_exec_cb(void * var, int32_t v) {
 static void anim_done_cb(lv_anim_t * a) {
     cover_flow_t * cf = a->var;
     cf->animating = false;
+    cf_az_show(cf, false);
     cf_pump_kick();
 }
 
@@ -124,6 +125,7 @@ static void on_pressing(cover_flow_t * cf, lv_point_t p) {
     if (!cf->dragging) {
         if (abs(p.x - cf->start.x) < NAV_SWIPE_DEADZONE_PX) return;
         cf->dragging = true;
+        cf_az_show(cf, true);
         cf->grab_x = p.x; /* follow from here, so crossing the dead zone does not jump */
         cf->grab_pos = cf->pos;
     }
@@ -153,6 +155,7 @@ static void on_released(cover_flow_t * cf, lv_point_t p, bool lost) {
     if (cf->dragging) {
         cf->dragging = false;
         fling(cf);
+        if (!cf->animating) cf_az_show(cf, false);
     } else if (!lost && !cf->long_fired) {
         on_tap(cf, p);
     } else {

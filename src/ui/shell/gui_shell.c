@@ -136,7 +136,7 @@ static void build_home_indicator_bar(void) {
      * Android's own gesture-nav home indicator. */
     lv_obj_t * pill = lv_obj_create(home_indicator_band);
     lv_obj_remove_style_all(pill);
-    lv_obj_set_size(pill, BOARD_SCALE_PX(120), BOARD_SCALE_PX(4));
+    lv_obj_set_size(pill, BOARD_SCALE_PX(120), HOME_INDICATOR_PILL_HEIGHT);
     lv_obj_align(pill, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_color(pill, lv_color_make(220, 220, 220), 0);
     lv_obj_set_style_bg_opa(pill, LV_OPA_60, 0);

@@ -28,7 +28,7 @@ typedef struct {
     int selected;                     /* 0-based start item */
     void (*on_select)(int index);     /* tap on the centre cover, 0-based */
     void (*on_hold)(int index);       /* long press on the centre cover, may be NULL */
-    bool az_index;                    /* Album scrubber with letter group notches */
+    bool az_index;                    /* Album scrub track with a letter bubble */
     cover_flow_face_fn face;          /* NULL: faces come from the library by song_id */
 } cover_flow_params_t;
 

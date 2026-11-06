@@ -7,9 +7,13 @@
 #include "../builders/screen_builders.h"
 #include <stdlib.h>
 
-#define GRIP_W BOARD_SCALE_PX(COVER_FLOW_CAP_WIDTH)
+/* The cap is drawn at its design size and stretched to this width. */
+#define GRIP_W BOARD_SCALE_PX(72)
 #define GRIP_H BOARD_SCALE_PX(COVER_FLOW_CAP_HEIGHT)
-#define TRACK_H BOARD_SCALE_PX(4)
+#define TRACK_H BOARD_SCALE_PX(8)
+#define TRACK_INSET BOARD_SCALE_PX(16)
+#define FADE_MS 150
+#define HIDE_DELAY_MS 1500
 #if defined(BOARD_TEMPOTEC_V1) || defined(BOARD_R3II_2025)
 #define BUBBLE_FONT (&lv_font_montserrat_20)
 #else
@@ -17,6 +21,7 @@
 #endif
 
 int32_t cf_az_height(void) { return BOARD_SCALE_PX(58); }
+int32_t cf_az_track_center(void) { return (cf_az_height() - GRIP_H) / 2 + BOARD_SCALE_PX(17); }
 
 static lv_obj_t * rect(lv_obj_t * parent, int w, int h, lv_color_t color, int radius) {
     lv_obj_t * obj = lv_obj_create(parent);
@@ -34,7 +39,7 @@ void cf_az_update(cover_flow_t * cf) {
     if (!az->touch) return;
     int32_t x = cover_flow_scrub_x(cf->pos, az->left, az->width, cf->count);
     lv_obj_set_x(az->grip, x - GRIP_W / 2);
-    lv_obj_set_width(az->fill, x - BOARD_SCALE_PX(40));
+    lv_obj_set_width(az->fill, x - TRACK_INSET);
     lv_obj_set_x(az->bubble, x - BOARD_SCALE_PX(24));
     if (!az->scrubbing || cf->count <= 0) return;
     int letter = library_az_letter(cf->items[cf->base].title);
@@ -45,6 +50,22 @@ void cf_az_update(cover_flow_t * cf) {
     lv_obj_center(az->bubble_label);
 }
 
+static void set_opa(void * obj, int32_t opa) { lv_obj_set_style_opa(obj, (lv_opa_t) opa, 0); }
+
+/* The track stays hidden until touched, then fades out a moment after release. */
+static void fade(cf_az_t * az, bool in) {
+    lv_anim_delete(az->touch, set_opa);
+    az->visible = in;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, az->touch);
+    lv_anim_set_exec_cb(&a, set_opa);
+    lv_anim_set_values(&a, lv_obj_get_style_opa(az->touch, 0), in ? LV_OPA_COVER : LV_OPA_TRANSP);
+    lv_anim_set_duration(&a, FADE_MS);
+    if (!in) lv_anim_set_delay(&a, HIDE_DELAY_MS);
+    lv_anim_start(&a);
+}
+
 static void cancel_scrub(cf_az_t * az) {
     az->scrubbing = false;
     az->pointer = NULL;
@@ -53,21 +74,24 @@ static void cancel_scrub(cf_az_t * az) {
     if (az->bubble) lv_obj_add_flag(az->bubble, LV_OBJ_FLAG_HIDDEN);
 }
 
-void cf_az_cancel(cover_flow_t * cf) { cancel_scrub(&cf->az); }
+/* Covers swiped: show the track while they move, hide it once they settle. */
+void cf_az_show(cover_flow_t * cf, bool show) {
+    if (cf->az.touch && !cf->az.scrubbing) fade(&cf->az, show);
+}
+
+/* Leaving the screen: stop now and come back to a hidden track. */
+void cf_az_cancel(cover_flow_t * cf) {
+    cf_az_t * az = &cf->az;
+    cancel_scrub(az);
+    if (!az->touch) return;
+    lv_anim_delete(az->touch, set_opa);
+    lv_obj_set_style_opa(az->touch, LV_OPA_TRANSP, 0);
+    az->visible = false;
+}
 
 void cf_az_content(cover_flow_t * cf) {
     cf_az_t * az = &cf->az;
     cancel_scrub(az);
-    if (!az->touch) return;
-    cover_flow_az_build(cf->items, cf->count, az->jump, az->has);
-    for (int i = 0; i < COVER_FLOW_AZ_LETTERS; i++) {
-        int x = cover_flow_scrub_notch(i, az->jump, az->has, az->left, az->width, cf->count);
-        if (x < 0) lv_obj_add_flag(az->notch[i], LV_OBJ_FLAG_HIDDEN);
-        else {
-            lv_obj_set_x(az->notch[i], x);
-            lv_obj_remove_flag(az->notch[i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
     cf_az_update(cf);
 }
 
@@ -75,9 +99,11 @@ static void end_scrub(cover_flow_t * cf, bool lost) {
     cf_az_t * az = &cf->az;
     if (!az->scrubbing) return;
     int target = (cf->pos + CF_ONE / 2) / CF_ONE;
-    if (!az->moved && !lost)
+    /* A tap on the hidden track only reveals it; a tap on the shown one jumps. */
+    if (!az->moved && !lost && !az->tap_reveals)
         target = (cover_flow_scrub_pos(az->start_x - az->offset, az->left, az->width, cf->count) + CF_ONE / 2) / CF_ONE;
     cancel_scrub(az);
+    fade(az, false);
     cf_scroll_to(target);
     cf_pump_kick();
 }
@@ -112,6 +138,8 @@ static void start_scrub(cover_flow_t * cf, lv_indev_t * pointer, int32_t x) {
     az->moved = false;
     az->pointer = pointer;
     az->scrubbing = true;
+    az->tap_reveals = !az->visible;
+    fade(az, true);
     az->shown = -1;
     cf_az_update(cf);
     lv_obj_remove_flag(az->bubble, LV_OBJ_FLAG_HIDDEN);
@@ -156,18 +184,14 @@ static void make_grip(cf_az_t * az, int y) {
 static void make_track(cover_flow_t * cf) {
     cf_az_t * az = &cf->az;
     int32_t y = (cf->g.strip_h - GRIP_H) / 2;
-    int inset = BOARD_SCALE_PX(40);
+    int32_t track_y = cf_az_track_center() - TRACK_H / 2;
+    int inset = TRACK_INSET;
     az->left = inset + GRIP_W / 2;
     az->width = cf->g.screen_w - 2 * az->left;
     az->track = rect(az->touch, cf->g.screen_w - 2 * inset, TRACK_H, lv_color_hex(0x3a3e46), LV_RADIUS_CIRCLE);
-    lv_obj_set_pos(az->track, inset, y + BOARD_SCALE_PX(17) - TRACK_H / 2);
+    lv_obj_set_pos(az->track, inset, track_y);
     az->fill = rect(az->touch, 0, TRACK_H, lv_color_hex(0x848890), LV_RADIUS_CIRCLE);
-    lv_obj_set_pos(az->fill, inset, y + BOARD_SCALE_PX(17) - TRACK_H / 2);
-    for (int i = 0; i < COVER_FLOW_AZ_LETTERS; i++) {
-        az->notch[i] = rect(az->touch, BOARD_SCALE_PX(2), BOARD_SCALE_PX(6), lv_color_hex(0x555860), 0);
-        lv_obj_set_y(az->notch[i], y + BOARD_SCALE_PX(30));
-        lv_obj_add_flag(az->notch[i], LV_OBJ_FLAG_HIDDEN);
-    }
+    lv_obj_set_pos(az->fill, inset, track_y);
     make_grip(az, y);
 }
 
@@ -181,6 +205,7 @@ static void build(cover_flow_t * cf) {
     lv_obj_add_flag(az->touch, LV_OBJ_FLAG_CLICKABLE);
     register_swipe_dead_zone(az->touch);
     lv_obj_add_event_cb(az->touch, strip_cb, LV_EVENT_ALL, NULL);
+    lv_obj_set_style_opa(az->touch, LV_OPA_TRANSP, 0);
     make_track(cf);
     az->bubble = rect(cf->screen, BOARD_SCALE_PX(48), BOARD_SCALE_PX(48), lv_color_hex(0x2c2f36), BOARD_SCALE_PX(14));
     lv_obj_set_style_border_width(az->bubble, BOARD_SCALE_PX(1), 0);

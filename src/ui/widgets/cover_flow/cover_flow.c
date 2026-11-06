@@ -7,6 +7,7 @@
 #include "../../shell/gui_navigation.h"
 #include "../../shell/gui_shell.h"
 #include "../builders/screen_builders.h"
+#include "../../input/gesture_detector.h" /* HOME_SWIPE_HIT_EXTRA_PX */
 #include "../../../core/text/utf8_util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,14 @@ static void compute_geometry(cover_flow_t * cf) {
     int32_t spare = g->area_bottom - g->area_top - block;
     g->cover_y = g->area_top + (spare > 0 ? spare / 2 : 0);
     g->label_y = g->cover_y + row_h + BOARD_SCALE_PX(8);
+    if (!cf->az_on) return;
+    /* The track sits halfway between the subtitle's text (its label box keeps
+     * a margin below it) and the home indicator pill, centred in its band. */
+    int32_t pill_top = lv_display_get_vertical_resolution(disp) -
+                       (HOME_INDICATOR_BAND_HEIGHT + HOME_SWIPE_HIT_EXTRA_PX) / 2 - HOME_INDICATOR_PILL_HEIGHT / 2;
+    int32_t text_bottom = g->label_y + labels - row_label_descender_margin(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+    g->strip_y = (text_bottom + pill_top) / 2 - cf_az_track_center();
+    g->area_bottom = g->strip_y;
 }
 
 /* Where the carousel's touch area and the labels go for the current geometry. */

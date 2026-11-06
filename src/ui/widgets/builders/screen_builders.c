@@ -252,7 +252,7 @@ void screen_builders_init_list_row_style(void) {
     gui_theme_update_surface_contrast();
 }
 
-static int32_t row_label_descender_margin(const lv_font_t * font) {
+int32_t row_label_descender_margin(const lv_font_t * font) {
     int32_t margin = (font ? lv_font_get_line_height(font) : 24) / 8;
     return margin < 4 ? 4 : margin;
 }

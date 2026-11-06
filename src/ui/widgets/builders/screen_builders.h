@@ -48,6 +48,7 @@
 #endif
 #define HOME_INDICATOR_BAND_HEIGHT BOARD_SCALE_PX(24)
 #define HOME_INDICATOR_CONTENT_INSET (HOME_INDICATOR_BAND_HEIGHT + BOARD_SCALE_PX(8))
+#define HOME_INDICATOR_PILL_HEIGHT BOARD_SCALE_PX(4)
 
 /* Shared touch-list row geometry -- every tappable row-of-text list
  * (Artists/Albums/Album Artist/Genres/All Songs/group-songs drill-down,
@@ -141,6 +142,8 @@ lv_obj_t * build_list_message(lv_obj_t * parent, const char * title, const char 
  * going through that. */
 void row_label_apply_bounded_height(lv_obj_t * label, const lv_font_t * font);
 int32_t row_label_bounded_height(const lv_font_t * font);
+/* Space a bounded row label keeps above and below its line. */
+int32_t row_label_descender_margin(const lv_font_t * font);
 /* Theming: shared, mutable bg_color styles for the app's other two
  * "background categories" -- attach with lv_obj_add_style(x, &style_theme_screen_bg, 0)
  * on every screen root, or &style_theme_card_bg on every popup/EQ-card/
