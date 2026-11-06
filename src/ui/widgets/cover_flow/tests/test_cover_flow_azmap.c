@@ -44,6 +44,17 @@ static void check_sorted(void) {
     assert(jump[24] == 6 && jump[25] == 6 && has[25]);
 }
 
+static void check_reversed(void) {
+    const char * titles[] = { "Zappa", "Beck", "Another", "Abba", "10cc" };
+    int jump[27];
+    bool has[27];
+    build(titles, 5, jump, has);
+    assert(jump[0] == 2 && jump[1] == 1 && jump[25] == 0 && jump[26] == 4);
+    assert(cover_flow_scrub_notch(0, jump, has, 20, 400, 5) == 220);
+    assert(cover_flow_scrub_notch(25, jump, has, 20, 400, 5) == 20);
+    assert(cover_flow_scrub_notch(26, jump, has, 20, 400, 5) == 420);
+}
+
 static void check_unsorted(void) {
     const char * t[] = { "Zappa", "beck", "Abba", "", "Beyonce", "x", "abc" };
     int jump[27];
@@ -112,6 +123,7 @@ int main(void) {
     check_letters();
     check_sorted();
     check_unsorted();
+    check_reversed();
     check_empty_tail();
     puts("cover_flow_azmap: PASS");
     return 0;

@@ -440,9 +440,13 @@ static void set_defaults(player_settings_t * out) {
     out->join_albums = false;
     out->peq_graph_include_preamp = false;
     out->file_sort_mode = 0;
+    out->file_sort_reverse = false;
     out->album_sort_mode = 0;
+    out->album_sort_reverse = false;
     out->artist_albums_sort_mode = 0;
+    out->artist_albums_sort_reverse = false;
     out->album_artist_albums_sort_mode = 0;
+    out->album_artist_albums_sort_reverse = false;
     out->genre_view_mode = 0;
     /* Defaults on: a device left screen-off with idle_shutdown_enabled=false
      * sits at full power indefinitely. Suspend-to-RAM (not a full poweroff)
@@ -709,15 +713,23 @@ bool settings_load(player_settings_t * out) {
             uint32_t parsed;
             if (parse_u32_setting(value, &parsed) && parsed <= TOPBAR_CLOCK_RIGHT)
                 out->topbar_clock_position = (int)parsed;
+        } else if (strcmp(key, "file_sort_reverse") == 0) {
+            out->file_sort_reverse = strcmp(value, "1") == 0;
         } else if (strcmp(key, "file_sort_mode") == 0) {
             out->file_sort_mode = strcmp(value, "1") == 0 ? 1 : 0;
+        } else if (strcmp(key, "album_sort_reverse") == 0) {
+            out->album_sort_reverse = strcmp(value, "1") == 0;
         } else if (strcmp(key, "album_sort_mode") == 0) {
             out->album_sort_mode = strcmp(value, "1") == 0 ? 1 :
                                    (strcmp(value, "2") == 0 ? 2 :
                                     (strcmp(value, "3") == 0 ? 3 : 0));
+        } else if (strcmp(key, "artist_albums_sort_reverse") == 0) {
+            out->artist_albums_sort_reverse = strcmp(value, "1") == 0;
         } else if (strcmp(key, "artist_albums_sort_mode") == 0) {
             out->artist_albums_sort_mode = strcmp(value, "1") == 0 ? 1 : (strcmp(value, "2") == 0 ? 2 : 0);
             artist_albums_sort_seen = true;
+        } else if (strcmp(key, "album_artist_albums_sort_reverse") == 0) {
+            out->album_artist_albums_sort_reverse = strcmp(value, "1") == 0;
         } else if (strcmp(key, "album_artist_albums_sort_mode") == 0) {
             out->album_artist_albums_sort_mode = strcmp(value, "1") == 0 ? 1 : (strcmp(value, "2") == 0 ? 2 : 0);
             album_artist_albums_sort_seen = true;
@@ -912,9 +924,13 @@ static void settings_write_file(const player_settings_t * settings) {
             settings->topbar_clock_position <= TOPBAR_CLOCK_RIGHT
                 ? settings->topbar_clock_position : TOPBAR_CLOCK_CENTER);
     fprintf(f, "file_sort_mode=%d\n", settings->file_sort_mode == 1 ? 1 : 0);
+    fprintf(f, "file_sort_reverse=%d\n", settings->file_sort_reverse ? 1 : 0);
     fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 3 ? settings->album_sort_mode : 0);
+    fprintf(f, "album_sort_reverse=%d\n", settings->album_sort_reverse ? 1 : 0);
     fprintf(f, "artist_albums_sort_mode=%d\n", settings->artist_albums_sort_mode >= 0 && settings->artist_albums_sort_mode <= 2 ? settings->artist_albums_sort_mode : 0);
+    fprintf(f, "artist_albums_sort_reverse=%d\n", settings->artist_albums_sort_reverse ? 1 : 0);
     fprintf(f, "album_artist_albums_sort_mode=%d\n", settings->album_artist_albums_sort_mode >= 0 && settings->album_artist_albums_sort_mode <= 2 ? settings->album_artist_albums_sort_mode : 0);
+    fprintf(f, "album_artist_albums_sort_reverse=%d\n", settings->album_artist_albums_sort_reverse ? 1 : 0);
     fprintf(f, "genre_view_mode=%d\n", settings->genre_view_mode >= 0 && settings->genre_view_mode <= 3 ? settings->genre_view_mode : 0);
     fprintf(f, "music_order=%s\n", settings->ui_customization.music_order_text);
     if (strcmp(settings->ui_customization.drawer_order_text, ui_defaults.drawer_order_text) != 0)

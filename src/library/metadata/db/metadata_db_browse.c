@@ -41,7 +41,7 @@ static bool is_artist_kind(metadata_db_group_kind_t kind) {
 }
 
 static bool album_sort_valid(metadata_db_album_sort_t sort) {
-    return sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR;
+    return sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= (METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR | METADATA_DB_ALBUM_SORT_REVERSE);
 }
 
 /* FNV-1a over the ASCII-case-folded bytes of s, continuing from hash. */
@@ -399,6 +399,44 @@ void metadata_db_get_az_table(metadata_db_az_kind_t kind, int out_table[27]) {
     }
 }
 
+void metadata_db_get_album_az_table_sorted(metadata_db_album_sort_t sort, int out_table[27]) {
+    METADATA_DB_GUARD;
+    if (!(sort & METADATA_DB_ALBUM_SORT_REVERSE)) {
+        metadata_db_get_az_table(METADATA_DB_AZ_ALBUM, out_table);
+        return;
+    }
+    for (int i = 0; i < 27; i++) out_table[i] = -1;
+    if (!metadata_db_db_ready) return;
+    int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    for (int letter = 0; letter < 26; letter++) {
+        int lo = 0, hi = count;
+        unsigned char target = (unsigned char)('a' + letter), first;
+        while (lo < hi) {
+            int mid = lo + (hi - lo) / 2;
+            if (!az_first_char(TAGCACHE_GROUP_ALBUM, mid, &first)) break;
+            if (first <= target) lo = mid + 1; else hi = mid;
+        }
+        out_table[letter] = lo > 0 && az_first_char(TAGCACHE_GROUP_ALBUM, lo - 1, &first) && first == target
+            ? count - lo : -1;
+    }
+    for (int i = 1; i < 26; i++)
+        if (out_table[i] < 0) out_table[i] = out_table[i - 1];
+    out_table[26] = -1;
+    unsigned char first;
+    if (count > 0 && az_first_char(TAGCACHE_GROUP_ALBUM, count - 1, &first) &&
+        (first < 'a' || first > 'z')) {
+        out_table[26] = 0;
+    } else if (count > 0 && az_first_char(TAGCACHE_GROUP_ALBUM, 0, &first) && first < 'a') {
+        int lo = 0, hi = count;
+        while (lo < hi) {
+            int mid = lo + (hi - lo) / 2;
+            if (!az_first_char(TAGCACHE_GROUP_ALBUM, mid, &first)) return;
+            if (first < 'a') lo = mid + 1; else hi = mid;
+        }
+        out_table[26] = count - lo;
+    }
+}
+
 int metadata_db_search_names(metadata_db_az_kind_t kind, const char *needle, int max_rows,
                              metadata_db_search_hit_t *out_hits) {
     METADATA_DB_GUARD;
@@ -606,7 +644,6 @@ int metadata_db_album_canonical_to_sorted(metadata_db_album_sort_t sort, int can
     METADATA_DB_GUARD;
     if (!metadata_db_db_ready || !album_sort_valid(sort) ||
         canonical_rank < 0 || canonical_rank >= tagcache_group_count(TAGCACHE_GROUP_ALBUM)) return -1;
-    if (!tagcache_album_sort_available((int)sort)) return canonical_rank;
     tagcache_group_t group;
     if (!tagcache_group_at(TAGCACHE_GROUP_ALBUM, canonical_rank, &group)) return -1;
     return tagcache_album_group_sorted_offset((int)sort, group.name, group.album_artist);
@@ -618,7 +655,7 @@ int metadata_db_get_albums_page_sorted(const char *artist_filter, metadata_db_al
     if (!metadata_db_db_ready || !out_rows || max_rows <= 0 ||
         !album_sort_valid(sort)) return 0;
     if (offset < 0) offset = 0;
-    if (sort == METADATA_DB_ALBUM_SORT_NAME || !tagcache_album_sort_available((int)sort))
+    if (sort == METADATA_DB_ALBUM_SORT_NAME)
         return metadata_db_get_albums_page_filtered(artist_filter, offset, max_rows, out_rows);
     int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
     int written = 0, matched = 0;
@@ -749,13 +786,16 @@ int64_t metadata_db_count_albums_for_group(metadata_db_group_kind_t kind, const 
 typedef struct {
     group_row_t * rows;
     int written;
+    int reverse_count;
 } group_album_page_copy_t;
 
 static void copy_group_album_page_row(int32_t rank, const tagcache_group_t * group,
                                       void * user_data) {
     (void) rank;
     group_album_page_copy_t * copy = user_data;
-    metadata_db_copy_group(group, &copy->rows[copy->written++]);
+    int row = copy->reverse_count ? copy->reverse_count - 1 - copy->written : copy->written;
+    copy->written++;
+    metadata_db_copy_group(group, &copy->rows[row]);
 }
 
 int metadata_db_get_albums_for_group(metadata_db_group_kind_t kind, const char *name, int offset, int max_rows,
@@ -834,10 +874,21 @@ int metadata_db_get_albums_for_group_sorted(metadata_db_group_kind_t kind, const
         !is_artist_kind(kind) ||
         !album_sort_valid(sort)) return 0;
     if (offset < 0) offset = 0;
-    if (sort == METADATA_DB_ALBUM_SORT_NAME || !tagcache_album_sort_available((int)sort))
-        return metadata_db_get_albums_for_group(kind, name, offset, max_rows, out_rows);
-
     int64_t count64 = metadata_db_count_albums_for_group(kind, name);
+    if ((sort & ~METADATA_DB_ALBUM_SORT_REVERSE) == METADATA_DB_ALBUM_SORT_NAME ||
+        !tagcache_album_sort_available((int)sort)) {
+        if (!(sort & METADATA_DB_ALBUM_SORT_REVERSE))
+            return metadata_db_get_albums_for_group(kind, name, offset, max_rows, out_rows);
+        if (count64 <= offset || count64 > INT_MAX) return 0;
+        int rows = (int)count64 - offset;
+        if (rows > max_rows) rows = max_rows;
+        group_album_page_copy_t copy = { .rows = out_rows, .reverse_count = rows };
+        int visited = tagcache_group_album_page(group_kind_to_tc(kind), name,
+                                                (int)count64 - offset - rows, rows,
+                                                copy_group_album_page_row, &copy);
+        return visited == rows && copy.written == rows ? rows : 0;
+    }
+
     if (count64 <= 0 || count64 > INT_MAX || (uint64_t)count64 > SIZE_MAX / sizeof(sorted_group_album_t))
         return 0;
     int count = (int)count64;
@@ -891,8 +942,11 @@ int64_t metadata_db_get_album_for_group_sorted_offset(metadata_db_group_kind_t k
     int tc_kind = group_kind_to_tc(kind);
     int group_offset = tagcache_group_album_offset(tc_kind, name, album, album_artist);
     if (group_offset < 0) return -1;
-    if (sort == METADATA_DB_ALBUM_SORT_NAME || !tagcache_album_sort_available((int)sort))
-        return group_offset;
+    if ((sort & ~METADATA_DB_ALBUM_SORT_REVERSE) == METADATA_DB_ALBUM_SORT_NAME ||
+        !tagcache_album_sort_available((int)sort)) {
+        int count = tagcache_group_album_count(tc_kind, name);
+        return sort & METADATA_DB_ALBUM_SORT_REVERSE ? count - 1 - group_offset : group_offset;
+    }
 
     /* Return a position within this exact group's sorted album list, not the
      * album's global sorted rank. That keeps the synthetic All Songs prefix

@@ -35,6 +35,7 @@ void reader_context_init(reader_context_t *context) {
     for (int i = 0; i < 2; i++) context->rank_fd[i] = -1;
     context->fds_ready = true;
     context->serial = 1;
+    context->album_year_known_count = -1;
     context->query_cache_valid = false;
 }
 
@@ -288,6 +289,7 @@ bool tagcache_song_at_recency_rank(int32_t rank, tagcache_song_t *out) {
 int tagcache_group_count(int kind) { return db_open && kind >= 0 && kind < 3 ? (reader_legacy_active ? legacy_group_count(kind) : reader_group_n[kind]) : 0; }
 bool tagcache_group_at(int kind, int index, tagcache_group_t *out) { return db_open && reader_group_at(kind, index, out); }
 bool tagcache_album_sort_available(int sort) {
+    sort &= ~TAGCACHE_ALBUM_SORT_REVERSE;
     if (!db_open) return false;
     if (sort == 0) return true;
     if (sort < 1 || sort > 3 || reader_legacy_active) return false;
@@ -300,9 +302,43 @@ static bool album_order_read(int fd, int at, int count, int32_t *out) {
     return tc_read_full(fd, out, sizeof(*out), (off_t)at * sizeof(*out)) && *out >= 0 && *out < count;
 }
 
+/* Year indexes end with albums having no known year. Reverse only the known
+ * prefix, leaving that tail last. The mapping is its own inverse. */
+static int album_reverse_rank(int sort, int rank) {
+    if (!(sort & TAGCACHE_ALBUM_SORT_REVERSE)) return rank;
+    int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    int known = count;
+    if ((sort & ~TAGCACHE_ALBUM_SORT_REVERSE) == 2 && tagcache_album_sort_available(2)) {
+        int lo = READER->album_year_known_count, hi = count;
+        if (lo < 0) lo = 0; else hi = lo;
+        while (lo < hi) {
+            int mid = lo + (hi - lo) / 2;
+            int32_t canonical;
+            if (!album_order_read(reader_album_order_fd[1], mid, count, &canonical)) return -1;
+            bool has_year = false;
+            int offset = 0, ids[32], got;
+            do {
+                got = reader_group_ids(TAGCACHE_GROUP_ALBUM, canonical, offset, ids, 32);
+                for (int i = 0; i < got; i++) {
+                    struct index_entry idx;
+                    if (!reader_index(ids[i] - 1, &idx)) return -1;
+                    if (idx.tag_seek[tag_year] > 0) { has_year = true; break; }
+                }
+                offset += got;
+            } while (!has_year && got == 32);
+            if (has_year) lo = mid + 1; else hi = mid;
+        }
+        known = READER->album_year_known_count = lo;
+    }
+    return rank < known ? known - 1 - rank : rank;
+}
+
 bool tagcache_album_group_at_sorted(int sort, int rank, tagcache_group_t *out) {
     int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
     if (!db_open || rank < 0 || rank >= count) return false;
+    rank = album_reverse_rank(sort, rank);
+    sort &= ~TAGCACHE_ALBUM_SORT_REVERSE;
+    if (rank < 0) return false;
     if (sort == 0 || !tagcache_album_sort_available(sort))
         return reader_group_at(TAGCACHE_GROUP_ALBUM, rank, out);
     int32_t canonical;
@@ -314,22 +350,25 @@ int tagcache_album_group_sorted_offset(int sort, const char *album, const char *
     if (!db_open) return -1;
     int canonical = reader_group_index(TAGCACHE_GROUP_ALBUM, album, album_artist);
     if (canonical < 0) return -1;
-    if (sort == 0 || !tagcache_album_sort_available(sort)) return canonical;
+    int requested = sort;
+    sort &= ~TAGCACHE_ALBUM_SORT_REVERSE;
+    if (sort == 0 || !tagcache_album_sort_available(sort)) return album_reverse_rank(requested, canonical);
     int32_t sorted;
     if (!album_order_read(reader_album_inverse_fd[sort - 1], canonical, tagcache_group_count(TAGCACHE_GROUP_ALBUM),
-                          &sorted)) return canonical;
-    return sorted;
+                          &sorted)) return -1;
+    return album_reverse_rank(requested, sorted);
 }
 
 bool tagcache_album_group_sorted_rank(int sort, int canonical_rank, int *sorted_rank_out) {
-    if (!db_open || !sorted_rank_out || sort < 1 || sort > 3 ||
-        canonical_rank < 0 || canonical_rank >= tagcache_group_count(TAGCACHE_GROUP_ALBUM) ||
-        !tagcache_album_sort_available(sort)) return false;
-    int32_t sorted;
-    if (!album_order_read(reader_album_inverse_fd[sort - 1], canonical_rank,
-                          tagcache_group_count(TAGCACHE_GROUP_ALBUM), &sorted)) return false;
-    *sorted_rank_out = sorted;
-    return true;
+    int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    if (!db_open || !sorted_rank_out || sort < 0 || sort > 7 ||
+        canonical_rank < 0 || canonical_rank >= count) return false;
+    int base = sort & ~TAGCACHE_ALBUM_SORT_REVERSE;
+    int32_t sorted = canonical_rank;
+    if (base && tagcache_album_sort_available(base) &&
+        !album_order_read(reader_album_inverse_fd[base - 1], canonical_rank, count, &sorted)) return false;
+    *sorted_rank_out = album_reverse_rank(sort, sorted);
+    return *sorted_rank_out >= 0;
 }
 
 int tagcache_group_index(int kind, const char *name, const char *aa) {

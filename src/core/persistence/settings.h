@@ -344,9 +344,13 @@ typedef struct {
     bool peq_graph_include_preamp; /* EQ graph shows the combined response with the preamp; off shows the filter correction only */
     bool join_albums; /* opt-in: album artists sharing an album and folder show as "Various Artists" when the library is published */
     int file_sort_mode; /* 0 Name, 1 Newest Modified; directories stay first. */
+    bool file_sort_reverse;
     int album_sort_mode; /* 0 Name, 1 Recently Added, 2 Release Year, 3 Album Artist then Year (oldest first). */
+    bool album_sort_reverse;
     int artist_albums_sort_mode; /* Ordering within an Artist's Albums view. */
+    bool artist_albums_sort_reverse;
     int album_artist_albums_sort_mode; /* Ordering within an Album Artist's Albums view. */
+    bool album_artist_albums_sort_reverse;
     int genre_view_mode; /* Inside a genre: 0 All Songs, 1 Artists, 2 Album Artist, 3 Albums. */
 
     /* Idle action after a long stretch idle (screen off, not playing, not

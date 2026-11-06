@@ -122,6 +122,7 @@ typedef struct {
     bool fds_ready, requires_indexes, legacy_active, compact_sort, compact_order, sort_failed;
     int query_fd, artist_names_fd, title_fd, recency_fd, path_fd, rank_fd[2], group_fd[3], members_fd[3], group_n[3], sort_kind;
     int album_order_fd[3], album_inverse_fd[3];
+    int album_year_known_count; /* -1 until the current year index is queried */
     unsigned char *join_bits; /* 1 bit per slot: album artist projected, see tagcache_reader_join.h */
     bool query_cache_valid;
     uint64_t query_cache_block;

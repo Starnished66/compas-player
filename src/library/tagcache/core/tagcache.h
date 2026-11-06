@@ -34,6 +34,7 @@
 #define TAGCACHE_GROUP_ARTIST 0
 #define TAGCACHE_GROUP_ALBUM_ARTIST 1
 #define TAGCACHE_GROUP_ALBUM 2
+#define TAGCACHE_ALBUM_SORT_REVERSE 4
 
 typedef struct {
     int32_t id; /* 1-based stable slot id; deleted slots are never reused */
@@ -188,8 +189,7 @@ int tagcache_group_album_page(int kind, const char *name, int offset,
 int tagcache_group_album_offset(int kind, const char *name, const char *album, const char *album_artist);
 bool tagcache_album_group_at_sorted(int sort, int rank, tagcache_group_t *out);
 int tagcache_album_group_sorted_offset(int sort, const char *album, const char *album_artist);
-/* Strict inverse lookup for a known canonical album-group rank. Unlike the
- * compatibility offset helper above, this reports a failed index read. */
+/* Inverse lookup for a known canonical album-group rank, including reverse. */
 bool tagcache_album_group_sorted_rank(int sort, int canonical_rank, int *sorted_rank_out);
 bool tagcache_album_sort_available(int sort);
 

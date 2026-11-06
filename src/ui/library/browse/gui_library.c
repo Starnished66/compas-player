@@ -102,42 +102,40 @@ void refresh_artist_albums_now_playing_indicator(void);
 #define EXTERNAL_COVER_MAX_BYTES (4U * 1024U * 1024U)
 
 
-metadata_db_album_sort_t effective_album_sort(void) {
-    metadata_db_album_sort_t sort = (metadata_db_album_sort_t) current_settings.album_sort_mode;
-    return metadata_db_album_sort_available(sort) ? sort : METADATA_DB_ALBUM_SORT_NAME;
+static metadata_db_album_sort_t configured_album_order(int mode, bool reverse, int maximum) {
+    if (mode < 0 || mode > maximum) mode = 0;
+    return (metadata_db_album_sort_t)(mode | (reverse ? METADATA_DB_ALBUM_SORT_REVERSE : 0));
 }
 
-/* Pure scalar validation for refresh requests; unlike effective_album_sort(),
- * this does not ask the database whether an optional sort is available. */
+/* Scalar settings snapshots also identify asynchronous work and stale results. */
 static metadata_db_album_sort_t requested_album_sort(void) {
-    metadata_db_album_sort_t sort = (metadata_db_album_sort_t) current_settings.album_sort_mode;
-    return sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR
-        ? sort : METADATA_DB_ALBUM_SORT_NAME;
+    return configured_album_order(current_settings.album_sort_mode, current_settings.album_sort_reverse,
+                                  METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR);
 }
 
-static int configured_group_album_sort(metadata_db_group_kind_t kind) {
-    if (kind == METADATA_DB_GROUP_ARTIST) return current_settings.artist_albums_sort_mode;
-    if (kind == METADATA_DB_GROUP_ALBUM_ARTIST) return current_settings.album_artist_albums_sort_mode;
-    return current_settings.album_sort_mode;
+metadata_db_album_sort_t effective_album_sort(void) {
+    metadata_db_album_sort_t sort = requested_album_sort();
+    return metadata_db_album_sort_available(sort) ? sort :
+        (metadata_db_album_sort_t)(sort & METADATA_DB_ALBUM_SORT_REVERSE);
+}
+
+metadata_db_album_sort_t requested_group_album_sort(metadata_db_group_kind_t kind) {
+    bool artist = kind == METADATA_DB_GROUP_ARTIST;
+    return configured_album_order(artist ? current_settings.artist_albums_sort_mode :
+                                           current_settings.album_artist_albums_sort_mode,
+                                  artist ? current_settings.artist_albums_sort_reverse :
+                                           current_settings.album_artist_albums_sort_reverse,
+                                  METADATA_DB_ALBUM_SORT_YEAR);
 }
 
 metadata_db_album_sort_t effective_group_album_sort(metadata_db_group_kind_t kind) {
-    int value = configured_group_album_sort(kind);
-    metadata_db_album_sort_t sort = (metadata_db_album_sort_t) value;
-    metadata_db_album_sort_t max_sort = METADATA_DB_ALBUM_SORT_YEAR;
-    if (sort < METADATA_DB_ALBUM_SORT_NAME || sort > max_sort)
-        return METADATA_DB_ALBUM_SORT_NAME;
-    return metadata_db_album_sort_available(sort) ? sort : METADATA_DB_ALBUM_SORT_NAME;
+    metadata_db_album_sort_t sort = requested_group_album_sort(kind);
+    return metadata_db_album_sort_available(sort) ? sort :
+        (metadata_db_album_sort_t)(sort & METADATA_DB_ALBUM_SORT_REVERSE);
 }
 
 metadata_db_album_sort_t gui_library_group_album_sort(metadata_db_group_kind_t kind) {
     return effective_group_album_sort(kind);
-}
-
-metadata_db_album_sort_t requested_group_album_sort(metadata_db_group_kind_t kind) {
-    int value = configured_group_album_sort(kind);
-    return value >= METADATA_DB_ALBUM_SORT_NAME && value <= METADATA_DB_ALBUM_SORT_YEAR
-        ? (metadata_db_album_sort_t) value : METADATA_DB_ALBUM_SORT_NAME;
 }
 
 pthread_mutex_t now_playing_lookup_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -185,7 +183,7 @@ static void * now_playing_lookup_worker(void * unused) {
             if (value >= 0 && value <= INT_MAX) {
                 result.album_row = (int) value;
                 result.effective_album_sort = metadata_db_album_sort_available(request.album_sort)
-                    ? request.album_sort : METADATA_DB_ALBUM_SORT_NAME;
+                    ? request.album_sort : (metadata_db_album_sort_t)(request.album_sort & METADATA_DB_ALBUM_SORT_REVERSE);
                 result.album_sorted_row = metadata_db_album_canonical_to_sorted(
                     result.effective_album_sort, result.album_row);
             }
@@ -370,6 +368,7 @@ static lv_obj_t * build_files_screen(void) {
     files_options_btn = build_top_right_icon_button(scr, asset_path("navigation/more.png"),
                                                     files_current_folder_options_cb);
 
+    file_browser_set_sort_reverse(current_settings.file_sort_reverse);
     file_browser_set_sort_mode((file_browser_sort_mode_t) current_settings.file_sort_mode);
     const file_browser_options_t options = {
         .on_select = on_file_browser_selected,
@@ -567,7 +566,15 @@ typedef const char * (*az_index_name_of_t)(int display_index);
  * library_az_index. This GUI supplies active-list policy and the shared raw
  * pointer-indev lookup. Keep this wrapper for the existing public callback. */
 static bool az_index_strip_allowed(lv_obj_t * list) {
-    return list != albums_list || effective_album_sort() == METADATA_DB_ALBUM_SORT_NAME;
+    return list != albums_list || (effective_album_sort() & ~METADATA_DB_ALBUM_SORT_REVERSE) == METADATA_DB_ALBUM_SORT_NAME;
+}
+
+static bool album_az_index_allowed(void) {
+    return az_index_strip_allowed(albums_list);
+}
+
+static void album_az_index_table(int jump[27]) {
+    metadata_db_get_album_az_table_sorted(effective_album_sort(), jump);
 }
 
 void poll_az_index_drag(lv_timer_t * timer) {
@@ -638,6 +645,7 @@ void register_search(search_binding_id_t id, lv_obj_t *screen, lv_obj_t *list,
 void gui_library_apply_sorting(gui_library_sort_scope_t scope) {
     if (scope == GUI_LIBRARY_SORT_FILES) {
         if (library_search_is_active(SEARCH_BINDING_FILES)) search_close_if_active_for_screen(files_screen);
+        file_browser_set_sort_reverse(current_settings.file_sort_reverse);
         file_browser_set_sort_mode((file_browser_sort_mode_t) current_settings.file_sort_mode);
     } else if (scope == GUI_LIBRARY_SORT_ALBUMS && albums_list) {
         if (library_search_is_active(SEARCH_BINDING_ALBUMS)) search_close_if_active_for_screen(albums_screen);
@@ -891,6 +899,7 @@ void refresh_library_screens_after_reload(bool clear_thumbnail_cache) {
                                      recently_added_screen, genres_screen };
     gui_navigation_remove_screen_instances(being_replaced, (int)(sizeof(being_replaced) / sizeof(being_replaced[0])));
 
+    library_az_index_unregister(albums_screen);
     lv_obj_delete(all_songs_screen);
     lv_obj_delete(artists_screen);
     lv_obj_delete(albums_screen);
@@ -916,7 +925,8 @@ void refresh_library_screens_after_reload(bool clear_thumbnail_cache) {
      * against the freshly rebuilt screens/lists before anything can poll them. */
     library_az_index_reset_bindings();
     library_az_index_register(artists_screen, artists_list, METADATA_DB_AZ_ARTIST);
-    library_az_index_register(albums_screen, albums_list, METADATA_DB_AZ_ALBUM);
+    library_az_index_register_table(albums_screen, albums_list, album_az_index_table,
+                                    album_az_index_allowed);
     library_az_index_register(album_artist_screen, album_artist_list, METADATA_DB_AZ_ALBUM_ARTIST);
     library_az_index_register(all_songs_screen, all_songs_list, METADATA_DB_AZ_ALL_SONGS);
 
@@ -1304,7 +1314,8 @@ void gui_library_init(void) {
     library_teardown_diag("register_az_index(artists) before");
     library_az_index_register(artists_screen, artists_list, METADATA_DB_AZ_ARTIST);
     library_teardown_diag("register_az_index(albums) before");
-    library_az_index_register(albums_screen, albums_list, METADATA_DB_AZ_ALBUM);
+    library_az_index_register_table(albums_screen, albums_list, album_az_index_table,
+                                    album_az_index_allowed);
     library_teardown_diag("register_az_index(album_artist) before");
     library_az_index_register(album_artist_screen, album_artist_list, METADATA_DB_AZ_ALBUM_ARTIST);
     library_teardown_diag("register_az_index(all_songs) before");
@@ -1432,6 +1443,7 @@ void gui_library_teardown(void) {
     cancel_album_load();
     reload_orphan_deadline = 0; /* the reload's budget ends with the teardown */
     cancel_group_song_probes();
+    if (albums_screen) library_az_index_unregister(albums_screen);
     library_az_index_reset_bindings();
     library_prompt_requeue_visible();
     gui_popup_teardown(&library_update_prompt_popup);

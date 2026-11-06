@@ -612,10 +612,14 @@ static void build_library_sorting_json(char *out, size_t size) {
     json_builder_appendf(&json, "{");
     for (int i = 0; i < 3; ++i) {
         int mode = configured[i];
-        if (mode < 0 || mode > 2) mode = 0;
-        int effective = (mode == 1 && !recent) || (mode == 2 && !year) ? 0 : mode;
-        json_builder_appendf(&json, "%s\"%s\":{\"configured\":%d,\"effective\":%d,\"available\":[true,%s,%s]}",
-                             i ? "," : "", names[i], mode, effective, recent ? "true" : "false", year ? "true" : "false");
+        if (mode < 0 || mode > 7 || (mode & ~METADATA_DB_ALBUM_SORT_REVERSE) > (i == 0 ? 3 : 2)) mode = 0;
+        int effective = metadata_db_album_sort_available((metadata_db_album_sort_t) mode)
+                            ? mode : (mode & METADATA_DB_ALBUM_SORT_REVERSE);
+        json_builder_appendf(&json, "%s\"%s\":{\"configured\":%d,\"effective\":%d,\"reverse\":%s,\"available\":[true,%s,%s]}",
+                             i ? "," : "", names[i], mode & ~METADATA_DB_ALBUM_SORT_REVERSE,
+                             effective & ~METADATA_DB_ALBUM_SORT_REVERSE,
+                             mode & METADATA_DB_ALBUM_SORT_REVERSE ? "true" : "false",
+                             recent ? "true" : "false", year ? "true" : "false");
     }
     json_builder_appendf(&json, "}");
 }
@@ -634,12 +638,18 @@ void handle_library_sorting_route(int fd, const char *method, const char *path) 
         char json[512]; build_library_sorting_json(json, sizeof(json));
         send_response(fd, "200 OK", "application/json", json);
     } else if (strcmp(method, "POST") == 0) {
-        char scope_name[32]; uint64_t mode;
+        char scope_name[32]; uint64_t mode, reverse = 0;
+        bool has_reverse = query_param_present(path, "reverse");
         int scope = query_decoded(path, "scope", scope_name, sizeof(scope_name)) == 1 ? remote_sort_scope(scope_name) : -1;
-        if (scope < 0 || !query_required_number(path, "mode", 2, &mode)) {
+        if (scope < 0 || !query_required_number(path, "mode", 2, &mode) ||
+            (has_reverse && !query_required_number(path, "reverse", 1, &reverse))) {
             catalog_send_error(fd, "400 Bad Request", "invalid_sorting"); return;
         }
-        if (mode != 0 && !metadata_db_album_sort_available((metadata_db_album_sort_t) mode)) {
+        pthread_mutex_lock(&status_mutex);
+        if (!has_reverse) reverse = (status_library_sorting[scope] & METADATA_DB_ALBUM_SORT_REVERSE) != 0;
+        pthread_mutex_unlock(&status_mutex);
+        if (reverse) mode |= METADATA_DB_ALBUM_SORT_REVERSE;
+        if (!metadata_db_album_sort_available((metadata_db_album_sort_t) mode)) {
             catalog_send_error(fd, "409 Conflict", "sort_unavailable"); return;
         }
         pthread_mutex_lock(&status_mutex);
@@ -671,8 +681,10 @@ void handle_scoped_albums_route(int fd, const char *method, const char *path) {
     pthread_mutex_lock(&status_mutex);
     int configured = status_library_sorting[scope];
     pthread_mutex_unlock(&status_mutex);
-    if (configured < 0 || configured > 2) configured = 0;
-    int mode = configured && !metadata_db_album_sort_available((metadata_db_album_sort_t) configured) ? 0 : configured;
+    if (configured < 0 || configured > 7 ||
+        (configured & ~METADATA_DB_ALBUM_SORT_REVERSE) > (scope == 0 ? 3 : 2)) configured = 0;
+    int mode = metadata_db_album_sort_available((metadata_db_album_sort_t) configured)
+                   ? configured : (configured & METADATA_DB_ALBUM_SORT_REVERSE);
     metadata_db_catalog_page_t identity = {0};
     metadata_db_catalog_song_t sample;
     if (metadata_db_catalog_songs_page(NULL, 0, 1, &identity, &sample) != METADATA_DB_CATALOG_OK) {

@@ -45,6 +45,9 @@ struct file_browser_index {
     bool memory_backed;
     unsigned count;
     unsigned playable_count;
+    unsigned directory_count;
+    bool reverse;
+    file_browser_sort_mode_t sort_mode;
     char directory[PATH_MAX];
 };
 
@@ -119,6 +122,7 @@ struct file_browser {
 static file_browser_t * browsers;
 static pthread_mutex_t index_worker_mu = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int current_sort_mode;
+static atomic_bool current_sort_reverse;
 
 static bool is_cue_file(const char * name);
 static bool index_entry_at(const file_browser_index_t *index, unsigned ordinal, dir_entry_t *out);
@@ -367,7 +371,7 @@ static bool index_cancelled(atomic_bool *cancel) {
 static bool index_open_memory(const char *directory, DIR *dir, int dfd,
                               file_browser_index_t **out,
                               unsigned *out_count, unsigned flags,
-                              atomic_bool *cancel, file_browser_sort_mode_t mode) {
+                              atomic_bool *cancel, file_browser_sort_mode_t mode, bool reverse) {
     dir_entry_t *rows = malloc(sizeof(*rows) * INDEX_MEMORY_MAX_ROWS);
     if (!rows) { close(dfd); closedir(dir); return false; }
     unsigned count = 0;
@@ -397,10 +401,12 @@ static bool index_open_memory(const char *directory, DIR *dir, int dfd,
     idx->memory_rows = rows;
     idx->memory_playable_rows = count ? malloc(sizeof(*rows) * count) : NULL;
     idx->memory_backed = true; idx->count = count;
+    idx->reverse = reverse; idx->sort_mode = mode;
     if (count && !idx->memory_playable_rows) {
         free(idx->memory_rows); free(idx); close(dfd); return false;
     }
     for (unsigned i = 0; i < count; i++) {
+        if (idx->memory_rows[i].is_dir) idx->directory_count++;
         idx->memory_rows[i].playable_ordinal = -1;
         if (index_row_playable(&idx->memory_rows[i])) {
             idx->memory_rows[i].playable_ordinal = (int32_t)idx->playable_count;
@@ -414,20 +420,20 @@ static bool index_open_memory(const char *directory, DIR *dir, int dfd,
 
 static bool file_browser_index_open_ex(const char *directory, file_browser_index_t **out,
                                        unsigned *out_count, unsigned flags,
-                                       atomic_bool *cancel, file_browser_sort_mode_t mode) {
+                                       atomic_bool *cancel, file_browser_sort_mode_t mode, bool reverse) {
     if (!directory || !out) return false;
     *out = NULL; if (out_count) *out_count = 0;
     DIR *dir = opendir(directory); if (!dir) return false;
     int dfd = dup(dirfd(dir)), levels[32];
     if (dfd < 0) { closedir(dir); return false; }
 #ifdef FILE_BROWSER_TEST_FORCE_MEMORY_INDEX
-    return index_open_memory(directory, dir, dfd, out, out_count, flags, cancel, mode);
+    return index_open_memory(directory, dir, dfd, out, out_count, flags, cancel, mode, reverse);
 #endif
     memset(levels, -1, sizeof(levels));
     errno = 0;
     int probe = index_temp_fd(dfd);
     if (probe < 0 && (errno == EROFS || errno == EACCES || errno == EPERM)) {
-        return index_open_memory(directory, dir, dfd, out, out_count, flags, cancel, mode);
+        return index_open_memory(directory, dir, dfd, out, out_count, flags, cancel, mode, reverse);
     }
     if (probe < 0) goto fail;
     close(probe);
@@ -458,6 +464,7 @@ static bool file_browser_index_open_ex(const char *directory, file_browser_index
     file_browser_index_t *idx = calloc(1, sizeof(*idx)); if (!idx) { if (final >= 0) close(final); goto fail_closed; }
     idx->fd = final >= 0 ? final : index_temp_fd(dfd); idx->count = total; idx->playable_fd = index_temp_fd(dfd); idx->directory_fd = dup(dfd); idx->playable_count = 0;
     if (idx->fd < 0 || idx->playable_fd < 0 || idx->directory_fd < 0) { file_browser_index_close(idx); goto fail_closed; }
+    idx->reverse = reverse; idx->sort_mode = mode;
     dir_entry_t row;
     for (unsigned i = 0; i < idx->count; i++) {
         if (index_cancelled(cancel)) {
@@ -465,6 +472,7 @@ static bool file_browser_index_open_ex(const char *directory, file_browser_index
             goto fail_closed;
         }
         if (pread(idx->fd, &row, sizeof(row), (off_t)i * sizeof(row)) != (ssize_t)sizeof(row)) { file_browser_index_close(idx); goto fail_closed; }
+        if (row.is_dir) idx->directory_count++;
         row.playable_ordinal = -1;
         if (index_row_playable(&row)) {
             row.playable_ordinal = (int32_t)idx->playable_count;
@@ -487,22 +495,24 @@ fail_closed:
 }
 
 bool file_browser_index_open(const char *directory, file_browser_index_t **out, unsigned *out_count) {
-    return file_browser_index_open_ex(directory, out, out_count, 0, NULL, sort_mode_snapshot());
+    return file_browser_index_open_ex(directory, out, out_count, 0, NULL, sort_mode_snapshot(), file_browser_get_sort_reverse());
 }
 
 bool file_browser_index_open_all(const char *directory, file_browser_index_t **out, unsigned *out_count) {
-    return file_browser_index_open_ex(directory, out, out_count, LIST_ALL_FILES, NULL, sort_mode_snapshot());
+    return file_browser_index_open_ex(directory, out, out_count, LIST_ALL_FILES, NULL, sort_mode_snapshot(), file_browser_get_sort_reverse());
 }
 
 bool file_browser_index_open_cancelable(const char *directory, file_browser_index_t **out,
                                         unsigned *out_count, atomic_bool *cancel) {
-    return file_browser_index_open_ex(directory, out, out_count, 0, cancel, sort_mode_snapshot());
+    return file_browser_index_open_ex(directory, out, out_count, 0, cancel, sort_mode_snapshot(), file_browser_get_sort_reverse());
 }
 
 bool file_browser_index_retain(const file_browser_index_t *source, file_browser_index_t **out) {
     if (!source || !out) return false;
     file_browser_index_t *copy = calloc(1, sizeof(*copy));
     if (!copy) return false;
+    copy->reverse = source->reverse; copy->sort_mode = source->sort_mode;
+    copy->directory_count = source->directory_count;
     if (source->memory_backed) {
         copy->fd = -1; copy->playable_fd = -1;
         copy->directory_fd = dup(source->directory_fd);
@@ -529,8 +539,7 @@ bool file_browser_index_retain(const file_browser_index_t *source, file_browser_
 bool file_browser_index_path_at(const file_browser_index_t *index, unsigned ordinal, char *out_path, size_t out_size) {
     if (!index || ordinal >= index->count || !out_path || !out_size) return false;
     dir_entry_t row;
-    if (index->memory_backed) row = index->memory_rows[ordinal];
-    else if (pread(index->fd, &row, sizeof(row), (off_t)ordinal * sizeof(row)) != (ssize_t)sizeof(row)) return false;
+    if (!index_entry_at(index, ordinal, &row)) return false;
     return snprintf(out_path, out_size, "%s/%s", index->directory, row.name) < (int)out_size;
 }
 
@@ -547,6 +556,7 @@ bool file_browser_index_playable_path_at(const file_browser_index_t *index, unsi
                                          char *out_path, size_t out_size) {
     if (!index || !out_path || !out_size) return false;
     if (ordinal >= index->playable_count) return false;
+    if (index->reverse) ordinal = index->playable_count - 1 - ordinal;
     dir_entry_t row;
     if (index->memory_backed) row = index->memory_playable_rows[ordinal];
     else if (pread(index->playable_fd, &row, sizeof(row), (off_t)ordinal * sizeof(row)) != (ssize_t)sizeof(row)) return false;
@@ -569,10 +579,26 @@ void file_browser_index_close(file_browser_index_t *index) {
     free(index->memory_rows); free(index->memory_playable_rows); free(index);
 }
 
+/* Reverse within each partition so folders stay first. */
+static unsigned reverse_row(unsigned count, unsigned dirs, unsigned row, bool reverse) {
+    if (!reverse) return row;
+    return row < dirs ? dirs - 1 - row : dirs + count - 1 - row;
+}
+
+static unsigned scan_directory_count(const dir_entry_t *rows, unsigned count) {
+    unsigned dirs = 0;
+    while (dirs < count && rows[dirs].is_dir) dirs++;
+    return dirs;
+}
+
 static bool index_entry_at(const file_browser_index_t *index, unsigned ordinal, dir_entry_t *out) {
     if (!index || ordinal >= index->count || !out) return false;
-    if (index->memory_backed) { *out = index->memory_rows[ordinal]; return true; }
-    return pread(index->fd, out, sizeof(*out), (off_t)ordinal * sizeof(*out)) == (ssize_t)sizeof(*out);
+    ordinal = reverse_row(index->count, index->directory_count, ordinal, index->reverse);
+    if (index->memory_backed) *out = index->memory_rows[ordinal];
+    else if (pread(index->fd, out, sizeof(*out), (off_t)ordinal * sizeof(*out)) != (ssize_t)sizeof(*out)) return false;
+    if (index->reverse && out->playable_ordinal >= 0)
+        out->playable_ordinal = (int32_t)(index->playable_count - 1 - (unsigned)out->playable_ordinal);
+    return true;
 }
 
 bool file_browser_index_entry_name(const file_browser_index_t *index, unsigned ordinal,
@@ -707,6 +733,7 @@ typedef struct {
     char directory[PATH_MAX];
     unsigned list_flags;
     file_browser_sort_mode_t sort_mode;
+    bool reverse;
 } index_worker_request_t;
 
 static void *index_worker_main(void *arg) {
@@ -716,7 +743,7 @@ static void *index_worker_main(void *arg) {
     unsigned generation = request.generation;
     file_browser_index_t *built = NULL; unsigned count = 0;
     bool ok = file_browser_index_open_ex(request.directory, &built, &count, request.list_flags,
-                                         &fb->index_worker_cancel, request.sort_mode);
+                                         &fb->index_worker_cancel, request.sort_mode, request.reverse);
     bool oversized = !ok && errno == EFBIG;
     pthread_mutex_lock(&index_worker_mu);
     if (fb->deleted) {
@@ -751,6 +778,7 @@ static bool index_worker_launch_locked(file_browser_t * fb, unsigned generation)
     snprintf(request->directory, sizeof(request->directory), "%s", fb->current_dir);
     request->list_flags = fb->list_flags;
     request->sort_mode = sort_mode_snapshot();
+    request->reverse = file_browser_get_sort_reverse();
     atomic_store(&fb->index_worker_cancel, false);
     atomic_store(&fb->index_worker_running, true);
     pthread_t thread;
@@ -879,14 +907,16 @@ static void build_playlist_and_select(file_browser_t * fb, int file_display_inde
         return;
     }
     dir_entry_t *all = NULL;
-    int all_count = scan_directory(fb->current_dir, &all, sort_mode_snapshot(), fb->list_flags & LIST_CUE);
+    int all_count = scan_directory(fb->current_dir, &all, fb->current_index->sort_mode, fb->list_flags & LIST_CUE);
     if (all_count <= 0) { free(all); return; }
     char ** playlist = malloc(sizeof(char *) * (size_t) all_count);
     if (!playlist) { free(all); return; }
     int count = 0;
     int selected = -1;
 
-    for (int i = 0; i < all_count; i++) {
+    unsigned dirs = scan_directory_count(all, (unsigned)all_count);
+    for (int r = 0; r < all_count; r++) {
+        unsigned i = reverse_row((unsigned)all_count, dirs, (unsigned)r, fb->current_index->reverse);
         if (all[i].is_dir || all[i].is_playlist || all[i].is_cue) continue;
 
         char full_path[PATH_MAX];
@@ -911,11 +941,7 @@ file_browser_sort_mode_t file_browser_get_sort_mode(void) {
     return sort_mode_snapshot();
 }
 
-void file_browser_set_sort_mode(file_browser_sort_mode_t mode) {
-    if (mode != FILE_BROWSER_SORT_NEWEST) mode = FILE_BROWSER_SORT_NAME;
-    file_browser_sort_mode_t previous = sort_mode_snapshot();
-    if (previous == mode) return;
-    atomic_store_explicit(&current_sort_mode, mode, memory_order_release);
+static void refresh_browser_order(void) {
     last_selected_row = -1;
     /* Ordering changed, so previously saved row and scroll offsets no longer
      * identify the same entries. Keep the current path and restart there. */
@@ -928,6 +954,23 @@ void file_browser_set_sort_mode(file_browser_sort_mode_t mode) {
         scan_current_dir(fb);
         rebuild_list(fb);
     }
+}
+
+void file_browser_set_sort_mode(file_browser_sort_mode_t mode) {
+    if (mode != FILE_BROWSER_SORT_NEWEST) mode = FILE_BROWSER_SORT_NAME;
+    if (sort_mode_snapshot() == mode) return;
+    atomic_store_explicit(&current_sort_mode, mode, memory_order_release);
+    refresh_browser_order();
+}
+
+bool file_browser_get_sort_reverse(void) {
+    return atomic_load_explicit(&current_sort_reverse, memory_order_acquire);
+}
+
+void file_browser_set_sort_reverse(bool reverse) {
+    if (file_browser_get_sort_reverse() == reverse) return;
+    atomic_store_explicit(&current_sort_reverse, reverse, memory_order_release);
+    refresh_browser_order();
 }
 
 bool file_browser_build_playlist_from_m3u(const char * m3u_path, char *** out_playlist, int * out_count) {
@@ -1737,7 +1780,10 @@ bool file_browser_build_playlist_for_path(const char * path, char *** out_playli
     int count = 0;
     int selected = -1;
 
-    for (int i = 0; i < scanned_count; i++) {
+    bool reverse = file_browser_get_sort_reverse();
+    unsigned dirs = scan_directory_count(scanned, (unsigned)scanned_count);
+    for (int r = 0; r < scanned_count; r++) {
+        unsigned i = reverse_row((unsigned)scanned_count, dirs, (unsigned)r, reverse);
         if (scanned[i].is_dir || scanned[i].is_playlist || scanned[i].is_cue) continue;
 
         char full_path[PATH_MAX];

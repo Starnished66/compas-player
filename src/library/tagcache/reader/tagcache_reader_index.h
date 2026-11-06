@@ -47,6 +47,7 @@ static void reader_album_order_name(char *out, size_t size, int32_t gen, int sor
 }
 
 static void reader_close_album_orders(void) {
+    READER->album_year_known_count = -1;
     for (int i = 0; i < 3; i++) {
         if (reader_album_order_fd[i] >= 0) close(reader_album_order_fd[i]);
         if (reader_album_inverse_fd[i] >= 0) close(reader_album_inverse_fd[i]);
@@ -1005,6 +1006,7 @@ static bool reader_build_groups(int kind, int scratch) {
 }
 
 static bool reader_build_album_order(int sort, int scratch) {
+    READER->album_year_known_count = -1;
     int count = reader_group_n[TAGCACHE_GROUP_ALBUM];
     int keys = reader_create_temp();
     reader_album_order_fd[sort] = reader_create_temp();

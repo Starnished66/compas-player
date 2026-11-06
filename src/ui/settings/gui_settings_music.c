@@ -20,12 +20,27 @@ static lv_obj_t * settings_crossfade_toggle_img = NULL;
 static lv_obj_t * settings_gapless_toggle_img = NULL;
 static lv_obj_t * settings_library_screen;
 static lv_obj_t * settings_sorting_screen;
-enum { SORTING_FILE_OPTION_COUNT = 2, SORTING_ALBUM_CONTEXT_COUNT = 3,
-       SORTING_ALBUM_MODE_COUNT = 3,
-       SORTING_GLOBAL_ALBUM_ARTIST_OPTION = SORTING_FILE_OPTION_COUNT +
-           SORTING_ALBUM_CONTEXT_COUNT * SORTING_ALBUM_MODE_COUNT,
-       SORTING_OPTION_COUNT = SORTING_FILE_OPTION_COUNT +
-           SORTING_ALBUM_CONTEXT_COUNT * SORTING_ALBUM_MODE_COUNT + 1 };
+enum { SORTING_CONTEXT_FILES, SORTING_CONTEXT_ALBUMS, SORTING_CONTEXT_ARTISTS,
+       SORTING_CONTEXT_ALBUM_ARTISTS, SORTING_CONTEXT_COUNT };
+static const struct {
+    int context;
+    int sort;
+    const char * labels[2];
+} sorting_orders[] = {
+    { SORTING_CONTEXT_FILES, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
+    { SORTING_CONTEXT_FILES, 1, { N_("Newest Modified"), N_("Oldest Modified") } },
+    { SORTING_CONTEXT_ALBUMS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
+    { SORTING_CONTEXT_ALBUMS, 1, { N_("Recently Added"), N_("Oldest Added") } },
+    { SORTING_CONTEXT_ALBUMS, 2, { N_("Release Year (oldest first)"), N_("Release Year (newest first)") } },
+    { SORTING_CONTEXT_ALBUMS, 3, { N_("Album Artist (A–Z)"), N_("Album Artist (Z–A)") } },
+    { SORTING_CONTEXT_ARTISTS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
+    { SORTING_CONTEXT_ARTISTS, 1, { N_("Recently Added"), N_("Oldest Added") } },
+    { SORTING_CONTEXT_ARTISTS, 2, { N_("Release Year (oldest first)"), N_("Release Year (newest first)") } },
+    { SORTING_CONTEXT_ALBUM_ARTISTS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
+    { SORTING_CONTEXT_ALBUM_ARTISTS, 1, { N_("Recently Added"), N_("Oldest Added") } },
+    { SORTING_CONTEXT_ALBUM_ARTISTS, 2, { N_("Release Year (oldest first)"), N_("Release Year (newest first)") } },
+};
+enum { SORTING_OPTION_COUNT = sizeof(sorting_orders) / sizeof(sorting_orders[0]) * 2 };
 static lv_obj_t * settings_sorting_options[SORTING_OPTION_COUNT];
 static lv_obj_t * settings_sound_effects_screen;
 static lv_obj_t * dac_settings_screen;
@@ -427,36 +442,37 @@ static void refresh_all_covers_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) show_library_refresh_all_covers_prompt();
 }
 
-/* Splits a non-file sorting option into the album-list context (0 albums,
- * 1 artists, 2 album artists) and the album sort value it selects. */
-static void sorting_option_decode(int option, int * context, int * sort) {
-    if (option == SORTING_GLOBAL_ALBUM_ARTIST_OPTION) {
-        *context = 0;
-        *sort = METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR;
-    } else {
-        int relative = option - SORTING_FILE_OPTION_COUNT;
-        *context = relative / SORTING_ALBUM_MODE_COUNT;
-        *sort = relative % SORTING_ALBUM_MODE_COUNT;
-    }
+static void sorting_option_decode(int option, int * context, int * sort, bool * reverse) {
+    *context = sorting_orders[option / 2].context;
+    *sort = sorting_orders[option / 2].sort;
+    *reverse = (option % 2) != 0;
+}
+
+static void sorting_settings(int ** modes, bool ** reverses) {
+    modes[0] = &current_settings.file_sort_mode;
+    modes[1] = &current_settings.album_sort_mode;
+    modes[2] = &current_settings.artist_albums_sort_mode;
+    modes[3] = &current_settings.album_artist_albums_sort_mode;
+    reverses[0] = &current_settings.file_sort_reverse;
+    reverses[1] = &current_settings.album_sort_reverse;
+    reverses[2] = &current_settings.artist_albums_sort_reverse;
+    reverses[3] = &current_settings.album_artist_albums_sort_reverse;
 }
 
 static void refresh_sorting_options(void) {
-    int album_sort = current_settings.album_sort_mode;
-    if (!metadata_db_album_sort_available((metadata_db_album_sort_t) album_sort)) album_sort = 0;
-    int selected_sorts[] = { album_sort, current_settings.artist_albums_sort_mode,
-                             current_settings.album_artist_albums_sort_mode };
+    int * modes[SORTING_CONTEXT_COUNT];
+    bool * reverses[SORTING_CONTEXT_COUNT];
+    sorting_settings(modes, reverses);
     for (int i = 0; i < SORTING_OPTION_COUNT; i++) {
-        int selected_sort;
-        bool selected;
-        if (i < SORTING_FILE_OPTION_COUNT) selected = current_settings.file_sort_mode == i;
-        else {
-            int context, sort;
-            sorting_option_decode(i, &context, &sort);
-            selected_sort = selected_sorts[context];
-            if (context != 0 && selected_sort > METADATA_DB_ALBUM_SORT_YEAR) selected_sort = 0;
-            if (!metadata_db_album_sort_available((metadata_db_album_sort_t) selected_sort)) selected_sort = 0;
-            selected = selected_sort == sort;
-        }
+        int context, sort;
+        bool reverse;
+        sorting_option_decode(i, &context, &sort, &reverse);
+        int selected_sort = *modes[context];
+        if (context != SORTING_CONTEXT_FILES &&
+            ((context != SORTING_CONTEXT_ALBUMS && selected_sort > METADATA_DB_ALBUM_SORT_YEAR) ||
+             !metadata_db_album_sort_available((metadata_db_album_sort_t) selected_sort)))
+            selected_sort = 0;
+        bool selected = selected_sort == sort && *reverses[context] == reverse;
         if (settings_sorting_options[i])
             lv_obj_set_style_border_width(settings_sorting_options[i], selected ? BOARD_SCALE_PX(3) : 0, 0);
     }
@@ -466,35 +482,26 @@ static void sorting_option_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int option = (int) (intptr_t) lv_event_get_user_data(e);
     if (option < 0 || option >= SORTING_OPTION_COUNT) return;
-    gui_library_sort_scope_t scope;
-    if (option < SORTING_FILE_OPTION_COUNT) {
-        if (current_settings.file_sort_mode == option) return;
-        current_settings.file_sort_mode = option;
-        scope = GUI_LIBRARY_SORT_FILES;
-    } else {
-        int context, sort_value;
-        sorting_option_decode(option, &context, &sort_value);
-        metadata_db_album_sort_t sort = (metadata_db_album_sort_t) sort_value;
-        if (sort != METADATA_DB_ALBUM_SORT_NAME && !metadata_db_album_sort_available(sort)) {
-            show_error_toast(TR("Update Music Database to enable this album order"));
-            return;
-        }
-        if (context == 0) {
-            if (current_settings.album_sort_mode == sort_value) return;
-            current_settings.album_sort_mode = sort_value;
-            scope = GUI_LIBRARY_SORT_ALBUMS;
-        } else if (context == 1) {
-            if (current_settings.artist_albums_sort_mode == sort_value) return;
-            current_settings.artist_albums_sort_mode = sort_value;
-            scope = GUI_LIBRARY_SORT_ARTIST_ALBUMS;
-        } else {
-            if (current_settings.album_artist_albums_sort_mode == sort_value) return;
-            current_settings.album_artist_albums_sort_mode = sort_value;
-            scope = GUI_LIBRARY_SORT_ALBUM_ARTIST_ALBUMS;
-        }
+    int context, sort;
+    bool reverse;
+    sorting_option_decode(option, &context, &sort, &reverse);
+    if (context != SORTING_CONTEXT_FILES && sort != METADATA_DB_ALBUM_SORT_NAME &&
+        !metadata_db_album_sort_available((metadata_db_album_sort_t) sort)) {
+        show_error_toast(TR("Update Music Database to enable this album order"));
+        return;
     }
+    int * modes[SORTING_CONTEXT_COUNT];
+    bool * reverses[SORTING_CONTEXT_COUNT];
+    sorting_settings(modes, reverses);
+    if (*modes[context] == sort && *reverses[context] == reverse) return;
+    *modes[context] = sort;
+    *reverses[context] = reverse;
+    static const gui_library_sort_scope_t scopes[] = {
+        GUI_LIBRARY_SORT_FILES, GUI_LIBRARY_SORT_ALBUMS,
+        GUI_LIBRARY_SORT_ARTIST_ALBUMS, GUI_LIBRARY_SORT_ALBUM_ARTIST_ALBUMS
+    };
     settings_save_async(&current_settings);
-    gui_library_apply_sorting(scope);
+    gui_library_apply_sorting(scopes[context]);
     refresh_sorting_options();
 }
 
@@ -502,35 +509,26 @@ static lv_obj_t * build_sorting_screen(void) {
     lv_obj_t * title, * list;
     lv_obj_t * screen = build_subsonic_list_screen(TR("Sorting"), &title, &list);
     (void) title;
-    add_section_header(list, TR("Files (folders stay first)"));
-    static const char * labels[] = { N_("Name (A–Z)"), N_("Newest Modified") };
-    static const char * group_titles[] = { N_("Albums"), N_("Artists"), N_("Album Artist") };
-    static const char * album_labels[] = { N_("Name (A–Z)"), N_("Recently Added"), N_("Release Year (oldest first)") };
-    static const char * global_album_artist_label = N_("Album Artist (A–Z)");
-    for (int i = 0; i < SORTING_FILE_OPTION_COUNT; i++) {
-        settings_sorting_options[i] = add_pill_option_row(list, TR(labels[i]), false,
-                                            sorting_option_cb, (void *) (intptr_t) i);
-        lv_obj_add_style(settings_sorting_options[i], gui_theme_accent_outline_style(), 0);
-    }
-    for (int context = 0; context < SORTING_ALBUM_CONTEXT_COUNT; context++) {
-        add_section_header(list, TR(group_titles[context]));
-        for (int sort = 0; sort < SORTING_ALBUM_MODE_COUNT; sort++) {
-            int option = SORTING_FILE_OPTION_COUNT + context * SORTING_ALBUM_MODE_COUNT + sort;
-            settings_sorting_options[option] = add_pill_option_row(list, TR(album_labels[sort]), false,
-                                                sorting_option_cb, (void *) (intptr_t) option);
-            lv_obj_add_style(settings_sorting_options[option], gui_theme_accent_outline_style(), 0);
+    static const char * group_titles[] = {
+        N_("Files (folders stay first)"), N_("Albums"), N_("Artists"), N_("Album Artist")
+    };
+    int previous_context = -1;
+    for (int option = 0; option < SORTING_OPTION_COUNT; option++) {
+        int context, sort;
+        bool reverse;
+        sorting_option_decode(option, &context, &sort, &reverse);
+        (void) sort;
+        if (context != previous_context) {
+            add_section_header(list, TR(group_titles[context]));
+            previous_context = context;
         }
-        if (context == 0) {
-            settings_sorting_options[SORTING_GLOBAL_ALBUM_ARTIST_OPTION] =
-                add_pill_option_row(list, TR(global_album_artist_label), false,
-                                    sorting_option_cb,
-                                    (void *) (intptr_t) SORTING_GLOBAL_ALBUM_ARTIST_OPTION);
-            lv_obj_add_style(settings_sorting_options[SORTING_GLOBAL_ALBUM_ARTIST_OPTION],
-                             gui_theme_accent_outline_style(), 0);
-        }
+        settings_sorting_options[option] = add_pill_option_row(list,
+            TR(sorting_orders[option / 2].labels[reverse]), false,
+            sorting_option_cb, (void *) (intptr_t) option);
+        lv_obj_add_style(settings_sorting_options[option], gui_theme_accent_outline_style(), 0);
     }
     add_wrapped_section_header(list,
-        TR("Files use modification dates. Albums use the newest track added; missing release years sort last. Update Music Database once to read years from existing files."));
+        TR("Files use modification dates. Albums use the newest track added; Release Year keeps missing years last. Update Music Database once to read years from existing files."));
     refresh_sorting_options();
     return screen;
 }
