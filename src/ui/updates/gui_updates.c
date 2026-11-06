@@ -73,7 +73,7 @@ static void firmware_update_from_sd(void) {
 
     const char * filename = strrchr(firmware_update_selected_path, '/');
     filename = filename ? filename + 1 : firmware_update_selected_path;
-    lv_label_set_text_fmt(firmware_update_popup_title, TR("Update using %s?\nDevice will reboot into recovery mode."),
+    lv_label_set_text_fmt(firmware_update_popup_title, TR("Update using this file?\n%s\n\nDevice will reboot into recovery mode."),
                            filename);
 
     gui_popup_show(&firmware_update_popup);
@@ -272,7 +272,7 @@ static void poll_player_update(void) {
     player_update_ui_active = false;
     if (status.state == PLAYER_UPDATE_CHECKED) {
         lv_label_set_text_fmt(player_update_offer_title,
-                              TR("Available player release: %s.\nInstalled: %s\n\nDownload and install? This updates the player and restarts the device. Firmware, fonts, and artwork are unchanged."),
+                              TR("Available player release:\n%s\nInstalled:\n%s\n\nDownload and install? This updates the player and restarts the device. Firmware, fonts, and artwork are unchanged."),
                               status.release.label, app_version_label());
         gui_popup_show(&player_update_offer_popup);
         return;
@@ -304,8 +304,7 @@ static void firmware_source_backdrop_cb(lv_event_t * e) {
 
 static void show_ota_install_popup(const char * release_label) {
     lv_label_set_text_fmt(ota_install_title,
-                          TR("Firmware release %s is downloaded and verified.\n\nInstall now? The device reboots into "
-                          "recovery to flash it. Do not turn it off until it restarts."),
+                          TR("Downloaded and verified firmware release:\n%s\n\nInstall now? The device reboots into recovery to flash it. Do not turn it off until it restarts."),
                           release_label);
     gui_popup_show(&ota_install_popup);
 }
@@ -479,13 +478,11 @@ void poll_firmware_ota(void) {
             ota_ui_active = false;
             if (status.newer)
                 lv_label_set_text_fmt(ota_offer_title,
-                                      TR("Firmware release %s is available.\nInstalled: %s\n\nDownload it now? This may "
-                                      "take a while."),
+                                      TR("Available firmware release:\n%s\nInstalled:\n%s\n\nDownload it now? This may take a while."),
                                       status.release.label, status.installed);
             else
                 lv_label_set_text_fmt(ota_offer_title,
-                                      TR("Installed version: %s\nAvailable release: %s\n\nDownload and reinstall it anyway? "
-                                      "This may take a while."),
+                                      TR("Installed version:\n%s\nAvailable release:\n%s\n\nDownload and reinstall it anyway? This may take a while."),
                                       status.installed, status.release.label);
             gui_popup_show(&ota_offer_popup);
             return;
