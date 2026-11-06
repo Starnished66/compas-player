@@ -57,6 +57,14 @@ void cf_pump_kick(void) {
     lv_timer_resume(cf_instance->pump);
 }
 
+void cover_flow_retry_faces(void) {
+    if (!cf_instance || !cf_instance->face) return; /* the library's own faces do not depend on the network */
+    cover_flow_loader_drop(&cf_instance->loader); /* one started before the network came back would fail for good */
+    for (int i = 0; i < CF_SLOTS; i++)
+        if (cf_instance->slot[i] && cf_instance->slot[i]->failed == 3) cf_instance->slot[i]->failed = 0;
+    cf_pump_kick();
+}
+
 /* A decoded face arrived for `item`: hand it to the slot still showing that item. */
 static void face_arrived(cover_flow_t * cf, const cover_flow_loader_result_t * r) {
     for (int i = 0; i < CF_SLOTS; i++) {
@@ -68,7 +76,7 @@ static void face_arrived(cover_flow_t * cf, const cover_flow_loader_result_t * r
             cf->view[i].data = NULL;
             cf->relayout = true;
         } else {
-            c->failed = r->allow_generate ? 2 : 1;
+            c->failed = !r->allow_generate ? 1 : cf->face ? 3 : 2;
         }
         return;
     }
@@ -86,7 +94,7 @@ static int next_wanted(const cover_flow_t * cf) {
         int i = cf_centre_out(k);
         const cf_content_t * c = cf->slot[i];
         if (c->item < 0 || c->item >= cf->count || c->face) continue;
-        if (c->failed == 2 || (c->failed == 1 && i != CF_CENTRE)) continue;
+        if (c->failed >= 2 || (c->failed == 1 && i != CF_CENTRE)) continue;
         return i;
     }
     return -1;
@@ -95,9 +103,10 @@ static int next_wanted(const cover_flow_t * cf) {
 /* Starts decoding slot `i`'s face. False if nothing was started. */
 static bool submit(cover_flow_t * cf, int i) {
     cf_content_t * c = cf->slot[i];
-    int64_t song_id = cf->items[c->item].song_id;
-    if (song_id <= 0) { c->failed = 2; return false; }
-    cf->loader = cover_flow_loader_start(c->item, song_id, i == CF_CENTRE, CF_FACE_PX, cf->warps.tilt->out_h);
+    const cover_flow_item_t * it = &cf->items[c->item];
+    if (cf->face ? !it->cover_ref[0] : it->song_id <= 0) { c->failed = 2; return false; }
+    cf->loader = cover_flow_loader_start(c->item, it->song_id, it->cover_ref, cf->face, i == CF_CENTRE,
+                                         CF_FACE_PX, cf->warps.tilt->out_h);
     if (!cf->loader) c->failed = 2; /* no thread: do not retry on every tick */
     return cf->loader != NULL;
 }

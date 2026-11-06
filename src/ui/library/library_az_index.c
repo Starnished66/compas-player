@@ -9,7 +9,7 @@
 #include "../text/rendering/fallback_font.h"
 #include "../widgets/builders/screen_builders.h"
 
-#define AZ_INDEX_BINDING_COUNT 4
+#define AZ_INDEX_BINDING_COUNT 7 /* 4 library lists, 2 Subsonic lists, 1 spare */
 #define AZ_INDEX_HIDE_DELAY_MS 900
 
 typedef struct {
@@ -19,6 +19,8 @@ typedef struct {
     lv_obj_t * popup;
     lv_obj_t * popup_label;
     metadata_db_az_kind_t db_kind;
+    library_az_index_table_t table; /* set for an in-memory list, which has no db_kind */
+    library_az_index_allowed_t allowed; /* optional, for a table list */
 } az_index_binding_t;
 
 static az_index_binding_t az_index_bindings[AZ_INDEX_BINDING_COUNT];
@@ -54,6 +56,16 @@ static void az_index_visibility_timeout_cb(lv_timer_t * timer) {
     lv_timer_pause(az_index_visibility_timer);
 }
 
+static bool az_binding_allowed(const az_index_binding_t * b) {
+    return b->allowed ? b->allowed() : (!strip_allowed || strip_allowed(b->list));
+}
+
+bool library_az_index_list_allowed(lv_obj_t * list) {
+    for (int i = 0; i < az_index_registered_count; i++)
+        if (az_index_bindings[i].list == list) return az_binding_allowed(&az_index_bindings[i]);
+    return true;
+}
+
 static void az_index_scroll_visibility_cb(lv_event_t * e) {
     lv_obj_t * list = lv_event_get_target(e);
     az_index_binding_t * binding = NULL;
@@ -61,7 +73,7 @@ static void az_index_scroll_visibility_cb(lv_event_t * e) {
         if (az_index_bindings[i].list == list) { binding = &az_index_bindings[i]; break; }
     }
     if (!binding) return;
-    if (strip_allowed && !strip_allowed(binding->list)) {
+    if (!az_binding_allowed(binding)) {
         lv_obj_add_flag(binding->strip, LV_OBJ_FLAG_HIDDEN);
         return;
     }
@@ -78,13 +90,45 @@ static void az_index_scroll_visibility_cb(lv_event_t * e) {
     lv_timer_resume(az_index_visibility_timer);
 }
 
+/* Ends a drag whose binding is going away. Its popup may already be deleted,
+ * so only the state is cleared. */
+static void cancel_drag_state(void) {
+    az_index_dragging = false;
+    az_index_press_judged = false;
+    az_index_active_binding = NULL;
+    if (az_index_drag_timer) lv_timer_pause(az_index_drag_timer);
+}
+
+/* Drops the bindings of `screen`, or the library's own (db-backed) ones when
+ * `screen` is NULL. The others move down; a dragged one keeps its pointer. */
+static void drop_bindings(lv_obj_t * screen) {
+    int kept = 0;
+    for (int i = 0; i < az_index_registered_count; i++) {
+        az_index_binding_t * b = &az_index_bindings[i];
+        if (screen ? b->screen == screen : !b->table) {
+            if (b == az_index_active_binding) cancel_drag_state();
+            continue;
+        }
+        if (b == az_index_active_binding) az_index_active_binding = &az_index_bindings[kept];
+        lv_obj_add_flag(b->strip, LV_OBJ_FLAG_HIDDEN);
+        az_index_bindings[kept++] = *b;
+    }
+    az_index_registered_count = kept;
+    az_index_visibility_binding = NULL;
+}
+
 void library_az_index_reset_bindings(void) {
     if (az_index_visibility_timer) {
         lv_timer_delete(az_index_visibility_timer);
         az_index_visibility_timer = NULL;
     }
-    az_index_visibility_binding = NULL;
-    az_index_registered_count = 0;
+    drop_bindings(NULL);
+}
+
+void library_az_index_unregister(lv_obj_t * screen) {
+    if (!screen) return;
+    if (az_index_active_binding && az_index_active_binding->screen == screen) library_az_index_reset_drag();
+    drop_bindings(screen);
 }
 
 lv_obj_t * library_az_index_bubble_create(lv_obj_t * parent, lv_obj_t ** label) {
@@ -99,8 +143,9 @@ lv_obj_t * library_az_index_bubble_create(lv_obj_t * parent, lv_obj_t ** label) 
     return bubble;
 }
 
-void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
-                               metadata_db_az_kind_t db_kind) {
+static bool register_strip(lv_obj_t * screen, lv_obj_t * list, metadata_db_az_kind_t db_kind,
+                           library_az_index_table_t table, library_az_index_allowed_t allowed) {
+    if (az_index_registered_count >= AZ_INDEX_BINDING_COUNT) return false;
     /* Not touch_list/a_z.png -- confirmed via pixel sampling that stock
      * asset is a fully opaque solid-black rectangle with the letters
      * painted in (alpha=255 everywhere, RGB (0,0,0) in the "empty" areas),
@@ -165,10 +210,20 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
     lv_obj_t * popup = library_az_index_bubble_create(screen, &popup_label);
 
     az_index_bindings[az_index_registered_count++] =
-        (az_index_binding_t){ screen, list, strip, popup, popup_label, db_kind };
+        (az_index_binding_t){ screen, list, strip, popup, popup_label, db_kind, table, allowed };
     lv_obj_add_event_cb(list, az_index_scroll_visibility_cb, LV_EVENT_SCROLL_BEGIN, NULL);
     lv_obj_add_event_cb(list, az_index_scroll_visibility_cb, LV_EVENT_SCROLL, NULL);
     lv_obj_add_event_cb(list, az_index_scroll_visibility_cb, LV_EVENT_SCROLL_END, NULL);
+    return true;
+}
+
+void library_az_index_register(lv_obj_t * screen, lv_obj_t * list, metadata_db_az_kind_t db_kind) {
+    register_strip(screen, list, db_kind, NULL, NULL);
+}
+
+bool library_az_index_register_table(lv_obj_t * screen, lv_obj_t * list, library_az_index_table_t table,
+                                     library_az_index_allowed_t allowed) {
+    return register_strip(screen, list, METADATA_DB_AZ_ALL_SONGS, table, allowed);
 }
 
 lv_obj_t * library_az_index_strip_for_screen(lv_obj_t * screen) {
@@ -219,6 +274,7 @@ void library_az_index_poll(lv_timer_t * timer) {
         az_index_binding_t * b = find_az_binding_for_screen(lv_screen_active());
         if (!b) return;
         if (lv_obj_has_flag(b->strip, LV_OBJ_FLAG_HIDDEN)) return;
+        if (b->allowed && !b->allowed()) return; /* a stale strip after search */
 
         lv_area_t area;
         lv_obj_get_coords(b->strip, &area);
@@ -232,7 +288,8 @@ void library_az_index_poll(lv_timer_t * timer) {
          * has no entries ("jump forward to nearest match"). Computed fresh
          * on every touch-down from the already-sorted in-memory index
          * (metadata_db_get_az_table()). */
-        metadata_db_get_az_table(b->db_kind, az_index_jump_table);
+        if (b->table) b->table(az_index_jump_table);
+        else metadata_db_get_az_table(b->db_kind, az_index_jump_table);
         lv_obj_remove_flag(b->popup, LV_OBJ_FLAG_HIDDEN);
     } else if (!pressed) {
         lv_obj_add_flag(az_index_active_binding->popup, LV_OBJ_FLAG_HIDDEN);

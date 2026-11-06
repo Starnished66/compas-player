@@ -85,6 +85,8 @@ void library_thumbnails_decorate_group_row(lv_obj_t *list, lv_obj_t *row,
 void library_thumbnails_decorate_cover_image(lv_obj_t *list, lv_obj_t *row, lv_obj_t *image,
                                              int64_t song_id, uint64_t artwork_key);
 /* Main loop, after a worker published: make the hand-off poll run now. */
+/* One row's leading image: `cover`, or the placeholder when NULL (see the definition). */
+void library_thumbnails_show_row_image(lv_obj_t *list, lv_obj_t *row, lv_obj_t *image, const lv_image_dsc_t *cover);
 void library_thumbnails_dispatch_ready(void);
 /* A visible-row decode is running or queued. */
 bool library_thumbnails_busy(void);

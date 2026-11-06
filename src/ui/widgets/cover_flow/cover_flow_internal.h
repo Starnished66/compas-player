@@ -76,6 +76,7 @@ typedef struct {
     cf_az_t az;
     void (*on_select)(int);
     void (*on_hold)(int);
+    cover_flow_face_fn face; /* NULL: the library's covers */
 
     void * items_block;
     cover_flow_item_t * items;

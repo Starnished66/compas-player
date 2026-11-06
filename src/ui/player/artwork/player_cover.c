@@ -87,7 +87,7 @@ void launch_cover_decode_req(cover_decode_request_t r) {
     if (r.local_track_path[0]) {
         last_local_cover_request = r;
         last_local_cover_request_valid = true;
-    } else if (r.stream_url[0]) {
+    } else if (r.stream_url[0] || r.subsonic_cover_id[0]) {
         last_local_cover_request_valid = false;
     }
     player_artwork_jobs_submit(r, &shown);
@@ -116,6 +116,17 @@ void launch_cover_decode_from_url(int for_index, const char * url, bool verify_t
                                   .picture_data = NULL, .picture_size = 0,
                                   .stream_verify_tls = verify_tls };
     snprintf(r.stream_url, sizeof(r.stream_url), "%s", url);
+    cover_decode_request_snapshot_frost(&r);
+    launch_cover_decode_req(r);
+}
+
+/* A Subsonic track's art, read from the cover cache by id. allow_net comes
+ * from the UI thread, so offline a cached cover still shows. */
+void launch_cover_decode_from_subsonic(int for_index, const subsonic_server_t * server, const char * cover_id,
+                                       bool allow_net) {
+    cover_decode_request_t r = { .for_index = for_index, .subsonic_server = *server,
+                                  .subsonic_allow_net = allow_net };
+    snprintf(r.subsonic_cover_id, sizeof(r.subsonic_cover_id), "%s", cover_id);
     cover_decode_request_snapshot_frost(&r);
     launch_cover_decode_req(r);
 }

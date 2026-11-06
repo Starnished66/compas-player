@@ -5,10 +5,12 @@
 #include "../queue/player_queue_model.h"
 #include "../artwork/player_artwork_cache.h"
 #include "../artwork/player_artwork_jobs.h"
+#include "../artwork/player_cover.h"
 #include "../../application/gui.h"
 #include "../../settings/gui_settings.h"
 #include "../../settings/lock/gui_lock_screen.h"
 #include "../../shell/gui_notifications.h"
+#include "../../shell/gui_shell.h"
 #include "../../text/i18n/i18n.h"
 #include "../../assets/assets.h"
 #include "../../../audio/engine/audio.h"
@@ -268,6 +270,20 @@ void clear_selection_metadata_seed(void) {
     memset(&selection_metadata_seed, 0, sizeof(selection_metadata_seed));
 }
 
+/* Only the server the track came from can serve its cover id. */
+static void launch_subsonic_track_cover(int index, const subsonic_stream_song_meta_t * song) {
+    subsonic_server_t server = subsonic_server_from_settings();
+    char key[SUBSONIC_CACHE_KEY_SIZE];
+    subsonic_cache_server_key(&server, key);
+    if (strcmp(key, song->server_key) != 0) {
+        cover_decode_request_t no_art = { .for_index = index };
+        cover_decode_request_snapshot_frost(&no_art);
+        launch_cover_decode_req(no_art);
+        return;
+    }
+    launch_cover_decode_from_subsonic(index, &server, song->cover_art, gui_shell_wifi_connected());
+}
+
 /* Artwork is independent of favorite/lyrics completion. Dispatch once the
  * current track has enough identity and scalar tags to find its art. */
 static void dispatch_track_artwork(int index, const char * path, track_metadata_t * meta,
@@ -280,8 +296,8 @@ static void dispatch_track_artwork(int index, const char * path, track_metadata_
     track_source_resolve(index, path, &src);
     if (src.is_remote && src.remote.artwork_url[0]) {
         launch_cover_decode_from_url(index, src.remote.artwork_url, src.remote.verify_tls);
-    } else if (src.is_subsonic && src.subsonic->cover_url[0]) {
-        launch_cover_decode_from_url(index, src.subsonic->cover_url, src.subsonic->verify_tls);
+    } else if (src.is_subsonic && src.subsonic->cover_art[0]) {
+        launch_subsonic_track_cover(index, src.subsonic);
     } else if (src.is_remote) {
         /* Synthetic remote keys have no local file fallback. */
         cover_decode_request_t no_art = { .for_index = index };
@@ -570,8 +586,24 @@ static bool arm_cached_next_track(const char * path, const track_metadata_t * ta
     return true;
 }
 
+/* When Wi-Fi comes back, a Subsonic cover that missed offline is asked for
+ * again. The new launch advances the cover generation, so an older result
+ * cannot land over it. */
+static void retry_subsonic_cover_on_wifi(void) {
+    static bool was_connected;
+    bool connected = gui_shell_wifi_connected();
+    bool came_back = connected && !was_connected;
+    was_connected = connected;
+    if (!came_back || !gui_player_has_active_track() || player_cover_bytes()) return;
+    int index = player_queue_model_current();
+    track_source_t src;
+    track_source_resolve(index, playlist_path_at(index), &src);
+    if (src.is_subsonic && src.subsonic->cover_art[0]) launch_subsonic_track_cover(index, src.subsonic);
+}
+
 void gui_player_poll_track_metadata(void) {
     poll_track_started_notification();
+    retry_subsonic_cover_on_wifi();
     track_metadata_result_t result;
     if (track_metadata_take(TRACK_METADATA_FAVORITE, &result) &&
         result.request.token == favorite_request_token && favorite_request_revision == favorite_ui_revision &&

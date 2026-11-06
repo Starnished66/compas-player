@@ -1,5 +1,6 @@
 #include "library_search.h"
 #include "library_thumbnails.h"
+#include "library_az_index.h"
 #include "../../core/process/worker_thread.h"
 #include "../text/rendering/gui_text_input.h"
 #include "../widgets/builders/screen_builders.h"
@@ -58,6 +59,7 @@ static void search_bar_textarea_geometry(lv_obj_t * bar, int32_t * x, int32_t * 
 typedef struct {
     search_binding_id_t id;
     lv_obj_t *screen, *list, *search_btn, *search_bar;
+    library_search_item_of_t item_of; /* NULL: label-only rows from name_of */
     library_search_name_of_t name_of; /* in-memory fallback, only used when db_backed is false */
     const int *count_ptr; /* likewise -- only read when db_backed is false */
     bool active, is_overlay_list, db_backed;
@@ -395,7 +397,7 @@ static void search_apply_filter(search_binding_t * b, const char * query) {
                 .artwork_key = item.artwork_key,
             };
         } else {
-            items[matched] = (compact_list_item_t){ .label = name };
+            items[matched] = b->item_of ? b->item_of(i) : (compact_list_item_t){ .label = name };
         }
         indices[matched] = i;
         matched++;
@@ -545,9 +547,6 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
     if (b->id == SEARCH_BINDING_FILES && b->files_options)
         lv_obj_remove_flag(b->files_options, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *az = b->az_strip_for_screen(b->screen);
-    if (az) lv_obj_remove_flag(az, LV_OBJ_FLAG_HIDDEN);
-
     if (b->is_overlay_list) {
         lv_obj_add_flag(b->list, LV_OBJ_FLAG_HIDDEN); /* reveals file_browser.c's own folder-browsing UI underneath again */
     } else {
@@ -583,13 +582,17 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
         int count = *b->count_ptr;
         if (count > 0) {
             items = malloc(sizeof(compact_list_item_t) * (size_t) count);
-            for (int i = 0; i < count; i++) items[i] = (compact_list_item_t){ .label = b->name_of(i) };
+            for (int i = 0; i < count; i++)
+                items[i] = b->item_of ? b->item_of(i) : (compact_list_item_t){ .label = b->name_of(i) };
         }
         compact_list_set_items(b->list, items, count);
         free(items);
     }
 
     b->active = false;
+    /* After `active` clears, so the strip's own eligibility sees search as over. */
+    lv_obj_t *az = b->az_strip_for_screen(b->screen);
+    if (az && library_az_index_list_allowed(b->list)) lv_obj_remove_flag(az, LV_OBJ_FLAG_HIDDEN);
     b->refresh_now_playing();
 }
 
@@ -715,6 +718,10 @@ void library_search_register(search_binding_id_t id, const library_search_config
     };
 }
 
+
+void library_search_set_item_of(search_binding_id_t id, library_search_item_of_t item_of) {
+    search_bindings[id].item_of = item_of;
+}
 
 bool library_search_try_map_filtered_row(search_binding_id_t id, int display_index, int *source_index) {
     search_binding_t *b = &search_bindings[id];

@@ -2,6 +2,7 @@
 /* Private to the album header: its state and the probe side's entry points. */
 #include <lvgl/lvgl.h>
 #include "gui_album_header.h"
+#include "gui_album_view.h"
 
 /* Per-album UI state (UI thread only), shared by the widget layout
  * (gui_album_header.c) and the duration/probe side (gui_album_probe.c). */
@@ -18,13 +19,11 @@ typedef struct {
     int * track;
     bool have_record, dirty;
     int year;
-    char genre[128], hires_icon[96];
-    lv_obj_t * root, * info, * chips, * cover_img;
+    char genre[128];
+    gui_album_view_t view; /* the widgets; the rest of this struct is the album data */
     /* What the chips currently show; they are rebuilt only when this changes. */
     char chip_format[24], chip_total[48];
     bool chip_hires;
-    int cover_px, info_w;
-    int32_t num_w; /* track number column: fits the album's widest number */
     int64_t cover_song_id;
     uint64_t cover_key;
     uint32_t epoch; /* duration-cache storage epoch when this album was set up */

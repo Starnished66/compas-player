@@ -98,6 +98,7 @@
 #include "../text/rendering/gui_text_input.h"
 #include "../text/rendering/gui_text_view.h"
 #include "../network/subsonic/gui_subsonic.h"
+#include "../network/subsonic/gui_subsonic_menu.h"
 #include "../library/browse/gui_library.h"
 #include "../network/gui_network.h"
 #include "../settings/gui_settings.h"
@@ -448,6 +449,7 @@ static void theme_refresh_cb(lv_timer_t * timer) {
     gui_navigation_invalidate_theme_snapshots();
     gui_shell_refresh_home();
     gui_library_refresh_music_screen();
+    gui_subsonic_menu_refresh();
     gui_stream_media_refresh();
     gui_network_refresh_wireless_screen();
     quick_drawer_mark_snapshot_dirty();

@@ -47,6 +47,8 @@ void launch_cover_decode_req(cover_decode_request_t r);
 void launch_cover_decode_from_track(int for_index, const char * track_path, const char * artist,
                                     const char * album, const char * album_artist);
 void launch_cover_decode_from_url(int for_index, const char * url, bool verify_tls);
+void launch_cover_decode_from_subsonic(int for_index, const subsonic_server_t * server, const char * cover_id,
+                                       bool allow_net);
 
 /* Metadata pipeline in gui_player_metadata.c, used by gui_player.c. */
 void player_metadata_request_current_for_init(void);

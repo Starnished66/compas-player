@@ -1,6 +1,7 @@
 /* The Songs page rows: the incremental row builder, populate, covers and the now-playing marker. */
 #include "../../text/i18n/i18n.h"
 #include "gui_album_header.h"
+#include "gui_album_view.h"
 #include "../../widgets/builders/gui_play_bar.h"
 #include "../../assets/assets.h"
 #include "../../../hardware/indicators/backlight.h"
@@ -185,17 +186,7 @@ static void group_songs_add_plain_entry(int i, bool album_layout, bool was_bare)
      * every row jump sideways. */
     if (group_song_has_cover(i)) group_song_row_text_offset(row, true);
 
-    lv_obj_t * quality = lv_image_create(row);
-    lv_image_set_src(quality, asset_path(song_quality_asset_for_path(group_songs_entries[i].path)));
-#if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_size(quality, BOARD_SCALE_PX(34), BOARD_SCALE_PX(34));
-    lv_image_set_inner_align(quality, LV_IMAGE_ALIGN_CONTAIN);
-#endif
-    /* Child alignment is relative to the label's padded content
-     * box. Cancel the 70px text reserve so the badge is physically
-     * 14px from the card edge (same rule as compact-list rows). */
-    lv_obj_align(quality, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-14), 0);
-    lv_obj_remove_flag(quality, LV_OBJ_FLAG_CLICKABLE);
+    gui_album_view_row_badge(row, song_quality_asset_for_path(group_songs_entries[i].path));
     if (album_layout) gui_album_header_decorate_row(row, i);
     if (detail && detail[0]) group_song_row_show_detail(row, detail); /* as apply_group_probe_row() does */
 

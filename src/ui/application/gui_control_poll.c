@@ -5,6 +5,7 @@
 #include "../updates/gui_updates.h"
 #include "../network/gui_network.h"
 #include "../network/subsonic/gui_subsonic.h"
+#include "../network/subsonic/gui_subsonic_covers.h"
 #include "../player/screen/gui_lyrics.h"
 #include "../player/screen/gui_track_info.h"
 #include "../../hardware/indicators/backlight.h"
@@ -88,6 +89,13 @@ void gui_control_poll_kick_player_ui(void) {
  * would have; it only runs sooner. */
 void gui_jobs_dispatch_begin(void) {
     gui_library_jobs_ready_timers();
+    /* Subsonic workers only set a done flag: reap them now, not at the 500 ms tick. */
+    poll_subsonic_download();
+    poll_subsonic_library_download();
+    poll_subsonic_connect();
+    poll_subsonic_browse();
+    poll_subsonic_refresh();
+    poll_subsonic_covers();
 }
 
 /* A slide shows a frozen snapshot: page updates wait for it to end, like the
@@ -227,6 +235,8 @@ static void poll_network_jobs(void) {
     poll_dlna_control();
     poll_subsonic_connect();
     poll_subsonic_browse();
+    poll_subsonic_refresh();
+    poll_subsonic_covers();
     poll_wifi_scan();
     poll_wifi_connect();
     poll_wifi_connect_saved();

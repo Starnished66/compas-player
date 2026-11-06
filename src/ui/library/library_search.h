@@ -30,6 +30,7 @@ typedef library_search_group_item_t (*library_search_group_item_cb_t)(int index)
 typedef lv_obj_t *(*library_search_az_strip_cb_t)(lv_obj_t *screen);
 typedef void (*library_search_refresh_now_playing_cb_t)(void);
 typedef const char *(*library_search_name_of_t)(int index);
+typedef compact_list_item_t (*library_search_item_of_t)(int index);
 
 typedef struct {
     lv_obj_t *screen;
@@ -60,6 +61,9 @@ typedef struct {
  * filtering call. The DB worker sees only copied id/kind/query data and never
  * calls or retains any UI callback. */
 void library_search_register(search_binding_id_t id, const library_search_config_t *config);
+/* Optional, after registering: the full row (subtitle, cover) for a source
+ * index, used when search opens and closes. Without it rows are label-only. */
+void library_search_set_item_of(search_binding_id_t id, library_search_item_of_t item_of);
 int library_search_find_filtered_row(search_binding_id_t id, int source_index);
 bool library_search_showing_results(search_binding_id_t id);
 bool library_search_try_map_filtered_row(search_binding_id_t id, int display_index, int *source_index);

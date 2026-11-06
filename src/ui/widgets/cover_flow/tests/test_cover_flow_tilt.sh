@@ -8,7 +8,7 @@ cc=${CC:-cc}
 tests="tilt span azmap warp"
 build() { # name, extra flags
     "$cc" -std=gnu11 -Wall -Wextra "${@:2}" "$here/test_cover_flow_$1.c" "$here/../cover_flow_tilt.c" \
-        "$here/../cover_flow_span.c" "$here/../cover_flow_warp.c" "$here/../cover_flow_azmap.c" -o "$dir/test_cover_flow_$1$SUFFIX"
+        "$here/../cover_flow_span.c" "$here/../cover_flow_warp.c" "$here/../cover_flow_azmap.c" "$here/../../../library/library_az_table.c" -o "$dir/test_cover_flow_$1$SUFFIX"
     "$dir/test_cover_flow_$1$SUFFIX"
 }
 SUFFIX=""

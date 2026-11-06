@@ -109,7 +109,8 @@ bool gui_shell_back_swipe_owns_press(void) {
  * overlays): no swipe-back and no navigation prefetch from them. */
 bool shell_screen_blocks_swipe(lv_obj_t * screen) {
     return screen == gui_lock_screen_get_screen() || screen == gui_text_input_get_screen() ||
-           screen == gui_text_view_get_screen() || screen == gui_busy_get_screen() ||
+           screen == gui_text_view_get_screen() ||
+           (screen == gui_busy_get_screen() && !gui_busy_is_cancellable()) ||
            screen == gui_network_get_usb_dac_overlay() ||
            screen == gui_network_get_bt_dac_overlay();
 }

@@ -18,7 +18,7 @@ typedef struct {
 typedef struct {
     int item;
     uint16_t * face;    /* decoded cover, owned; NULL while pending. out_h rows tall: step 0 is built in place */
-    int failed;         /* 0 not tried, 1 failed without generating, 2 failed generating */
+    int failed;         /* 0 not tried, 1 failed without generating, 2 failed generating, 3 owner face failed: only cover_flow_retry_faces() retries */
     cf_warp_t warp[COVER_FLOW_TILT_STEPS + 1]; /* [0] is the flat centre cover */
 } cf_content_t;
 

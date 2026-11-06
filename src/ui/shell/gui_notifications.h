@@ -16,6 +16,11 @@ gui_busy_handle_t gui_busy_show(const char * title, const char * msg);
 void gui_busy_set_progress(gui_busy_handle_t handle, int percent);
 /* Status line under the progress bar; empty or NULL hides it. */
 void gui_busy_set_detail(gui_busy_handle_t handle, const char * text);
+/* Opt-in: shows a Cancel button and lets the Back gesture leave. on_cancel
+ * runs once, when the user presses Cancel or the screen is left any other
+ * way. Pass NULL to turn it off; hiding the busy screen also clears it. */
+void gui_busy_set_cancel(gui_busy_handle_t handle, void (*on_cancel)(void *), void * user);
+bool gui_busy_is_cancellable(void);
 void gui_busy_hide(gui_busy_handle_t handle);
 /* Dismiss an interstitial with an immediate stack pop/load so the caller can
  * push its final destination without a pending transition overriding it. */

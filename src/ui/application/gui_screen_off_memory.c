@@ -2,6 +2,7 @@
 #include "gui.h"
 #include "../library/library_thumbnails.h"
 #include "../player/screen/gui_lyrics.h"
+#include "../network/subsonic/gui_subsonic_covers.h"
 #include "../../core/system/logging/db_log.h"
 #include "lvgl/src/draw/sw/lv_draw_sw_private.h"
 
@@ -13,6 +14,7 @@ static uint32_t period_start_ms;
  * freeing it would only delay the reveal. */
 static void release_decoded_images(void) {
     library_thumbnails_release_memory();
+    gui_subsonic_covers_shutdown();
     gui_player_release_memory_for_screen_off();
     gui_lyrics_release_memory_for_external_session();
     lv_draw_sw_image_cache_clear();
@@ -40,6 +42,7 @@ void gui_screen_off_memory_restart_wait(uint32_t now_ms) {
 
 void gui_screen_off_memory_wake(void) {
     gui_player_screen_off_release_wake();
+    gui_subsonic_covers_wake();
     if (!released_this_period) return;
     DB_LOG("MEM", "screen_on_after_release rss_kb=%ld", db_log_rss_kb());
     released_this_period = false;

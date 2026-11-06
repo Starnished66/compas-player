@@ -4,6 +4,7 @@
  * last frees it. */
 #include <stdbool.h>
 #include <stdint.h>
+#include "cover_flow.h"
 
 typedef struct cover_flow_loader cover_flow_loader_t;
 
@@ -13,8 +14,10 @@ typedef struct {
     bool allow_generate; /* whether the request allowed generation */
 } cover_flow_loader_result_t;
 
-/* Starts decoding the face of `song_id` as face_px squared; `pixels` comes back `rows` rows tall. NULL if no thread. */
-cover_flow_loader_t * cover_flow_loader_start(int item, int64_t song_id, bool allow_generate, int face_px, int rows);
+/* Starts decoding a face as face_px squared; `pixels` comes back `rows` rows tall. With `face` it
+ * decodes `cover_ref` (copied), otherwise the album of `song_id`. NULL if no thread. */
+cover_flow_loader_t * cover_flow_loader_start(int item, int64_t song_id, const char * cover_ref,
+                                              cover_flow_face_fn face, bool allow_generate, int face_px, int rows);
 /* Takes the result and frees the request (*l becomes NULL). False while it still runs. */
 bool cover_flow_loader_take(cover_flow_loader_t ** l, cover_flow_loader_result_t * out);
 /* Gives up the request (*l becomes NULL). Never blocks. */

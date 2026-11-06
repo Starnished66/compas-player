@@ -22,6 +22,8 @@
 #include "../../../core/system/logging/db_log.h"
 #include "../../../network/http/client/http_client.h"
 #include "player_artwork_pixels.h"
+#include "player_stream_cover.h"
+#include "../../../library/remote/subsonic/subsonic_covers.h"
 #include "../../../core/ui/display/ui_wake.h"
 #include "../../effects/frosted_glass.h"
 #include "../../../library/artwork/coordinator/artwork_coordinator.h"
@@ -358,6 +360,22 @@ static bool player_read_flac_format(const char * path, audio_current_format_info
     return true;
 }
 
+/* Streamed art: fetch the encoded cover, then decode it. A cached Subsonic
+ * cover that can never decode is deleted so it is fetched afresh next time. */
+static bool cover_decode_stream(const cover_decode_request_t * req, uint16_t ** pixels) {
+    void * generation = (void *) (uintptr_t) req->generation;
+    uint8_t * body = NULL;
+    size_t size = 0;
+    if (!player_stream_cover_fetch(req, player_cover_decode_cancelled, generation, &body, &size)) return false;
+    cover_decode_result_t res = cover_decode_to_rgb565_ex(body, (uint32_t) size, req->edge, req->edge,
+                                                          ARTWORK_PRIO_PLAYER, player_cover_decode_cancelled,
+                                                          generation, pixels);
+    free(body);
+    if (req->subsonic_cover_id[0] && cover_decode_result_is_permanent(res))
+        subsonic_cover_large_evict(&req->subsonic_server, req->subsonic_cover_id);
+    return res == COVER_DECODE_OK;
+}
+
 /* Player-size JPEG/PNG cover. Album thumbnails use a 4 MiB stack. */
 static void * cover_decode_thread_func(void * arg) {
 #ifdef __linux__
@@ -384,24 +402,8 @@ static void * cover_decode_thread_func(void * arg) {
         }
     }
 
-    if (req->stream_url[0] != '\0') {
-        int status = 0;
-        uint8_t * body = NULL;
-        size_t body_size = 0;
-        if (http_get_to_buffer(req->stream_url, req->stream_verify_tls, &status, &body, &body_size) && status == 200) {
-            req->picture_data = body;
-            req->picture_size = (uint32_t) body_size;
-        } else {
-            free(body);
-            /* Left NULL/0 -- decode below no-ops, same as "no embedded art"
-             * for a local file. No error surfaced beyond that; a failed
-             * cover-art fetch isn't worth blocking or retrying playback
-             * over. */
-        }
-        ok = req->picture_data && req->picture_size > 0 &&
-             cover_decode_to_rgb565(req->picture_data, req->picture_size, req->edge, req->edge, &pixels);
-        free(req->picture_data);
-        req->picture_data = NULL;
+    if (req->stream_url[0] || req->subsonic_cover_id[0]) {
+        ok = cover_decode_stream(req, &pixels);
     } else if (req->local_track_path[0]) {
         ok = load_cached_player_cover(req->local_track_path, req->artist, req->album,
                                        req->album_artist, req->edge, req->generation, req->bt_art_token, req->force_source,
@@ -584,7 +586,11 @@ bool player_artwork_jobs_done(void) { return atomic_load_explicit(&cover_decode_
 bool player_artwork_jobs_running_idle(void) { return !atomic_load_explicit(&cover_decode_running, memory_order_acquire); }
 bool player_artwork_jobs_reload_active(void) { return atomic_load_explicit(&cover_reload_active, memory_order_relaxed); }
 unsigned int player_artwork_jobs_generation(void) { return atomic_load_explicit(&cover_decode_generation, memory_order_relaxed); }
-unsigned int player_artwork_jobs_advance_generation(void) { return atomic_fetch_add_explicit(&cover_decode_generation, 1u, memory_order_relaxed) + 1u; }
+unsigned int player_artwork_jobs_advance_generation(void) {
+    unsigned int generation = atomic_fetch_add_explicit(&cover_decode_generation, 1u, memory_order_relaxed) + 1u;
+    player_stream_cover_cancel(); /* a fetch for the old track has no use now */
+    return generation;
+}
 void player_artwork_jobs_clear_pending(void) {
     if (cover_decode_pending_valid) free(cover_decode_pending.picture_data);
     memset(&cover_decode_pending, 0, sizeof(cover_decode_pending)); cover_decode_pending_valid = false;

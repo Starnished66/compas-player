@@ -239,6 +239,46 @@ static bool thumbnail_row_in_viewport(lv_obj_t * list, lv_obj_t * row, int logic
     return row_y + lv_obj_get_height(row) >= scroll_y && row_y <= scroll_y + lv_obj_get_height(list);
 }
 
+/* Shows `cover` in a row's leading image, or the "no cover yet" picture when it
+ * is NULL. A compact list gets the pre-rendered placeholder and the shared
+ * overhang; other lists keep the stock asset. Pads the row for the thumbnail
+ * when `row` is not NULL. Writes are idempotent. */
+void library_thumbnails_show_row_image(lv_obj_t * list, lv_obj_t * row, lv_obj_t * image,
+                                       const lv_image_dsc_t * cover) {
+    /* Only the compact lists lay their rows out from known geometry and use the
+     * pre-rendered placeholder; the group-song rows keep the stock picture. */
+    bool compact = compact_list_is_live(list);
+    if (row) lv_idem_set_pad_left(row, BOARD_LIBRARY_THUMB_TEXT_X);
+    if (cover) {
+        lv_idem_image_set_src(image, cover);
+        lv_idem_image_set_scale(image, LV_SCALE_NONE);
+        if (compact) lv_obj_set_user_data(image, NULL);
+        lv_idem_set_hidden(image, false);
+        return;
+    }
+    thumbnail_placeholder_t placeholder;
+    if (compact && thumbnail_placeholder_get(&placeholder)) {
+        /* The picture is already at its final size: no transform, and the
+         * overhang keeps it where the scaled asset used to be drawn. */
+        lv_idem_image_set_src(image, placeholder.dsc);
+        lv_idem_image_set_scale(image, LV_SCALE_NONE);
+        lv_obj_set_user_data(image, (void *) (intptr_t) placeholder.overhang);
+    } else {
+        const void * src = asset_path(THUMB_DEFAULT_ASSET);
+        lv_idem_image_set_src(image, src);
+        /* Scale from the asset's own width. A hardcoded size assumed the PNG
+         * was already the thumbnail size; LV_IMAGE_ALIGN_STRETCH before set_src divided by
+         * img->w=0 and killed the process during build_albums_screen(). */
+        lv_image_header_t header;
+        int32_t src_w = ALBUM_THUMBNAIL_PX;
+        if (lv_image_decoder_get_info(src, &header) == LV_RESULT_OK && header.w > 0)
+            src_w = header.w;
+        lv_idem_image_set_scale(image, (ALBUM_THUMBNAIL_PX * LV_SCALE_NONE) / src_w);
+        if (compact) lv_obj_set_user_data(image, NULL);
+    }
+    lv_idem_set_hidden(image, false);
+}
+
 /* `touch_row` is false for the album page's hero cover, which lays out its own
  * children and has no use for the compact-list padding. */
 static void thumbnail_decorate_image(lv_obj_t * list, lv_obj_t * row, lv_obj_t * image,
@@ -269,38 +309,12 @@ static void thumbnail_decorate_image(lv_obj_t * list, lv_obj_t * row, lv_obj_t *
     artist_thumbnail_alias_entry_t * alias = NULL;
     if ((!cached || !cached->pixels) && context->key_kind == THUMBNAIL_KEY_ARTIST)
         alias = artist_thumbnail_alias_find(artwork_key, context->artist_group_kind);
-    /* Only the compact lists lay their rows out from known geometry and use the
-     * pre-rendered placeholder; the group-song rows keep the stock picture. */
-    bool compact = compact_list_is_live(list);
     if (alias && alias->has_album)
         cached = album_thumbnail_cache_find(THUMBNAIL_KEY_ALBUM, alias->album_key);
     if (cached && cached->pixels) {
-        lv_idem_image_set_src(image, &cached->dsc);
-        lv_idem_image_set_scale(image, LV_SCALE_NONE);
-        if (compact) lv_obj_set_user_data(image, NULL);
-        lv_idem_set_hidden(image, false);
+        library_thumbnails_show_row_image(list, NULL, image, &cached->dsc);
     } else {
-        thumbnail_placeholder_t placeholder;
-        if (compact && thumbnail_placeholder_get(&placeholder)) {
-            /* The picture is already at its final size: no transform, and the
-             * overhang keeps it where the scaled asset used to be drawn. */
-            lv_idem_image_set_src(image, placeholder.dsc);
-            lv_idem_image_set_scale(image, LV_SCALE_NONE);
-            lv_obj_set_user_data(image, (void *) (intptr_t) placeholder.overhang);
-        } else {
-            const void * src = asset_path(THUMB_DEFAULT_ASSET);
-            lv_idem_image_set_src(image, src);
-            /* Scale from the asset's own width. A hardcoded size assumed the PNG
-             * was already the thumbnail size; LV_IMAGE_ALIGN_STRETCH before set_src divided by
-             * img->w=0 and killed the process during build_albums_screen(). */
-            lv_image_header_t header;
-            int32_t src_w = ALBUM_THUMBNAIL_PX;
-            if (lv_image_decoder_get_info(src, &header) == LV_RESULT_OK && header.w > 0)
-                src_w = header.w;
-            lv_idem_image_set_scale(image, (ALBUM_THUMBNAIL_PX * LV_SCALE_NONE) / src_w);
-            if (compact) lv_obj_set_user_data(image, NULL);
-        }
-        lv_idem_set_hidden(image, false);
+        library_thumbnails_show_row_image(list, NULL, image, NULL);
         if (!thumbnail_row_in_viewport(list, row, logical_index)) return;
         if (alias) {
             if (alias->has_album && !cached)

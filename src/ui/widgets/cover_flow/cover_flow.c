@@ -28,11 +28,27 @@ static char * put_text(char ** at, const char * s) {
     return out;
 }
 
+/* Refs are opaque ids: copied as they are, up to COVER_FLOW_REF_MAX. */
+static size_t ref_cap(const char * s) {
+    return (s ? strnlen(s, COVER_FLOW_REF_MAX - 1) : 0) + 1;
+}
+
+static char * put_ref(char ** at, const char * s) {
+    char * out = *at;
+    size_t cap = ref_cap(s);
+    if (s) memcpy(out, s, cap - 1);
+    out[cap - 1] = '\0';
+    *at += cap;
+    return out;
+}
+
 /* One block: the item array, then every string. */
 static bool copy_items(cover_flow_t * cf, const cover_flow_params_t * p) {
     int n = p->count > COVER_FLOW_MAX_ITEMS ? COVER_FLOW_MAX_ITEMS : p->count;
     size_t chars = 0;
-    for (int i = 0; i < n; i++) chars += text_cap(p->items[i].title) + text_cap(p->items[i].subtitle);
+    for (int i = 0; i < n; i++)
+        chars += text_cap(p->items[i].title) + text_cap(p->items[i].subtitle) + ref_cap(p->items[i].ref) +
+                 ref_cap(p->items[i].cover_ref);
     uint8_t * block = malloc((size_t) n * sizeof(cover_flow_item_t) + chars);
     if (!block) return false;
     cover_flow_item_t * items = (cover_flow_item_t *) block;
@@ -41,6 +57,8 @@ static bool copy_items(cover_flow_t * cf, const cover_flow_params_t * p) {
         items[i].title = put_text(&at, p->items[i].title);
         items[i].subtitle = put_text(&at, p->items[i].subtitle);
         items[i].song_id = p->items[i].song_id;
+        items[i].ref = put_ref(&at, p->items[i].ref);
+        items[i].cover_ref = put_ref(&at, p->items[i].cover_ref);
     }
     free(cf->items_block);
     cf->items_block = block;
@@ -180,6 +198,7 @@ static void apply_params(cover_flow_t * cf, const cover_flow_params_t * p) {
     int sel = p->selected < 0 ? 0 : p->selected >= cf->count ? cf->count - 1 : p->selected;
     cf->on_select = p->on_select;
     cf->on_hold = p->on_hold;
+    cf->face = p->face;
     cf->label_item = -1;
     cf->pos = sel * CF_ONE;
     cf_slots_reset(cf, sel);

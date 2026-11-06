@@ -1912,6 +1912,14 @@ void gui_navigation_replace_static_screen(int snapshot_index, lv_obj_t * old_scr
     if (lv_screen_active() == old_screen) lv_screen_load(new_screen);
 }
 
+void gui_navigation_replace_screen(lv_obj_t * old_screen, lv_obj_t * new_screen) {
+    for (int i = 0; i < nav_depth; i++) {
+        if (nav_stack[i] == old_screen) nav_stack[i] = new_screen;
+    }
+    back_target_cache_note_replaced(old_screen, new_screen);
+    if (lv_screen_active() == old_screen) lv_screen_load(new_screen);
+}
+
 void gui_navigation_replace_player_screen(lv_obj_t * old_screen, lv_obj_t * new_screen, bool was_active) {
     if (!old_screen || !new_screen) return;
 
