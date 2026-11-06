@@ -1,5 +1,6 @@
 #include "screen_builders.h"
 #include "screen_builders_internal.h"
+#include "../lists/scroll_blit.h"
 #include "lvgl/src/themes/lv_theme_private.h"
 #include "lvgl/src/display/lv_display_private.h"
 #include "lvgl/src/widgets/label/lv_label_private.h"
@@ -79,6 +80,23 @@ void screen_builders_configure_content_scrollbar(lv_obj_t * list) {
     lv_obj_set_style_width(list, BOARD_SCALE_PX(3), LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(list, BOARD_SCALE_PX(2), LV_PART_SCROLLBAR);
     lv_obj_add_style(list, &style_theme_scrollbar, LV_PART_SCROLLBAR);
+}
+
+lv_obj_t * build_song_list_body(lv_obj_t * screen) {
+    lv_obj_t * list = lv_obj_create(screen);
+    lv_obj_set_size(list, lv_pct(100), lv_display_get_vertical_resolution(lv_display_get_default()) -
+                    STATUS_BAR_CLEARANCE - TITLE_ROW_HEIGHT - HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
+    lv_obj_set_style_bg_opa(list, 0, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    lv_obj_set_style_pad_top(list, GUI_ROW_GAP, 0);
+    lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    ui_scroll_blit_enable(list);
+    return list;
 }
 
 int32_t ui_list_row_width(void) {

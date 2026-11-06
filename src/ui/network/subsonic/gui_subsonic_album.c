@@ -10,7 +10,6 @@
 #include "../../widgets/builders/screen_builders.h"
 #include "../../widgets/lists/compact_list.h"
 #include "../../widgets/builders/screen_builders_internal.h"
-#include "../../widgets/lists/scroll_blit.h"
 #include "../../../core/system/runtime/board_config.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -29,21 +28,9 @@ static bool active;
 static lv_obj_t * bar; /* the Play / Shuffle bar above a compact songs list */
 
 lv_obj_t * gui_subsonic_album_list_build(lv_obj_t * screen) {
-    list = lv_obj_create(screen);
-    lv_obj_set_size(list, lv_pct(100), lv_display_get_vertical_resolution(lv_display_get_default()) -
-                    STATUS_BAR_CLEARANCE - TITLE_ROW_HEIGHT - HOME_INDICATOR_CONTENT_INSET);
-    lv_obj_align(list, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
-    lv_obj_set_style_bg_opa(list, 0, 0);
-    lv_obj_set_style_border_width(list, 0, 0);
-    lv_obj_set_style_pad_all(list, 0, 0);
+    list = build_song_list_body(screen);
     lv_obj_set_style_pad_hor(list, GUI_LIST_SIDE_MARGIN, 0);
-    lv_obj_set_style_pad_top(list, GUI_ROW_GAP, 0);
-    lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(8), 0);
-    lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
-    lv_obj_set_scroll_dir(list, LV_DIR_VER);
     screen_builders_configure_content_scrollbar(list);
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    ui_scroll_blit_enable(list);
     lv_obj_add_flag(list, LV_OBJ_FLAG_HIDDEN);
     return list;
 }
@@ -69,11 +56,6 @@ static void facts_of(const subsonic_song_t * songs, int count, facts_t * f) {
         f->format[i] = (char) toupper((unsigned char) songs[0].suffix[i]);
 }
 
-static const char * quality_asset(const subsonic_song_t * song) {
-    char ext[24];
-    snprintf(ext, sizeof(ext), ".%s", song->suffix);
-    return song_quality_asset_for_path(ext);
-}
 
 /* ---- Play ------------------------------------------------------------------ */
 static void play_from(int index, bool shuffle) {
@@ -110,7 +92,7 @@ static bool multi_disc(const subsonic_song_t * songs, int count) {
 
 static void add_row(const subsonic_song_t * songs, int i) {
     lv_obj_t * row = build_music_list_row(list, songs[i].title, NULL, BOARD_SCALE_PX(70));
-    gui_album_view_row_badge(row, quality_asset(&songs[i]));
+    gui_album_view_row_badge(row, gui_song_quality_asset(songs[i].suffix));
     gui_album_view_decorate_row(row, shown_number(songs, i), view.num_w,
                                 songs[i].duration_seconds > 0 ? songs[i].duration_seconds : -1);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -137,7 +119,7 @@ static void build_header(const gui_subsonic_album_info_t * info, const subsonic_
     gui_album_view_meta_text(info->year, info->genre, meta, sizeof(meta));
     gui_album_view_total_text(facts.seconds, total, sizeof(total));
     gui_album_view_params_t params = {
-        .album = info->title, .artist = info->artist, .meta = meta, .hires_icon = quality_asset(&songs[0]),
+        .album = info->title, .artist = info->artist, .meta = meta, .hires_icon = gui_song_quality_asset(songs[0].suffix),
         .show_buttons = true, .play_cb = play_cb, .shuffle_cb = shuffle_cb,
     };
     gui_album_view_build(&view, list, &params);

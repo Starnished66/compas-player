@@ -30,6 +30,8 @@ void gui_subsonic_download_library(subsonic_song_t * songs, int song_count, char
                                    int album_to_expand_count, const char * playlist_name, const char * progress_label);
 char ** gui_subsonic_copy_album_ids(const subsonic_album_t * albums, int count);
 bool gui_subsonic_downloads_active(void);
+bool gui_subsonic_append_songs(subsonic_song_t ** songs, int * count, int * capacity,
+                               const subsonic_song_t * album_songs, int album_song_count);
 
 /* gui_subsonic_connect.c */
 extern bool subsonic_connect_active;
@@ -58,12 +60,14 @@ typedef enum {
     SUBSONIC_BROWSE_GENRES,
     SUBSONIC_BROWSE_RANDOM_SONGS,
     SUBSONIC_BROWSE_STARRED,
+    SUBSONIC_BROWSE_ARTIST_SONGS,
 } subsonic_browse_kind_t;
 
 void gui_subsonic_browse_cancel(void);
 void gui_subsonic_browse_join(void);
 extern bool subsonic_browse_active;
 void start_subsonic_browse(subsonic_browse_kind_t kind, const char * id, const char * title);
+bool subsonic_install_transient_songs(subsonic_song_t * items, int count, const char * title);
 bool subsonic_open_transient_songs(subsonic_song_t * items, int count, const char * title);
 
 /* gui_subsonic_sync.c */

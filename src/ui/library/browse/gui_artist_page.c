@@ -1,4 +1,5 @@
 #include "gui_artist_page.h"
+#include "../../assets/gui_image_dsc.h"
 #include "gui_artist_data.h"
 #include "../library_thumbnails.h"
 #include "../../text/i18n/i18n.h"
@@ -47,7 +48,15 @@ typedef struct {
     lv_obj_t * songs_all_label;   /* "All N songs >" on the Songs row (NULL without songs) */
     int32_t songs_all_w;          /* room for it beside the row's title */
 } page_t;
-static page_t P;
+/* Local Music and Subsonic may both retain their screens on the back stack. */
+static page_t pages[2];
+
+static page_t * page_for(lv_obj_t * list, bool create) {
+    if (!list) return NULL;
+    for (int i = 0; i < 2; i++) if (pages[i].list == list) return &pages[i];
+    for (int i = 0; create && i < 2; i++) if (!pages[i].list) return &pages[i];
+    return NULL;
+}
 
 static lv_obj_t * plain(lv_obj_t * parent) {
     lv_obj_t * o = lv_obj_create(parent);
@@ -106,72 +115,73 @@ static void button_click_cb(lv_event_t * e) {
 }
 
 static void songs_row_cb(lv_event_t * e) {
+    page_t * p = lv_event_get_user_data(e);
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_PRESSED) {
-        if (P.params.on_songs_press) P.params.on_songs_press(true);
+        if (p->params.on_songs_press) p->params.on_songs_press(true);
     } else if (code == LV_EVENT_PRESS_LOST) {
-        if (P.params.on_songs_press) P.params.on_songs_press(false);
+        if (p->params.on_songs_press) p->params.on_songs_press(false);
     } else if (code == LV_EVENT_LONG_PRESSED) {
-        if (P.params.on_songs_press) P.params.on_songs_press(false);
-        P.songs_long_fired = true;
-        if (P.params.on_menu) P.params.on_menu();
+        if (p->params.on_songs_press) p->params.on_songs_press(false);
+        p->songs_long_fired = true;
+        if (p->params.on_menu) p->params.on_menu();
     } else if (code == LV_EVENT_CLICKED) {
-        if (P.songs_long_fired) { P.songs_long_fired = false; return; }
-        if (P.params.on_songs) P.params.on_songs();
+        if (p->songs_long_fired) { p->songs_long_fired = false; return; }
+        if (p->params.on_songs) p->params.on_songs();
     }
 }
 
 /* ---- Mosaic -------------------------------------------------------------- */
 /* One album: a single cover. Two or three: the covers repeated so the square
  * stays full. Four or more: the first four. */
-static void plan_tiles(const gui_artist_summary_t * s) {
+static void plan_tiles(page_t * p, const gui_artist_summary_t * s) {
     int n = s->ready ? s->mosaic_count : 0;
     static const int two[4] = { 0, 1, 1, 0 }, three[4] = { 0, 1, 2, 0 }, four[4] = { 0, 1, 2, 3 };
     const int * map = n >= 4 ? four : n == 3 ? three : two;
-    P.tile_count = n <= 0 ? 0 : n == 1 ? 1 : 4;
-    for (int i = 0; i < P.tile_count; i++) {
+    p->tile_count = n <= 0 ? 0 : n == 1 ? 1 : 4;
+    for (int i = 0; i < p->tile_count; i++) {
         int a = n == 1 ? 0 : map[i];
-        if (P.tile_key[i] != s->mosaic_key[a] || P.tile_song[i] != s->mosaic_song_id[a]) {
-            P.tile_key[i] = s->mosaic_key[a];
-            P.tile_song[i] = s->mosaic_song_id[a];
-            P.tile_state[i] = 0;
-            P.tile_shown[i] = 0;
-            P.tiles_due = true;
+        if (p->tile_key[i] != s->mosaic_key[a] || p->tile_song[i] != s->mosaic_song_id[a]) {
+            p->tile_key[i] = s->mosaic_key[a];
+            p->tile_song[i] = s->mosaic_song_id[a];
+            p->tile_state[i] = 0;
+            p->tile_shown[i] = 0;
+            p->tiles_due = true;
         }
-        P.tile_album[i] = a;
+        p->tile_album[i] = a;
     }
 }
 
 /* Gives each tile its square for the current tile count; only when it changed. */
-static void layout_tiles(void) {
-    if (P.tile_laid_out == P.tile_count) return;
-    P.tile_laid_out = P.tile_count;
-    int32_t cs = P.cover_px, half = cs / 2;
+static void layout_tiles(page_t * p) {
+    if (p->tile_laid_out == p->tile_count) return;
+    p->tile_laid_out = p->tile_count;
+    int32_t cs = p->cover_px, half = cs / 2;
     for (int i = 0; i < TILES; i++) {
-        if (i >= P.tile_count) { lv_obj_add_flag(P.tile_img[i], LV_OBJ_FLAG_HIDDEN); continue; }
-        int32_t x = P.tile_count == 1 ? 0 : (i % 2) * half, y = P.tile_count == 1 ? 0 : (i / 2) * half;
-        int32_t w = P.tile_count == 1 ? cs : (i % 2 ? cs - half : half);
-        int32_t h = P.tile_count == 1 ? cs : (i / 2 ? cs - half : half);
-        lv_obj_set_pos(P.tile_img[i], x, y);
-        lv_obj_set_size(P.tile_img[i], w, h);
-        lv_obj_remove_flag(P.tile_img[i], LV_OBJ_FLAG_HIDDEN);
+        if (i >= p->tile_count) { lv_obj_add_flag(p->tile_img[i], LV_OBJ_FLAG_HIDDEN); continue; }
+        int32_t x = p->tile_count == 1 ? 0 : (i % 2) * half, y = p->tile_count == 1 ? 0 : (i / 2) * half;
+        int32_t w = p->tile_count == 1 ? cs : (i % 2 ? cs - half : half);
+        int32_t h = p->tile_count == 1 ? cs : (i / 2 ? cs - half : half);
+        lv_obj_set_pos(p->tile_img[i], x, y);
+        lv_obj_set_size(p->tile_img[i], w, h);
+        lv_obj_remove_flag(p->tile_img[i], LV_OBJ_FLAG_HIDDEN);
     }
 }
 
 /* Assigns the tile's source only when what it shows actually changes. */
-static void show_tile(int i) {
-    if (!P.tile_img[i] || i >= P.tile_count) return;
-    uint8_t want = P.tile_state[i] == 1 && P.tile_pixels[i] ? 2 : 1;
-    if (P.tile_shown[i] == want) return;
-    P.tile_shown[i] = want;
-    if (want == 2) lv_image_set_src(P.tile_img[i], &P.tile_dsc[i]);
-    else lv_image_set_src(P.tile_img[i], asset_path("touch_list/list_default_album.png"));
+static void show_tile(page_t * p, int i) {
+    if (!p->tile_img[i] || i >= p->tile_count) return;
+    uint8_t want = p->tile_state[i] == 1 && p->tile_pixels[i] ? 2 : 1;
+    if (p->tile_shown[i] == want) return;
+    p->tile_shown[i] = want;
+    if (want == 2) lv_image_set_src(p->tile_img[i], &p->tile_dsc[i]);
+    else lv_image_set_src(p->tile_img[i], asset_path("touch_list/list_default_album.png"));
 }
 
-static void create_mosaic(lv_obj_t * parent, int32_t cs) {
-    P.cover_px = cs;
+static void create_mosaic(page_t * p, lv_obj_t * parent, int32_t cs) {
+    p->cover_px = cs;
     lv_obj_t * box = plain(parent);
-    P.box = box;
+    p->box = box;
     lv_obj_set_size(box, cs, cs);
     lv_obj_set_style_radius(box, BOARD_SCALE_PX(16), 0);
     lv_obj_set_style_clip_corner(box, true, 0);
@@ -182,36 +192,36 @@ static void create_mosaic(lv_obj_t * parent, int32_t cs) {
         lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
         lv_image_set_inner_align(img, LV_IMAGE_ALIGN_STRETCH);
-        P.tile_img[i] = img;
-        P.tile_shown[i] = 0;
+        p->tile_img[i] = img;
+        p->tile_shown[i] = 0;
     }
-    P.tile_laid_out = 0;
+    p->tile_laid_out = 0;
 }
 
-static bool fill_tiles(lv_obj_t * list) {
+static bool fill_tiles(page_t * p, lv_obj_t * list) {
     bool waiting = false;
-    for (int i = 0; i < P.tile_count; i++) {
-        if (P.tile_state[i] != 0 || !P.tile_key[i]) continue;
-        if (!P.tile_pixels[i]) P.tile_pixels[i] = malloc(TILE_BYTES);
+    for (int i = 0; i < p->tile_count; i++) {
+        if (p->tile_state[i] != 0 || !p->tile_key[i]) continue;
+        if (!p->tile_pixels[i]) p->tile_pixels[i] = malloc(TILE_BYTES);
         bool no_art = false;
-        if (P.tile_pixels[i] && library_thumbnails_copy_album(P.tile_key[i], P.tile_pixels[i], &no_art)) {
-            P.tile_dsc[i] = (lv_image_dsc_t) { .header = { .magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_RGB565,
-                .w = ALBUM_THUMBNAIL_PX, .h = ALBUM_THUMBNAIL_PX, .stride = ALBUM_THUMBNAIL_PX * 2 },
-                .data_size = (uint32_t) TILE_BYTES, .data = (const uint8_t *) P.tile_pixels[i] };
-            P.tile_state[i] = 1;
-            show_tile(i);
-            lv_obj_invalidate(P.tile_img[i]);
+        if (p->tile_pixels[i] && (p->params.copy_tile ? p->params.copy_tile(p->params.source, p->tile_album[i], p->tile_pixels[i], &no_art) :
+            library_thumbnails_copy_album(p->tile_key[i], p->tile_pixels[i], &no_art))) {
+            gui_image_dsc_init_rgb565(&p->tile_dsc[i], p->tile_pixels[i], ALBUM_THUMBNAIL_PX);
+            p->tile_state[i] = 1;
+            show_tile(p, i);
+            lv_obj_invalidate(p->tile_img[i]);
         } else if (no_art) {
-            P.tile_state[i] = 2;
+            p->tile_state[i] = 2;
         } else {
             waiting = true;
         }
     }
-    if (waiting && lv_tick_elaps(P.request_tick) >= 400) {
-        P.request_tick = lv_tick_get();
-        for (int i = 0; i < P.tile_count; i++)
-            if (P.tile_state[i] == 0 && P.tile_key[i]) library_thumbnails_request_album(list, P.tile_song[i], P.tile_key[i]);
+    if (!p->params.copy_tile && waiting && lv_tick_elaps(p->request_tick) >= 400) {
+        p->request_tick = lv_tick_get();
+        for (int i = 0; i < p->tile_count; i++)
+            if (p->tile_state[i] == 0 && p->tile_key[i]) library_thumbnails_request_album(list, p->tile_song[i], p->tile_key[i]);
     }
+    if (p->params.copy_tile) p->request_tick = lv_tick_get();
     return waiting;
 }
 
@@ -242,220 +252,259 @@ static void set_hidden(lv_obj_t * o, bool hidden) {
     else lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void apply_params(void);
+static void apply_params(page_t * p);
 
 /* Brings the header's text, chips and mosaic in line with `s`. Only what
  * changed is touched; returns true when something that can move the layout did. */
-static bool apply_summary(const gui_artist_summary_t * s) {
-    int32_t info_w = LIST_ROW_WIDTH_WIDE - P.cover_px - BOARD_SCALE_PX(18);
+static bool apply_summary(page_t * p, const gui_artist_summary_t * s) {
+    int32_t info_w = LIST_ROW_WIDTH_WIDE - p->cover_px - BOARD_SCALE_PX(18);
     char genre[128], year[32], total[48];
     summary_texts(s, genre, sizeof(genre), year, sizeof(year), total, sizeof(total));
     bool layout = false;
-    if (strcmp(genre, P.genre_text)) {
-        snprintf(P.genre_text, sizeof(P.genre_text), "%s", genre);
-        if (genre[0]) fit_label(P.genre_label, genre, GUI_FONT_ROLE_BODY, info_w, 1);
-        set_hidden(P.genre_label, !genre[0]);
+    if (s->ready && p->params.counts_from_summary && p->params.songs != s->songs) {
+        p->params.songs = s->songs;
+        apply_params(p);
         layout = true;
     }
-    if (strcmp(year, P.year_text)) {
-        snprintf(P.year_text, sizeof(P.year_text), "%s", year);
-        if (year[0]) lv_label_set_text(P.year_label, year);
-        set_hidden(P.year_chip, !year[0]);
+    if (strcmp(genre, p->genre_text)) {
+        snprintf(p->genre_text, sizeof(p->genre_text), "%s", genre);
+        if (genre[0]) fit_label(p->genre_label, genre, GUI_FONT_ROLE_BODY, info_w, 1);
+        set_hidden(p->genre_label, !genre[0]);
         layout = true;
     }
-    if (strcmp(total, P.total_text)) {
-        snprintf(P.total_text, sizeof(P.total_text), "%s", total);
-        if (total[0]) lv_label_set_text(P.total_label, total);
-        set_hidden(P.total_chip, !total[0]);
+    if (strcmp(year, p->year_text)) {
+        snprintf(p->year_text, sizeof(p->year_text), "%s", year);
+        if (year[0]) lv_label_set_text(p->year_label, year);
+        set_hidden(p->year_chip, !year[0]);
         layout = true;
     }
-    if (layout) set_hidden(P.chips, !P.year_text[0] && !P.total_text[0]);
-    plan_tiles(s);
-    layout_tiles();
-    for (int i = 0; i < P.tile_count; i++) show_tile(i);
+    if (strcmp(total, p->total_text)) {
+        snprintf(p->total_text, sizeof(p->total_text), "%s", total);
+        if (total[0]) lv_label_set_text(p->total_label, total);
+        set_hidden(p->total_chip, !total[0]);
+        layout = true;
+    }
+    if (layout) set_hidden(p->chips, !p->year_text[0] && !p->total_text[0]);
+    plan_tiles(p, s);
+    layout_tiles(p);
+    for (int i = 0; i < p->tile_count; i++) show_tile(p, i);
     return layout;
 }
 
 /* The header's height can only change with the text and chips; tell the list
  * once it has been laid out again. */
-static void relayout(void) {
-    lv_obj_update_layout(P.root);
-    int32_t height = lv_obj_get_height(P.root) + BOARD_SCALE_PX(8);
-    if (height != P.header_height) {
-        P.header_height = height;
-        compact_list_set_header(P.list, P.root, height);
+static void relayout(page_t * p) {
+    lv_obj_update_layout(p->root);
+    int32_t height = lv_obj_get_height(p->root) + BOARD_SCALE_PX(8);
+    if (height != p->header_height) {
+        p->header_height = height;
+        compact_list_set_header(p->list, p->root, height);
     }
 }
 
-static void create_header(void) {
-    int32_t row_w = LIST_ROW_WIDTH_WIDE, cs = BOARD_SCALE_PX(170), gap = BOARD_SCALE_PX(18);
-    int32_t info_w = row_w - cs - gap;
-    P.root = plain(P.list);
-    lv_obj_set_size(P.root, row_w, LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_row(P.root, BOARD_SCALE_PX(14), 0);
-    lv_obj_set_flex_flow(P.root, LV_FLEX_FLOW_COLUMN);
-
-    lv_obj_t * top = plain(P.root);
-    lv_obj_set_size(top, row_w, LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_column(top, gap, 0);
-    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    create_mosaic(top, cs);
-
+static void create_info(page_t * p, lv_obj_t * top, int32_t info_w) {
     lv_obj_t * info = plain(top);
     lv_obj_set_size(info, info_w, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_row(info, BOARD_SCALE_PX(4), 0);
     lv_obj_set_flex_flow(info, LV_FLEX_FLOW_COLUMN);
-    P.name_label = text_label(info, P.name, GUI_FONT_ROLE_TITLE, &style_theme_text_primary, info_w, 2);
-    P.counts_label = text_label(info, "", GUI_FONT_ROLE_BODY, gui_theme_accent_style(), info_w, 2);
-    P.genre_label = text_label(info, "", GUI_FONT_ROLE_BODY, &style_theme_text_muted, info_w, 1);
-    lv_obj_add_flag(P.genre_label, LV_OBJ_FLAG_HIDDEN);
-    P.chips = plain(info);
-    lv_obj_set_size(P.chips, info_w, LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_column(P.chips, BOARD_SCALE_PX(8), 0);
-    lv_obj_set_style_pad_row(P.chips, BOARD_SCALE_PX(6), 0);
-    lv_obj_set_flex_flow(P.chips, LV_FLEX_FLOW_ROW_WRAP);
-    P.year_chip = chip(P.chips, &P.year_label);
-    P.total_chip = chip(P.chips, &P.total_label);
-    lv_obj_add_flag(P.year_chip, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(P.total_chip, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(P.chips, LV_OBJ_FLAG_HIDDEN);
+    p->name_label = text_label(info, p->name, GUI_FONT_ROLE_TITLE, &style_theme_text_primary, info_w, 2);
+    p->counts_label = text_label(info, "", GUI_FONT_ROLE_BODY, gui_theme_accent_style(), info_w, 2);
+    p->genre_label = text_label(info, "", GUI_FONT_ROLE_BODY, &style_theme_text_muted, info_w, 1);
+    lv_obj_add_flag(p->genre_label, LV_OBJ_FLAG_HIDDEN);
+    p->chips = plain(info);
+    lv_obj_set_size(p->chips, info_w, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_column(p->chips, BOARD_SCALE_PX(8), 0);
+    lv_obj_set_style_pad_row(p->chips, BOARD_SCALE_PX(6), 0);
+    lv_obj_set_flex_flow(p->chips, LV_FLEX_FLOW_ROW_WRAP);
+    p->year_chip = chip(p->chips, &p->year_label);
+    p->total_chip = chip(p->chips, &p->total_label);
+    lv_obj_add_flag(p->year_chip, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(p->total_chip, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(p->chips, LV_OBJ_FLAG_HIDDEN);
+}
 
-    P.has_buttons = P.params.songs > 0;
-    if (P.has_buttons) {
-        gui_play_buttons_build(P.root, row_w, button_click_cb, P.params.on_play, button_click_cb, P.params.on_shuffle);
+static void create_songs_labels(page_t * p, lv_obj_t * row, int32_t row_w, int32_t pad, const lv_font_t * row_font) {
+    lv_obj_t * title = lv_label_create(row);
+    lv_label_set_text(title, TR("Songs"));
+    lv_obj_add_style(title, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(title, row_font, 0);
+    int32_t title_x = pad + lv_font_get_line_height(row_font) + BOARD_SCALE_PX(12);
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, title_x, 0);
+    lv_point_t title_size;
+    lv_text_get_size(&title_size, TR("Songs"), row_font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    p->songs_all_w = row_w - pad - (title_x + title_size.x + BOARD_SCALE_PX(12));
+    p->songs_all_label = lv_label_create(row);
+    lv_obj_add_style(p->songs_all_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(p->songs_all_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
+    lv_obj_set_style_text_align(p->songs_all_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_long_mode(p->songs_all_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(p->songs_all_label, p->songs_all_w > 0 ? p->songs_all_w : 0);
+    lv_obj_align(p->songs_all_label, LV_ALIGN_RIGHT_MID, -pad, 0);
+    lv_obj_remove_flag(title, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(p->songs_all_label, LV_OBJ_FLAG_CLICKABLE);
+}
 
-        const lv_font_t * row_font = gui_theme_font(GUI_FONT_ROLE_ROW);
-        int32_t rh = lv_font_get_line_height(row_font) + 2 * BOARD_SCALE_PX(16), pad = BOARD_SCALE_PX(16);
-        lv_obj_t * row = plain(P.root);
-        lv_obj_add_style(row, &pill_row_bg_style, 0);
-        lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
-        lv_obj_set_size(row, row_w, rh);
-        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_CLICKED, NULL);
-        lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_LONG_PRESSED, NULL);
-        lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &P.songs_long_fired);
-        lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_PRESSED, NULL);
-        lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_PRESS_LOST, NULL);
-        lv_obj_t * icon = lv_label_create(row);
-        lv_label_set_text(icon, LV_SYMBOL_LIST);
-        lv_obj_add_style(icon, gui_theme_accent_style(), 0);
-        lv_obj_set_style_text_font(icon, row_font, 0);
-        lv_obj_align(icon, LV_ALIGN_LEFT_MID, pad, 0);
-        lv_obj_t * title = lv_label_create(row);
-        lv_label_set_text(title, TR("Songs"));
-        lv_obj_add_style(title, &style_theme_text_primary, 0);
-        lv_obj_set_style_text_font(title, row_font, 0);
-        int32_t title_x = pad + lv_font_get_line_height(row_font) + BOARD_SCALE_PX(12);
-        lv_obj_align(title, LV_ALIGN_LEFT_MID, title_x, 0);
-        lv_point_t title_size;
-        lv_text_get_size(&title_size, TR("Songs"), row_font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        P.songs_all_w = row_w - pad - (title_x + title_size.x + BOARD_SCALE_PX(12));
-        P.songs_all_label = lv_label_create(row);
-        lv_obj_add_style(P.songs_all_label, &style_theme_text_muted, 0);
-        lv_obj_set_style_text_font(P.songs_all_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-        lv_obj_set_style_text_align(P.songs_all_label, LV_TEXT_ALIGN_RIGHT, 0);
-        lv_label_set_long_mode(P.songs_all_label, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(P.songs_all_label, P.songs_all_w > 0 ? P.songs_all_w : 0);
-        lv_obj_align(P.songs_all_label, LV_ALIGN_RIGHT_MID, -pad, 0);
-        lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_remove_flag(title, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_remove_flag(P.songs_all_label, LV_OBJ_FLAG_CLICKABLE);
+static void create_songs_row(page_t * p, int32_t row_w) {
+    const lv_font_t * row_font = gui_theme_font(GUI_FONT_ROLE_ROW);
+    int32_t rh = lv_font_get_line_height(row_font) + 2 * BOARD_SCALE_PX(16), pad = BOARD_SCALE_PX(16);
+    lv_obj_t * row = plain(p->root);
+    lv_obj_add_style(row, &pill_row_bg_style, 0);
+    lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
+    lv_obj_set_size(row, row_w, rh);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_CLICKED, p);
+    lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_LONG_PRESSED, p);
+    lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &p->songs_long_fired);
+    lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_PRESSED, p);
+    lv_obj_add_event_cb(row, songs_row_cb, LV_EVENT_PRESS_LOST, p);
+    lv_obj_t * icon = lv_label_create(row);
+    lv_label_set_text(icon, LV_SYMBOL_LIST);
+    lv_obj_add_style(icon, gui_theme_accent_style(), 0);
+    lv_obj_set_style_text_font(icon, row_font, 0);
+    lv_obj_align(icon, LV_ALIGN_LEFT_MID, pad, 0);
+    lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    create_songs_labels(p, row, row_w, pad, row_font);
+}
+
+static void create_header(page_t * p) {
+    int32_t row_w = LIST_ROW_WIDTH_WIDE, cs = BOARD_SCALE_PX(170), gap = BOARD_SCALE_PX(18);
+    int32_t info_w = row_w - cs - gap;
+    p->root = plain(p->list);
+    lv_obj_set_size(p->root, row_w, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_row(p->root, BOARD_SCALE_PX(14), 0);
+    lv_obj_set_flex_flow(p->root, LV_FLEX_FLOW_COLUMN);
+
+    lv_obj_t * top = plain(p->root);
+    lv_obj_set_size(top, row_w, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_column(top, gap, 0);
+    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    create_mosaic(p, top, cs);
+
+    create_info(p, top, info_w);
+
+    p->has_buttons = p->params.songs > 0;
+    if (p->has_buttons) {
+        gui_play_buttons_build(p->root, row_w, button_click_cb, p->params.on_play, button_click_cb, p->params.on_shuffle);
+
+        create_songs_row(p, row_w);
     }
-    lv_obj_t * section = text_label(P.root, TR("Albums"), GUI_FONT_ROLE_BODY, &style_theme_text_muted, row_w, 1);
+    lv_obj_t * section = text_label(p->root, TR("Albums"), GUI_FONT_ROLE_BODY, &style_theme_text_muted, row_w, 1);
     lv_obj_set_style_pad_left(section, BOARD_SCALE_PX(8), 0);
     lv_obj_set_width(section, row_w);
 }
 
 /* Name and counts: known at once, from the opening list row. */
-static void apply_params(void) {
-    int32_t info_w = LIST_ROW_WIDTH_WIDE - P.cover_px - BOARD_SCALE_PX(18);
+static void apply_params(page_t * p) {
+    int32_t info_w = LIST_ROW_WIDTH_WIDE - p->cover_px - BOARD_SCALE_PX(18);
     char text[160], part[64];
-    fit_label(P.name_label, P.name, GUI_FONT_ROLE_TITLE, info_w, 2);
-    snprintf(text, sizeof(text), TR_N("%d album", "%d albums", P.params.albums), P.params.albums);
-    snprintf(part, sizeof(part), TR_N("%d song", "%d songs", P.params.songs), P.params.songs);
+    fit_label(p->name_label, p->name, GUI_FONT_ROLE_TITLE, info_w, 2);
+    snprintf(text, sizeof(text), TR_N("%d album", "%d albums", p->params.albums), p->params.albums);
+    snprintf(part, sizeof(part), TR_N("%d song", "%d songs", p->params.songs), p->params.songs);
     size_t len = strlen(text);
     snprintf(text + len, sizeof(text) - len, " \xC2\xB7 %s", part);
-    fit_label(P.counts_label, text, GUI_FONT_ROLE_BODY, info_w, 2);
-    if (P.songs_all_label) {
+    fit_label(p->counts_label, text, GUI_FONT_ROLE_BODY, info_w, 2);
+    if (p->songs_all_label) {
         /* Long translations collide with the row's title: fall back to the bare count. */
-        snprintf(text, sizeof(text), TR_N("All %d song", "All %d songs", P.params.songs), P.params.songs);
+        snprintf(text, sizeof(text), TR_N("All %d song", "All %d songs", p->params.songs), p->params.songs);
         len = strlen(text);
         snprintf(text + len, sizeof(text) - len, "  " LV_SYMBOL_RIGHT);
         lv_point_t size;
         lv_text_get_size(&size, text, gui_theme_font(GUI_FONT_ROLE_BODY), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (size.x > P.songs_all_w)
-            snprintf(text, sizeof(text), "%d  " LV_SYMBOL_RIGHT, P.params.songs);
-        lv_label_set_text(P.songs_all_label, text);
+        if (size.x > p->songs_all_w)
+            snprintf(text, sizeof(text), "%d  " LV_SYMBOL_RIGHT, p->params.songs);
+        lv_label_set_text(p->songs_all_label, text);
     }
 }
 
 void gui_artist_page_build(lv_obj_t * list, const gui_artist_page_params_t * params) {
     if (!list || !params) return;
-    if (P.root && P.list != list) P.root = NULL;
-    bool reuse = P.root && (P.params.songs > 0) == (params->songs > 0);
-    if (P.root && !reuse) { lv_obj_delete(P.root); P.root = NULL; }
-    P.list = list;
-    P.params = *params;
-    snprintf(P.name, sizeof(P.name), "%s", params->name ? params->name : "");
-    P.params.name = P.name;
-    for (int i = 0; i < TILES; i++) { P.tile_key[i] = 0; P.tile_state[i] = 0; P.tile_shown[i] = 0; }
-    P.tile_count = 0;
-    P.tiles_due = true;
-    P.request_tick = 0;
+    page_t * p = page_for(list, true);
+    if (!p) return;
+    bool reuse = p->root && (p->params.songs > 0) == (params->songs > 0);
+    if (p->root && !reuse) { lv_obj_delete(p->root); p->root = NULL; }
+    p->list = list;
+    p->params = *params;
+    snprintf(p->name, sizeof(p->name), "%s", params->name ? params->name : "");
+    p->params.name = p->name;
+    for (int i = 0; i < TILES; i++) { p->tile_key[i] = 0; p->tile_state[i] = 0; p->tile_shown[i] = 0; }
+    p->tile_count = 0;
+    p->tiles_due = true;
+    p->request_tick = 0;
     if (!reuse) {
-        P.genre_text[0] = P.year_text[0] = P.total_text[0] = 0;
-        P.header_height = -1;
-        P.songs_all_label = NULL;
-        create_header();
+        p->genre_text[0] = p->year_text[0] = p->total_text[0] = 0;
+        p->header_height = -1;
+        p->songs_all_label = NULL;
+        create_header(p);
     }
     /* Facts and revisions are read together, so a publication between the two
      * can never leave the header marked current without showing it. */
     gui_artist_summary_t s;
-    gui_artist_data_snapshot(&s, &P.rev);
-    apply_params();
-    apply_summary(&s);
-    relayout();
+    if (p->params.snapshot) p->params.snapshot(p->params.source, &s, &p->rev);
+    else gui_artist_data_snapshot(&s, &p->rev);
+    apply_params(p);
+    apply_summary(p, &s);
+    relayout(p);
 }
 
-void gui_artist_page_forget(void) {
-    P.root = NULL; P.list = NULL;
-    P.name_label = P.counts_label = P.genre_label = P.chips = P.year_chip = P.year_label = NULL;
-    P.total_chip = P.total_label = P.box = P.songs_all_label = NULL;
-    for (int i = 0; i < TILES; i++) P.tile_img[i] = NULL;
+void gui_artist_page_forget(lv_obj_t * list) {
+    page_t * p = page_for(list, false);
+    if (!p) return;
+    if (p->root) lv_obj_delete(p->root);
+    p->root = NULL; p->list = NULL;
+    p->name_label = p->counts_label = p->genre_label = p->chips = p->year_chip = p->year_label = NULL;
+    p->total_chip = p->total_label = p->box = p->songs_all_label = NULL;
+    for (int i = 0; i < TILES; i++) p->tile_img[i] = NULL;
 }
 
 bool gui_artist_page_poll(lv_obj_t * list, bool visible) {
-    if (!P.root || P.list != list || !visible) return false;
+    page_t * p = page_for(list, false);
+    if (!p) return false;
+    if (!p->root || p->list != list || !visible) return false;
     gui_artist_summary_t s;
     gui_artist_revisions_t rev;
-    gui_artist_data_snapshot(&s, &rev);
-    bool refetch = rev.albums != P.rev.albums;
-    if (rev.summary != P.rev.summary || rev.duration != P.rev.duration) {
-        if (apply_summary(&s)) relayout();
+    if (p->params.snapshot) p->params.snapshot(p->params.source, &s, &rev);
+    else gui_artist_data_snapshot(&s, &rev);
+    bool refetch = rev.albums != p->rev.albums;
+    if (rev.summary != p->rev.summary || rev.duration != p->rev.duration) {
+        if (apply_summary(p, &s)) relayout(p);
     }
-    P.rev = rev;
+    p->rev = rev;
     /* Each look scans the thumbnail cache per tile: only when a tile is waiting
      * and something new landed, the set changed, or the re-request is due. */
     bool tile_waiting = false;
-    for (int i = 0; i < P.tile_count; i++)
-        if (P.tile_state[i] == 0 && P.tile_key[i]) tile_waiting = true;
+    for (int i = 0; i < p->tile_count; i++)
+        if (p->tile_state[i] == 0 && p->tile_key[i]) tile_waiting = true;
     uint32_t commits = library_thumbnails_commit_count();
-    if (tile_waiting && (P.tiles_due || commits != P.thumb_commits || lv_tick_elaps(P.request_tick) >= 400)) {
-        P.tiles_due = false;
-        P.thumb_commits = commits;
-        (void) fill_tiles(list);
+    if (tile_waiting && (p->tiles_due || commits != p->thumb_commits || lv_tick_elaps(p->request_tick) >= 400)) {
+        p->tiles_due = false;
+        p->thumb_commits = commits;
+        (void) fill_tiles(p, list);
     }
     return refetch;
 }
 
-void gui_artist_page_release(void) {
+void gui_artist_page_release(lv_obj_t * list) {
+    page_t * p = page_for(list, false);
+    if (!p) return;
     for (int i = 0; i < TILES; i++) {
-        free(P.tile_pixels[i]);
-        P.tile_pixels[i] = NULL;
-        P.tile_state[i] = 0;
-        P.tile_shown[i] = 0;
-        P.tile_key[i] = 0;
-        P.tile_img[i] = NULL;
+        free(p->tile_pixels[i]);
+        p->tile_pixels[i] = NULL;
+        p->tile_state[i] = 0;
+        p->tile_shown[i] = 0;
+        p->tile_key[i] = 0;
+        p->tile_img[i] = NULL;
+    }
+}
+
+/* "1999 · 8 tracks". */
+void gui_artist_page_album_subtitle(char * sub, size_t room, int year, int tracks) {
+    sub[0] = 0;
+    if (year > 0) snprintf(sub, room, "%d", year);
+    if (tracks > 0) {
+        size_t len = strlen(sub);
+        snprintf(sub + len, room - len, "%s", len ? " \xC2\xB7 " : "");
+        len = strlen(sub);
+        snprintf(sub + len, room - len, TR_N("%d track", "%d tracks", tracks), tracks);
     }
 }

@@ -1,4 +1,5 @@
 #include "gui_album_cover.h"
+#include "../../assets/gui_image_dsc.h"
 #include "../../../library/artwork/decode/library_artwork_internal.h"
 #include "../../../library/artwork/albumart/albumart.h"
 #include "../../../library/artwork/albumart/albumart_info.h"
@@ -118,14 +119,7 @@ bool gui_album_cover_poll(bool start_allowed) {
             ready_pixels = job->pixels;
             job->pixels = NULL;
             ready_id = job->song_id;
-            memset(&ready_dsc, 0, sizeof(ready_dsc));
-            ready_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-            ready_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
-            ready_dsc.header.w = job->px;
-            ready_dsc.header.h = job->px;
-            ready_dsc.header.stride = job->px * 2;
-            ready_dsc.data = (const uint8_t *) ready_pixels;
-            ready_dsc.data_size = (uint32_t) job->px * (uint32_t) job->px * 2;
+            gui_image_dsc_init_rgb565(&ready_dsc, ready_pixels, job->px);
             became_ready = true;
         } else if (!job->pixels && job->song_id == want_id && !atomic_load(&job->cancel)) {
             failed_id = job->song_id; /* do not retry until another album is shown */

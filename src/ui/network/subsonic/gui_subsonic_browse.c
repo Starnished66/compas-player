@@ -3,6 +3,7 @@
 #include "gui_subsonic_internal.h"
 #include "gui_subsonic_sections.h"
 #include "gui_subsonic_genres.h"
+#include "gui_subsonic_artist.h"
 #include "../../../core/process/worker_notify.h"
 #include <pthread.h>
 #include <stdatomic.h>
@@ -12,6 +13,8 @@
 #include <time.h>
 
 typedef struct {
+    char ** album_ids;
+    int album_count;
     subsonic_browse_kind_t kind;
     subsonic_server_t server;
     char id[64];
@@ -101,8 +104,35 @@ static void subsonic_browse_forget_gone(const subsonic_browse_request_t * req) {
     subsonic_cache_songs_remove(&req->server, album ? SUBSONIC_LIST_ALBUM_SONGS : SUBSONIC_LIST_PLAYLIST_SONGS, req->id);
 }
 
+/* One bounded foreground worker and deadline covers the complete artist. */
+static bool subsonic_browse_artist_songs(const subsonic_browse_request_t * req, int * count) {
+    int capacity = 0;
+    for (int i = 0; i < req->album_count; i++) {
+        if (http_cancel_token_is_cancelled(&subsonic_browse_cancel)) return false;
+        subsonic_song_t * songs = NULL;
+        int n = 0;
+        if (!subsonic_get_album_songs(&req->server, req->album_ids[i], &songs, &n, &subsonic_browse_cancel)) {
+            free(songs);
+            return false;
+        }
+        if (n < 0 || n > 100000 - *count) { free(songs); return false; }
+        bool ok = gui_subsonic_append_songs(&subsonic_browse_result_songs, count, &capacity, songs, n);
+        free(songs);
+        if (!ok) return false;
+    }
+    return !http_cancel_token_is_cancelled(&subsonic_browse_cancel);
+}
+
+static void subsonic_browse_free_request(subsonic_browse_request_t * req) {
+    for (int i = 0; i < req->album_count; i++) free(req->album_ids[i]);
+    free(req->album_ids);
+    free(req);
+}
+
 static bool subsonic_browse_fetch(const subsonic_browse_request_t * req, int * count) {
     switch (req->kind) {
+        case SUBSONIC_BROWSE_ARTIST_SONGS:
+            return subsonic_browse_artist_songs(req, count);
         case SUBSONIC_BROWSE_ARTISTS:
             return subsonic_get_artists(&req->server, &subsonic_browse_result_artists, count,
                                       &subsonic_browse_cancel);
@@ -158,7 +188,7 @@ static void * subsonic_browse_thread_func(void * arg) {
                                     TR("Failed to load from server"));
     }
     subsonic_browse_publish(req, count, ok);
-    free(req);
+    subsonic_browse_free_request(req);
     worker_notify_ui();
     return NULL;
 }
@@ -179,6 +209,15 @@ static subsonic_browse_request_t * subsonic_browse_new_request(subsonic_browse_k
     if (!req) {
         show_error_toast(TR("Not enough memory to load from server"));
         return NULL;
+    }
+    if (kind == SUBSONIC_BROWSE_ARTIST_SONGS) {
+        req->album_ids = gui_subsonic_copy_album_ids(subsonic_albums_cache, subsonic_albums_count);
+        if (!req->album_ids) {
+            free(req);
+            show_error_toast(TR("Not enough memory to load from server"));
+            return NULL;
+        }
+        req->album_count = subsonic_albums_count;
     }
     req->kind = kind;
     req->server = subsonic_server_from_settings();
@@ -224,7 +263,7 @@ void start_subsonic_browse(subsonic_browse_kind_t kind, const char * id, const c
     if (pthread_create(&subsonic_browse_thread, NULL, subsonic_browse_thread_func, req) != 0) {
         subsonic_browse_active = false;
         http_cancel_token_destroy(&subsonic_browse_cancel);
-        free(req);
+        subsonic_browse_free_request(req);
         gui_busy_hide(subsonic_browse_token);
         subsonic_browse_token = 0;
         show_error_toast(TR("Thread launch failed"));
@@ -276,13 +315,17 @@ static bool subsonic_commit_songs_result(void) {
 }
 
 /* A songs list that is not an album or playlist: nothing saved, nothing to refresh. */
-bool subsonic_open_transient_songs(subsonic_song_t * items, int count, const char * title) {
+/* Songs that are not a saved list (genre, random, an artist's): never cached. */
+bool subsonic_install_transient_songs(subsonic_song_t * items, int count, const char * title) {
     subsonic_set_songs_context(SUBSONIC_LIST_PLAYLIST_SONGS, "~", title);
     subsonic_songs_context_is_playlist = false;
-    if (!subsonic_install_songs(items, count, false)) {
-        subsonic_clear_songs();
-        return false;
-    }
+    if (subsonic_install_songs(items, count, false)) return true;
+    subsonic_clear_songs();
+    return false;
+}
+
+bool subsonic_open_transient_songs(subsonic_song_t * items, int count, const char * title) {
+    if (!subsonic_install_transient_songs(items, count, title)) return false;
     nav_push(subsonic_songs_screen);
     return true;
 }
@@ -335,6 +378,12 @@ static bool subsonic_commit_playlists_result(void) {
 static bool subsonic_commit_browse_result(void) {
     bool ok = true;
     switch (subsonic_browse_result_kind) {
+        case SUBSONIC_BROWSE_ARTIST_SONGS: {
+            subsonic_song_t * songs = subsonic_browse_result_songs;
+            subsonic_browse_result_songs = NULL;
+            ok = gui_subsonic_artist_accept_songs(songs, subsonic_browse_result_count);
+            break;
+        }
         case SUBSONIC_BROWSE_ARTISTS:
             return subsonic_commit_artists_result();
         case SUBSONIC_BROWSE_ALBUM_SONGS:

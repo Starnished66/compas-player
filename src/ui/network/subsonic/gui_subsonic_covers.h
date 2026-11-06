@@ -31,3 +31,6 @@ void gui_subsonic_covers_wake(void);
 
 /* Main loop: shows covers the worker finished. */
 void poll_subsonic_covers(void);
+
+/* Copies a cached thumbnail, or queues it without blocking. */
+bool gui_subsonic_covers_copy(const char * id, uint16_t * pixels, bool * no_art);

@@ -1,4 +1,5 @@
 #include "gui_subsonic_album_cover.h"
+#include "../../assets/gui_image_dsc.h"
 #include "../../shell/gui_shell.h"
 #include "../../../core/process/worker_notify.h"
 #include "../../../core/process/worker_thread.h"
@@ -104,14 +105,7 @@ static void install(job_t * j) {
     ready_pixels = j->pixels;
     j->pixels = NULL;
     snprintf(ready_id, sizeof(ready_id), "%s", j->id);
-    memset(&ready_dsc, 0, sizeof(ready_dsc));
-    ready_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-    ready_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
-    ready_dsc.header.w = j->px;
-    ready_dsc.header.h = j->px;
-    ready_dsc.header.stride = j->px * 2;
-    ready_dsc.data = (const uint8_t *) ready_pixels;
-    ready_dsc.data_size = (uint32_t) j->px * (uint32_t) j->px * 2;
+    gui_image_dsc_init_rgb565(&ready_dsc, ready_pixels, j->px);
 }
 
 /* Takes the finished job, if there is one. */

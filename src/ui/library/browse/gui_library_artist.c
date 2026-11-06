@@ -1096,18 +1096,6 @@ void refresh_artist_albums_now_playing_indicator(void) {
     compact_list_set_now_playing(artist_albums_list, match);
 }
 
-/* "1999 · 8 tracks". */
-static void artist_album_subtitle(char * sub, size_t room, int year, int tracks) {
-    sub[0] = 0;
-    if (year > 0) snprintf(sub, room, "%d", year);
-    if (tracks > 0) {
-        size_t len = strlen(sub);
-        snprintf(sub + len, room - len, "%s", len ? " \xC2\xB7 " : "");
-        len = strlen(sub);
-        snprintf(sub + len, room - len, TR_N("%d track", "%d tracks", tracks), tracks);
-    }
-}
-
 /* The subtitle a cached artist-album row shows now, from the page's in-memory album facts (what
  * artist_albums_fetch_page() would put there): lets the rows pick up facts that arrived after they
  * were fetched without another trip to the worker. */
@@ -1117,7 +1105,7 @@ bool artist_album_rederive_row(int index, compact_list_page_row_t * row, void * 
     int year = 0, tracks = 0;
     subtitle[0] = 0;
     if (gui_artist_data_album_by_key(row->label, row->aux_key, &year, &tracks))
-        artist_album_subtitle(subtitle, sizeof(subtitle), year, tracks);
+        gui_artist_page_album_subtitle(subtitle, sizeof(subtitle), year, tracks);
     if (!strcmp(subtitle, row->subtitle)) return false;
     memcpy(row->subtitle, subtitle, sizeof(row->subtitle));
     return true;
@@ -1152,7 +1140,7 @@ static int artist_albums_fetch_page(void * ctx, int offset, int count, compact_l
         out_rows[prefix + i].aux_key = gui_artist_data_album_key(rows[i].album_artist);
         int year = 0, tracks = 0;
         if (gui_artist_data_album(rows[i].name, rows[i].album_artist, &year, &tracks))
-            artist_album_subtitle(out_rows[prefix + i].subtitle, sizeof(out_rows[prefix + i].subtitle), year, tracks);
+            gui_artist_page_album_subtitle(out_rows[prefix + i].subtitle, sizeof(out_rows[prefix + i].subtitle), year, tracks);
     }
     free(rows);
     return n + prefix;

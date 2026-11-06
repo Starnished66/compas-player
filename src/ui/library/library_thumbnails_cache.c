@@ -1,4 +1,5 @@
 #include "library_thumbnails_internal.h"
+#include "../assets/gui_image_dsc.h"
 #include "../widgets/lists/compact_list.h"
 #include "../../library/artwork/decode/library_artwork_internal.h"
 #include "../../library/artwork/coordinator/artwork_failure_cache.h"
@@ -300,13 +301,7 @@ void album_thumbnail_cache_commit(thumbnail_key_kind_t key_kind, uint64_t key,
             e->pixels = pixels;
             e->last_use = ++album_thumbnail_use_counter;
             if (e->pixels) {
-                e->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-                e->dsc.header.cf = LV_COLOR_FORMAT_RGB565;
-                e->dsc.header.w = ALBUM_THUMBNAIL_PX;
-                e->dsc.header.h = ALBUM_THUMBNAIL_PX;
-                e->dsc.header.stride = ALBUM_THUMBNAIL_PX * 2;
-                e->dsc.data = e->pixels;
-                e->dsc.data_size = ALBUM_THUMBNAIL_PX * ALBUM_THUMBNAIL_PX * 2;
+                gui_image_dsc_init_rgb565(&e->dsc, e->pixels, ALBUM_THUMBNAIL_PX);
             }
         } else {
             free(pixels);

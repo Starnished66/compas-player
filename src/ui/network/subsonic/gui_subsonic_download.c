@@ -488,7 +488,7 @@ char ** gui_subsonic_copy_album_ids(const subsonic_album_t * albums, int count) 
     return ids;
 }
 
-static bool subsonic_append_songs(subsonic_song_t ** songs, int * count, int * capacity,
+bool gui_subsonic_append_songs(subsonic_song_t ** songs, int * count, int * capacity,
                                    const subsonic_song_t * album_songs, int album_song_count) {
     if (album_song_count < 0 || *count > INT_MAX - album_song_count ||
         (album_song_count > 0 && !album_songs)) return false;
@@ -518,7 +518,7 @@ static bool subsonic_expand_albums(subsonic_library_download_request_t * req,
         int album_song_count = 0;
         if (subsonic_get_album_songs(&req->server, req->album_ids[i], &album_songs,
                                       &album_song_count, &subsonic_library_download_cancel))
-            expansion_failed = !subsonic_append_songs(songs, &count, &capacity, album_songs, album_song_count);
+            expansion_failed = !gui_subsonic_append_songs(songs, &count, &capacity, album_songs, album_song_count);
         free(album_songs);
         if (expansion_failed) break;
     }

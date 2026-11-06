@@ -485,6 +485,8 @@ void screen_builders_refresh_font_geometry(lv_obj_t * root);
  * previous tier unless this runs; LV_LABEL_LONG_SCROLL_CIRCULAR then rolls
  * those titles vertically when the submenu is first opened. */
 void screen_builders_refresh_all_font_geometry(void);
+/* Shared song-list geometry; callers configure padding, scrollbars and events. */
+lv_obj_t * build_song_list_body(lv_obj_t * screen);
 lv_obj_t * build_subsonic_list_screen(const char * default_title, lv_obj_t ** out_title_label, lv_obj_t ** out_list);
 /* Shared cover cards for plugin supplied grids and the plugin store. The
  * caller resolves image paths to an LVGL source (for example, "S:/path"). */

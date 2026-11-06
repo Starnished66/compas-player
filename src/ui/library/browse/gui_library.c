@@ -3,6 +3,7 @@
 #include "gui_library.h"
 #include "gui_library_internal.h"
 #include "gui_folder_actions.h"
+#include "../../network/subsonic/gui_subsonic.h"
 #include "gui_album_header.h"
 #include "../../widgets/builders/gui_play_bar.h"
 #include "gui_artist_data.h"
@@ -438,6 +439,18 @@ const char * song_quality_asset_for_path(const char * path) {
     return "touch_list/quality_nomal.png";
 }
 
+void gui_song_format_detail(char * out, size_t size, int seconds, const char * format) {
+    const char * name = format && format[0] ? format : TR("Audio");
+    if (seconds >= 0) snprintf(out, size, "%u:%02u · %s", (unsigned) seconds / 60, (unsigned) seconds % 60, name);
+    else snprintf(out, size, "%s", name);
+}
+
+const char * gui_song_quality_asset(const char * suffix) {
+    char path[32];
+    snprintf(path, sizeof(path), ".%s", suffix ? suffix : "");
+    return song_quality_asset_for_path(path);
+}
+
 const char * library_codec_name(audio_codec_t codec) {
     const char * name = audio_codec_name(codec);
     return name[0] ? name : TR("Audio");
@@ -733,6 +746,7 @@ void refresh_now_playing_indicators(void) {
      * the database-only lookup runs. */
     refresh_group_songs_now_playing_indicator();
     refresh_artist_albums_now_playing_indicator();
+    gui_subsonic_refresh_now_playing();
 }
 
 void gui_library_poll_now_playing_indicators(void) {
@@ -1470,7 +1484,8 @@ void gui_library_teardown(void) {
     library_teardown_diag("group_songs_screen before");
     if (group_songs_screen) { lv_obj_delete(group_songs_screen); group_songs_screen = NULL; }
     library_teardown_diag("artist_albums_screen before");
-    gui_artist_page_forget();
+    gui_artist_page_release(artist_albums_list);
+    gui_artist_page_forget(artist_albums_list);
     gui_artist_data_close();
     if (artist_albums_screen) { lv_obj_delete(artist_albums_screen); artist_albums_screen = NULL; }
     library_teardown_diag("playlists_screen before");
@@ -1621,7 +1636,7 @@ void gui_library_cancel_background_work(void) {
     int64_t shutdown_deadline = worker_deadline_in_ms(2000); /* one budget for all of them and the cache flush */
     gui_album_header_shutdown(shutdown_deadline);
     gui_artist_data_shutdown(shutdown_deadline);
-    gui_artist_page_release();
+    gui_artist_page_release(artist_albums_list);
     library_thumbnails_quiesce();
     library_async_wait_orphans(shutdown_deadline); /* a stalled prewarm read ends or is left to the exit */
     gui_library_scan_join_for_shutdown();

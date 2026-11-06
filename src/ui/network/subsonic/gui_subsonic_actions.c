@@ -37,6 +37,7 @@ static void subsonic_fill_stream_queue_entry(const subsonic_server_t * server, c
     new_playlist[slot] = strdup(url);
 
     subsonic_stream_song_meta_t * m = &new_meta[slot];
+    snprintf(m->song_id, sizeof(m->song_id), "%s", song->id);
     snprintf(m->url, sizeof(m->url), "%s", url);
     snprintf(m->title, sizeof(m->title), "%s", song->title);
     snprintf(m->artist, sizeof(m->artist), "%s", song->artist);

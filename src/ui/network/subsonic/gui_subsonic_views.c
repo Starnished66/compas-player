@@ -1,7 +1,10 @@
 #include "../../application/gui.h"
 #include "../../text/i18n/i18n.h"
 #include "gui_subsonic_internal.h"
+#include "../../library/browse/gui_library.h"
 #include "gui_subsonic_covers.h"
+#include "gui_subsonic_artist.h"
+#include "../../library/browse/gui_artist_page.h"
 #include "gui_subsonic_sections.h"
 #include "../../library/library_az_index.h"
 #include "../../library/library_az_table.h"
@@ -10,6 +13,9 @@
 #include "../../widgets/builders/screen_builders.h"
 #include "../../assets/assets.h"
 #include "../../../hardware/device/device_config.h"
+#include <ctype.h>
+#include "../../player/screen/gui_player_internal.h"
+#include "../../player/queue/player_queue_model.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,11 +41,14 @@ static int subsonic_artist_albums_count = 0;
 /* What the Albums screen shows right now: an alias of one of the two above. */
 const subsonic_album_t * subsonic_albums_cache = NULL;
 int subsonic_albums_count = 0;
+static char (*artist_album_subtitles)[64];
+static bool subsonic_albums_is_artist;
 static bool subsonic_albums_is_all = false; /* the full library, not one artist's albums */
 
 subsonic_song_t * subsonic_songs_cache = NULL;
 
 int subsonic_songs_count = 0;
+static char (*subsonic_song_subtitles)[64];
 
 subsonic_playlist_t * subsonic_playlists_cache = NULL;
 
@@ -92,8 +101,7 @@ char subsonic_songs_context_playlist_name[128] = "";
 
 
 
-/* The row of each list: label only for songs, label, subtitle and cover for the
- * others. Text is borrowed from the caches, which outlive the rows. */
+/* Rows borrow their text from caches that outlive the list items. */
 
 
 
@@ -195,7 +203,7 @@ static compact_list_item_t subsonic_artist_item_of(int i) {
 
 static compact_list_item_t subsonic_album_item_of(int i) {
     const subsonic_album_t * album = &subsonic_albums_cache[i];
-    return (compact_list_item_t){ .label = album->name, .subtitle = album->artist,
+    return (compact_list_item_t){ .label = album->name, .subtitle = subsonic_albums_is_artist ? artist_album_subtitles[i] : album->artist,
                                   .artwork_key = gui_subsonic_covers_key(album->cover_art),
                                   .artwork_name = album->cover_art };
 }
@@ -209,17 +217,33 @@ static compact_list_item_t subsonic_playlist_item_of(int i) {
 }
 
 static compact_list_item_t subsonic_song_item_of(int i) {
-    return (compact_list_item_t){ .label = subsonic_songs_cache[i].title };
+    const subsonic_song_t * song = &subsonic_songs_cache[i];
+    return (compact_list_item_t){ .label = song->title, .subtitle = subsonic_song_subtitles[i],
+        .trailing_asset = gui_song_quality_asset(song->suffix),
+        .artwork_key = gui_subsonic_covers_key(song->cover_art), .artwork_name = song->cover_art };
+}
+
+/* Queue metadata identifies the song independently of transcoding quality. */
+void gui_subsonic_refresh_now_playing(void) {
+    if (!compact_list_is_live(subsonic_songs_list)) return;
+    const subsonic_stream_song_meta_t * playing = subsonic_meta_for_path(player_queue_model_current(), now_playing_path);
+    if (!playing) { compact_list_set_now_playing(subsonic_songs_list, -1); return; }
+    int index = -1;
+    subsonic_server_t server = subsonic_server_from_settings();
+    char key[SUBSONIC_CACHE_KEY_SIZE];
+    subsonic_cache_server_key(&server, key);
+    if (!strcmp(key, playing->server_key))
+        for (int i = 0; i < subsonic_songs_count; i++)
+            if (!strcmp(playing->song_id, subsonic_songs_cache[i].id)) { index = i; break; }
+    compact_list_set_now_playing(subsonic_songs_list, index);
 }
 
 static bool subsonic_set_list_items(lv_obj_t * list, int count, library_search_item_of_t item_of, bool keep_scroll) {
     compact_list_item_t * items = malloc(sizeof(*items) * (size_t) (count > 0 ? count : 1));
     if (!items) return false;
-    if (list != subsonic_songs_list) {
-        subsonic_server_t server = subsonic_server_from_settings();
-        gui_subsonic_covers_set_server(&server);
-        gui_subsonic_covers_reset();
-    }
+    subsonic_server_t server = subsonic_server_from_settings();
+    gui_subsonic_covers_set_server(&server);
+    gui_subsonic_covers_reset();
     for (int i = 0; i < count; i++) items[i] = item_of(i);
     int32_t scroll_y = lv_obj_get_scroll_y(list);
     compact_list_set_items(list, items, count);
@@ -232,6 +256,7 @@ static bool subsonic_set_list_items(lv_obj_t * list, int count, library_search_i
 }
 
 void subsonic_views_clear(void) {
+    subsonic_clear_songs();
     compact_list_set_items(subsonic_artists_list, NULL, 0);
     compact_list_set_items(subsonic_albums_list, NULL, 0);
     compact_list_set_items(subsonic_playlists_list, NULL, 0);
@@ -240,6 +265,15 @@ void subsonic_views_clear(void) {
 }
 
 void subsonic_reset_browse_data(void) {
+    free(subsonic_song_subtitles);
+    subsonic_song_subtitles = NULL;
+    free(subsonic_songs_cache);
+    subsonic_songs_cache = NULL;
+    subsonic_songs_count = 0;
+    gui_subsonic_artist_clear(subsonic_albums_list);
+    free(artist_album_subtitles);
+    artist_album_subtitles = NULL;
+    subsonic_albums_is_artist = false;
     free(subsonic_artists_cache);
     free(subsonic_all_albums_cache);
     free(subsonic_artist_albums_cache);
@@ -315,11 +349,34 @@ static void subsonic_set_hidden(lv_obj_t * obj, bool hidden) {
     else lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
 }
 
+static bool subsonic_prepare_albums(const subsonic_album_t * albums, int count, subsonic_albums_mode_t mode) {
+    bool previous = subsonic_albums_is_artist;
+    char (*old_subtitles)[64] = artist_album_subtitles;
+    char (*subtitles)[64] = NULL;
+    if (mode == SUBSONIC_ALBUMS_ARTIST) {
+        subtitles = malloc(sizeof(*subtitles) * (size_t) (count > 0 ? count : 1));
+        if (!subtitles) return false;
+        for (int i = 0; i < count; i++)
+            gui_artist_page_album_subtitle(subtitles[i], sizeof(subtitles[i]), albums[i].year, albums[i].song_count);
+    }
+    subsonic_albums_is_artist = mode == SUBSONIC_ALBUMS_ARTIST;
+    artist_album_subtitles = subtitles;
+    if (!subsonic_set_albums_view(albums, count, false)) {
+        subsonic_albums_is_artist = previous;
+        artist_album_subtitles = old_subtitles;
+        free(subtitles);
+        return false;
+    }
+    free(old_subtitles);
+    gui_subsonic_artist_clear(subsonic_albums_list);
+    return true;
+}
+
 /* Shows an albums cache on the shared Albums screen. artist names the artist
  * for the artist mode and is ignored otherwise. */
 bool subsonic_show_albums(const subsonic_album_t * albums, int count, const char * title,
                                  subsonic_albums_mode_t mode, const char * artist) {
-    if (!subsonic_set_albums_view(albums, count, false)) return false;
+    if (!subsonic_prepare_albums(albums, count, mode)) return false;
     subsonic_albums_is_all = mode == SUBSONIC_ALBUMS_ALL;
     snprintf(subsonic_albums_context_artist, sizeof(subsonic_albums_context_artist), "%s",
              mode == SUBSONIC_ALBUMS_ARTIST ? artist : "");
@@ -327,6 +384,7 @@ bool subsonic_show_albums(const subsonic_album_t * albums, int count, const char
     subsonic_set_hidden(subsonic_refresh_buttons[SUBSONIC_LIST_ALBUMS], mode != SUBSONIC_ALBUMS_ALL);
     lv_label_set_text(subsonic_albums_title_label, title);
     subsonic_fit_albums_title(mode == SUBSONIC_ALBUMS_ARTIST);
+    if (mode == SUBSONIC_ALBUMS_ARTIST) gui_subsonic_artist_open(subsonic_albums_list, artist);
     nav_push(subsonic_albums_screen);
     return true;
 }
@@ -390,6 +448,9 @@ void subsonic_clear_songs(void) {
     gui_subsonic_songs_bar_set(subsonic_songs_list, 0);
     gui_subsonic_album_clear();
     lv_obj_remove_flag(subsonic_songs_list, LV_OBJ_FLAG_HIDDEN);
+    gui_subsonic_covers_reset();
+    free(subsonic_song_subtitles);
+    subsonic_song_subtitles = NULL;
     free(subsonic_songs_cache);
     subsonic_songs_cache = NULL;
     subsonic_songs_count = 0;
@@ -398,17 +459,32 @@ void subsonic_clear_songs(void) {
 /* Installs songs as the cache behind the Songs screen. Takes ownership of items;
  * on failure frees them and keeps the old list. */
 bool subsonic_install_songs(subsonic_song_t * items, int count, bool keep_scroll) {
+    char (*subtitles)[64] = calloc((size_t) (count > 0 ? count : 1), sizeof(*subtitles));
+    if (!subtitles) { free(items); return false; }
+    for (int i = 0; i < count; i++) {
+        char format[sizeof(items[i].suffix)];
+        snprintf(format, sizeof(format), "%s", items[i].suffix);
+        for (size_t j = 0; format[j]; j++) format[j] = (char) toupper((unsigned char) format[j]);
+        gui_song_format_detail(subtitles[i], sizeof(subtitles[i]),
+            items[i].duration_seconds > 0 ? items[i].duration_seconds : -1, format);
+    }
+    char (*old_subtitles)[64] = subsonic_song_subtitles;
+    subsonic_song_subtitles = subtitles;
     subsonic_song_t * old = subsonic_songs_cache;
     int old_count = subsonic_songs_count;
     subsonic_songs_cache = items;
     subsonic_songs_count = count;
     if (!subsonic_show_songs(keep_scroll)) {
+        subsonic_song_subtitles = old_subtitles;
+        free(subtitles);
         subsonic_songs_cache = old;
         subsonic_songs_count = old_count;
         free(items);
         return false;
     }
+    free(old_subtitles);
     free(old);
+    gui_subsonic_refresh_now_playing();
     return true;
 }
 
@@ -595,9 +671,9 @@ static void subsonic_set_download_icon(lv_obj_t * image) {
     lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
 }
 
-/* Artists, Albums and Playlists look like the library's lists: tall rows with a cover. */
+/* The same tall covered rows as the local library lists. */
 static void subsonic_setup_cover_lists(void) {
-    lv_obj_t * cover_lists[] = { subsonic_artists_list, subsonic_albums_list, subsonic_playlists_list };
+    lv_obj_t * cover_lists[] = { subsonic_artists_list, subsonic_albums_list, subsonic_playlists_list, subsonic_songs_list };
     for (size_t i = 0; i < sizeof(cover_lists) / sizeof(cover_lists[0]); i++) {
         compact_list_set_row_height(cover_lists[i], MUSIC_LIST_ROW_HEIGHT);
         gui_subsonic_covers_bind(cover_lists[i]);
@@ -605,6 +681,7 @@ static void subsonic_setup_cover_lists(void) {
 }
 
 void subsonic_delete_browse_screens(void) {
+    gui_subsonic_artist_clear(subsonic_albums_list);
     memset(subsonic_refresh_buttons, 0, sizeof(subsonic_refresh_buttons)); /* children of the screens deleted below */
     library_az_index_unregister(subsonic_artists_screen);
     library_az_index_unregister(subsonic_albums_screen);
@@ -615,7 +692,6 @@ void subsonic_delete_browse_screens(void) {
     if (subsonic_playlists_screen) { lv_obj_delete(subsonic_playlists_screen); subsonic_playlists_screen = NULL; }
 }
 
-void register_search(search_binding_id_t id, lv_obj_t * screen, lv_obj_t * list, const char * (*name_of)(int), const int * count_ptr, bool is_overlay_list, bool db_backed, metadata_db_az_kind_t db_kind, compact_list_fetch_page_cb_t restore_fetch_page);
 
 
 static lv_obj_t * subsonic_build_download_button(lv_obj_t * screen, int offset, lv_event_cb_t cb) {
@@ -641,7 +717,7 @@ void gui_subsonic_views_build(void) {
     finalize_screen_navigation(subsonic_albums_screen);
     subsonic_songs_screen = build_compact_list_screen(TR("Songs"), generic_back_cb, NULL, 0, gui_subsonic_play_from,
                                                         NULL, &subsonic_songs_list, &subsonic_songs_title_label,
-                                                        LIST_ROW_WIDTH_WIDE, false, NULL);
+                                                        LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     gui_subsonic_album_list_build(subsonic_songs_screen); /* shown instead of the compact list for an album */
     lv_obj_add_event_cb(subsonic_songs_screen, gui_subsonic_album_screen_event_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_event_cb(subsonic_songs_screen, gui_subsonic_album_screen_event_cb, LV_EVENT_SCREEN_UNLOADED, NULL);

@@ -1,4 +1,6 @@
 #include "gui_subsonic_covers.h"
+#include "../../assets/gui_image_dsc.h"
+#include "gui_subsonic_artist.h"
 #include "gui_subsonic_cover_flow.h"
 #include "../../library/library_thumbnails.h"
 #include "../../shell/gui_navigation.h"
@@ -19,7 +21,7 @@
 #define COVER_QUEUE_MAX 12
 #define COVER_RESULT_MAX 8
 #define COVER_MEMO_MAX 512
-#define COVER_LISTS_MAX 3
+#define COVER_LISTS_MAX 4
 #define COVER_RETRY_MS 30000U /* a failed cover is asked for again after this */
 #define COVER_ID_MAX 256 /* the longest id a list holds (255) plus the NUL */
 
@@ -239,13 +241,7 @@ static void lru_fill(cover_entry_t * e, uint64_t key, uint16_t * pixels) {
     e->key = key;
     e->pixels = pixels;
     e->used = ++use_clock;
-    e->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-    e->dsc.header.cf = LV_COLOR_FORMAT_RGB565;
-    e->dsc.header.w = COVER_PX;
-    e->dsc.header.h = COVER_PX;
-    e->dsc.header.stride = COVER_PX * 2;
-    e->dsc.data = (const uint8_t *) pixels;
-    e->dsc.data_size = COVER_PX * COVER_PX * 2;
+    gui_image_dsc_init_rgb565(&e->dsc, pixels, COVER_PX);
 }
 
 static bool match_key(uint64_t artwork_key, void * ctx) { return artwork_key == *(const uint64_t *) ctx; }
@@ -372,6 +368,7 @@ void poll_subsonic_covers(void) {
     }
     was_connected = connected;
     gui_subsonic_cover_flow_poll(connected);
+    gui_subsonic_artist_poll();
     static uint32_t retried_at;
     if (lv_tick_elaps(retried_at) >= COVER_RETRY_MS) { /* failed covers on a still screen get their second try */
         retried_at = lv_tick_get();
@@ -388,4 +385,17 @@ void poll_subsonic_covers(void) {
     for (int i = 0; i < n; i++) {
         apply_result(&done[i]);
     }
+}
+
+bool gui_subsonic_covers_copy(const char * id, uint16_t * pixels, bool * no_art) {
+    uint64_t key = gui_subsonic_covers_key(id);
+    *no_art = !key;
+    cover_entry_t * e = key ? lru_find(key) : NULL;
+    if (e) {
+        memcpy(pixels, e->pixels, COVER_PX * COVER_PX * sizeof(*pixels));
+        e->used = ++use_clock;
+        return true;
+    }
+    if (key && !released && !memo_has(key)) cover_request(key, id);
+    return false;
 }

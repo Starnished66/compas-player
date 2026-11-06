@@ -78,6 +78,10 @@ void library_search_update_header(search_binding_id_t id, lv_obj_t *title,
                                   lv_obj_t *preferred_action, bool editing);
 
 /* Existing public entry points keep their original names and signatures. */
+void register_search(search_binding_id_t id, lv_obj_t * screen, lv_obj_t * list,
+                     library_search_name_of_t name_of, const int * count_ptr,
+                     bool is_overlay_list, bool db_backed, metadata_db_az_kind_t db_kind,
+                     compact_list_fetch_page_cb_t restore_fetch_page);
 int search_remap_index(search_binding_id_t id, int display_index);
 void poll_search_job(void);
 bool search_close_if_active_for_screen(lv_obj_t *screen);

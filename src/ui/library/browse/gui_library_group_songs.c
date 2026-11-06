@@ -9,7 +9,6 @@
 #include "../../../hardware/indicators/backlight.h"
 #include "../../../core/ui/display/ui_wake.h"
 #include "../../../library/playlists/playlist_files.h"
-#include "../../widgets/lists/scroll_blit.h"
 #include <limits.h>
 #include <time.h>
 #include <stdio.h>
@@ -275,7 +274,7 @@ static void apply_group_probe_row(int index, unsigned int seconds, audio_codec_t
     int pos = group_probe_page_start + index;
     if (index < 0 || index >= GROUP_SONGS_PAGE_SIZE || pos >= group_songs_count) return;
     char detail[64];
-    snprintf(detail, sizeof(detail), "%u:%02u · %s", seconds / 60, seconds % 60, library_codec_name(codec));
+    gui_song_format_detail(detail, sizeof(detail), seconds, library_codec_name(codec));
     const char * old = group_songs_entries[pos].title;
     const char * newline = strchr(old, '\n');
     size_t title_len = newline ? (size_t)(newline - old) : strlen(old);
@@ -611,28 +610,14 @@ lv_obj_t * build_group_songs_screen(void) {
     }
     lv_obj_add_flag(group_songs_delete_btn, LV_OBJ_FLAG_HIDDEN);
 
-    group_songs_list = lv_obj_create(scr);
-    lv_obj_set_size(group_songs_list, lv_pct(100),
-                    lv_display_get_vertical_resolution(lv_display_get_default()) - STATUS_BAR_CLEARANCE -
-                        TITLE_ROW_HEIGHT - HOME_INDICATOR_CONTENT_INSET);
-    lv_obj_align(group_songs_list, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_CONTENT_INSET);
-    lv_obj_set_style_bg_opa(group_songs_list, 0, 0);
-    lv_obj_set_style_border_width(group_songs_list, 0, 0);
-    /* Clear padding so rows align flush with container edges. */
-    lv_obj_set_style_pad_all(group_songs_list, 0, 0);
-    lv_obj_set_scroll_dir(group_songs_list, LV_DIR_VER); /* see build_icon_grid_screen's comment */
+    group_songs_list = build_song_list_body(scr);
     lv_obj_set_scrollbar_mode(group_songs_list, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_width(group_songs_list, BOARD_SCALE_PX(3), LV_PART_SCROLLBAR);
     lv_obj_set_style_radius(group_songs_list, BOARD_SCALE_PX(2), LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(group_songs_list, LV_OPA_50, LV_PART_SCROLLBAR);
     lv_obj_add_style(group_songs_list, gui_theme_accent_style(), LV_PART_SCROLLBAR);
-    lv_obj_set_flex_flow(group_songs_list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_gap(group_songs_list, GUI_ROW_GAP, 0);
-    lv_obj_set_style_pad_top(group_songs_list, GUI_ROW_GAP, 0);
-    lv_obj_set_style_pad_bottom(group_songs_list, BOARD_SCALE_PX(8), 0);
     lv_obj_add_event_cb(group_songs_list, group_songs_scroll_cb, LV_EVENT_SCROLL, NULL);
     lv_obj_add_event_cb(group_songs_list, group_songs_wake_cb, LV_EVENT_PRESSED, NULL);
-    ui_scroll_blit_enable(group_songs_list); /* rows keep their pixels while the page scrolls */
 
     library_thumbnails_bind_list(scr, group_songs_list, LIBRARY_THUMB_LIST_GROUP_SONGS_CUSTOM);
 

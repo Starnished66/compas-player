@@ -3,6 +3,7 @@
 #include "../../../library/remote/subsonic/subsonic_cache.h"
 
 typedef struct {
+    char song_id[64];
     char url[1536]; /* the exact playlist[i] this entry describes */
     char title[128];
     char artist[128];
@@ -38,3 +39,6 @@ void poll_subsonic_refresh(void);
 bool gui_subsonic_has_background_work(void);
 void gui_subsonic_handle_wifi_disabled(void);
 void gui_subsonic_cancel_background_work(void);
+
+/* Moves the now-playing marker on Subsonic song lists; call when the track changes. */
+void gui_subsonic_refresh_now_playing(void);
