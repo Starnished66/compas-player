@@ -4,7 +4,8 @@
 
 #include "../../hardware/power/battery.h"
 #include "../../network/firmware/firmware_ota.h"
-#include "../../network/http/client/http_client.h"
+#include "../../network/download/download.h"
+#include "../files/file_integrity.h"
 #include "firmware_update.h"
 #include "../../ui/text/i18n/i18n.h"
 #include "player_install.h"
@@ -16,7 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <unistd.h>
 
 #define PLAYER_DATA_ROOT PLAYER_INSTALL_DATA_ROOT
@@ -137,11 +137,8 @@ static bool ensure_private_stage_dir(void) {
 }
 
 static bool enough_internal_space(uint64_t required_bytes) {
-    struct statvfs fs;
-    if (statvfs(PLAYER_DATA_ROOT, &fs) != 0)
-        return false;
-    uint64_t available = (uint64_t)fs.f_bavail * (uint64_t)fs.f_frsize;
-    return available >= required_bytes;
+    uint64_t available;
+    return filesystem_available_bytes(PLAYER_DATA_ROOT, &available) && available >= required_bytes;
 }
 
 static bool download_progress(uint64_t downloaded, uint64_t total, void *unused) {
@@ -155,14 +152,27 @@ static bool download_progress(uint64_t downloaded, uint64_t total, void *unused)
     return true;
 }
 
-static bool download_file_bounded_by_io_timeouts(const char *url, const char *path, size_t limit,
-                                                 http_progress_cb_t progress, int *status) {
+static download_error_t download_file_bounded_by_io_timeouts(
+    const char *url, const char *path, uint64_t limit, uint64_t expected_size,
+    const char *expected_sha256, download_progress_fn progress) {
+    download_request_t request = {
+        .url = url,
+        .dest_path = path,
+        .max_bytes = limit,
+        .has_expected_size = expected_sha256 != NULL,
+        .expected_size = expected_size,
+        .expected_sha256 = expected_sha256,
+        .verify_tls = true,
+        .max_redirects = 5,
+        .connect_timeout_ms = PLAYER_CONNECT_MS,
+        .read_timeout_ms = PLAYER_READ_MS,
+    };
     http_cancel_token_t cancel;
     http_cancel_token_init(&cancel);
-    bool ok = http_get_to_file_redirects(url, true, path, limit, progress, NULL, PLAYER_CONNECT_MS,
-                                         PLAYER_READ_MS, &cancel, 5, status);
+    download_result_t result;
+    download_error_t error = download_to_file(&request, &cancel, progress, NULL, &result);
     http_cancel_token_destroy(&cancel);
-    return ok;
+    return error;
 }
 
 static bool fetch_sums(const firmware_ota_release_t *release, char expected[65], char *error,
@@ -173,12 +183,9 @@ static bool fetch_sums(const firmware_ota_release_t *release, char expected[65],
     }
     char path[256];
     snprintf(path, sizeof(path), "%s/checksums.part", PLAYER_STAGING_DIR);
-    (void)unlink(path);
-    int status = 0;
-    if (!download_file_bounded_by_io_timeouts(release->sums_url, path, PLAYER_SUMS_MAX, NULL,
-                                              &status)) {
+    if (download_file_bounded_by_io_timeouts(release->sums_url, path, PLAYER_SUMS_MAX, 0, NULL,
+                                            NULL) != DOWNLOAD_OK) {
         snprintf(error, error_size, "%s", TR("Could not download the release checksums."));
-        unlink(path);
         return false;
     }
     int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -250,13 +257,13 @@ static bool download_install(const firmware_ota_release_t *chosen, char *error, 
     char part[256];
     snprintf(part, sizeof(part), "%s/player.part", PLAYER_STAGING_DIR);
     set_state(PLAYER_UPDATE_DOWNLOADING, 0);
-    int status = 0;
-    (void)unlink(part); /* stage directory is private; discard only our fixed
-                           incomplete download */
-    if (!download_file_bounded_by_io_timeouts(latest.asset_url, part, PLAYER_MAX_BYTES,
-                                              download_progress, &status)) {
-        unlink(part);
-        snprintf(error, error_size, "%s", TR("The player download did not complete."));
+    download_error_t downloaded = download_file_bounded_by_io_timeouts(
+        latest.asset_url, part, PLAYER_MAX_BYTES, latest.asset_size, expected, download_progress);
+    if (downloaded != DOWNLOAD_OK) {
+        snprintf(error, error_size, "%s",
+                 downloaded == DOWNLOAD_ERR_SIZE || downloaded == DOWNLOAD_ERR_SHA256
+                     ? TR("The downloaded player failed SHA-256 verification.")
+                     : TR("The player download did not complete."));
         return false;
     }
     int fd = open(part, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);

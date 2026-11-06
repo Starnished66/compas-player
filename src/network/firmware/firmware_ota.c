@@ -3,12 +3,13 @@
 #include "../../core/updates/firmware_update.h"
 #include "../../core/updates/firmware_image.h"
 #include "../http/client/http_client.h"
+#include "../download/download.h"
+#include "../../core/files/file_integrity.h"
 #include "../../hardware/power/battery.h"
 #include "../../core/system/runtime/app_version.h"
 #include "../../core/persistence/storage_paths.h"
 #include "cJSON.h"
 #include "../../ui/library/browse/gui_library.h" /* sd_card_root_is_mounted() */
-#include "mbedtls/sha256.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -22,7 +23,6 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <unistd.h>
 
 #ifndef OTA_RELEASES_URL
@@ -393,28 +393,19 @@ static bool progress_cb(uint64_t downloaded, uint64_t total, void * user) {
     return true;
 }
 
-static bool sha256_file(const char * path, uint64_t * out_size, char out_hex[65]) {
-    FILE * f = fopen(path, "rb");
-    if (!f) return false;
-    mbedtls_sha256_context ctx;
-    mbedtls_sha256_init(&ctx);
-    bool ok = mbedtls_sha256_starts(&ctx, 0) == 0;
-    uint8_t buffer[16384];
-    uint64_t size = 0;
-    size_t n;
-    while (ok && (n = fread(buffer, 1, sizeof(buffer), f)) > 0) {
-        ok = mbedtls_sha256_update(&ctx, buffer, n) == 0;
-        size += n;
-    }
-    if (ferror(f)) ok = false;
-    fclose(f);
-    uint8_t digest[32];
-    if (ok) ok = mbedtls_sha256_finish(&ctx, digest) == 0;
-    mbedtls_sha256_free(&ctx);
-    if (!ok) return false;
-    for (int i = 0; i < 32; i++) snprintf(out_hex + 2 * i, 3, "%02x", digest[i]);
-    *out_size = size;
-    return true;
+/* Publication stays in the caller: the downloader only commits caller-owned
+ * staging files, never the recovery-visible image or its pending record. */
+static download_error_t download_staged(const char * url, const char * path, uint64_t limit,
+                                        const uint64_t * size, const char * sha256,
+                                        download_progress_fn progress) {
+    download_request_t request = {
+        .url = url, .dest_path = path, .max_bytes = limit,
+        .has_expected_size = size != NULL, .expected_size = size ? *size : 0,
+        .expected_sha256 = sha256, .verify_tls = true, .max_redirects = 5,
+        .connect_timeout_ms = OTA_CONNECT_TIMEOUT_MS, .read_timeout_ms = OTA_READ_TIMEOUT_MS,
+    };
+    download_result_t result;
+    return download_to_file(&request, NULL, progress, (void *) size, &result);
 }
 
 /* Moves another .upt aside as <path>.parked (or .parked.1 ... .parked.9
@@ -497,7 +488,10 @@ static bool write_pending(const firmware_ota_release_t * release, const char * s
         unlink(temp);
         return false;
     }
-    return true;
+    /* Make the record durable before the image can enter recovery's reach.
+     * On a real sync failure the committed record stays and blocks installs
+     * unless it matches the image already at the root. */
+    return filesystem_sync_parent(OTA_PENDING_PATH);
 }
 
 typedef struct {
@@ -617,9 +611,7 @@ static void * download_worker(void * arg) {
 
     /* Checksums first: a release without a usable entry fails before the
      * large download. */
-    int status = 0;
-    if (!http_get_to_file_redirects(release.sums_url, true, sums_path, OTA_MAX_SUMS_BYTES, NULL, NULL,
-                                    OTA_CONNECT_TIMEOUT_MS, OTA_READ_TIMEOUT_MS, NULL, 5, &status)) {
+    if (download_staged(release.sums_url, sums_path, OTA_MAX_SUMS_BYTES, NULL, NULL, NULL) != DOWNLOAD_OK) {
         set_failed(TR("Could not download the release checksums."));
         return NULL;
     }
@@ -640,29 +632,25 @@ static void * download_worker(void * arg) {
         return NULL;
     }
 
-    struct statvfs fs;
-    if (statvfs(OTA_SD_ROOT, &fs) != 0 ||
-        (uint64_t) fs.f_bavail * fs.f_frsize < release.asset_size + OTA_FREE_SPACE_MARGIN) {
+    uint64_t available;
+    if (!filesystem_available_bytes(OTA_SD_ROOT, &available) ||
+        available < release.asset_size + OTA_FREE_SPACE_MARGIN) {
         set_failed(TR("Not enough free space on the SD card for the update."));
         return NULL;
     }
 
     uint64_t expected_size = release.asset_size;
-    if (!http_get_to_file_redirects(release.asset_url, true, part_path, (size_t) OTA_MAX_IMAGE_BYTES, progress_cb,
-                                    &expected_size, OTA_CONNECT_TIMEOUT_MS, OTA_READ_TIMEOUT_MS, NULL, 5,
-                                    &status)) {
-        set_failed(TR("The download did not complete. Check Wi-Fi and try again."));
+    download_error_t download_error = download_staged(release.asset_url, part_path, OTA_MAX_IMAGE_BYTES,
+                                                       &expected_size, expected, progress_cb);
+    if (download_error != DOWNLOAD_OK) {
+        /* Failed verification never publishes over an existing staged image. */
+        if (download_error == DOWNLOAD_ERR_SIZE || download_error == DOWNLOAD_ERR_SHA256)
+            set_failed(TR("The downloaded image failed verification and was deleted."));
+        else
+            set_failed(TR("The download did not complete. Check Wi-Fi and try again."));
         return NULL;
     }
 
-    char actual[65];
-    uint64_t actual_size = 0;
-    if (!sha256_file(part_path, &actual_size, actual) || actual_size != release.asset_size ||
-        strcmp(actual, expected) != 0) {
-        unlink(part_path);
-        set_failed(TR("The downloaded image failed verification and was deleted."));
-        return NULL;
-    }
     char image_error[160] = "";
     if (!firmware_image_validate(part_path, image_error, sizeof(image_error))) {
         if (image_error[0]) fprintf(stderr, "firmware_ota: invalid downloaded image: %s\n", image_error);
@@ -688,6 +676,14 @@ static void * download_worker(void * arg) {
     }
     if (rename(part_path, final_path) != 0) {
         unlink(part_path);
+        set_failed(TR("Could not place the update on the SD card."));
+        return NULL;
+    }
+    /* Cross-directory rename changes both directories. A failure here is
+     * post-commit: retain the root image and pending record for a retry. */
+    bool root_synced = filesystem_sync_parent(final_path);
+    bool staging_synced = filesystem_sync_parent(part_path);
+    if (!root_synced || !staging_synced) {
         set_failed(TR("Could not place the update on the SD card."));
         return NULL;
     }
@@ -889,7 +885,7 @@ static void * install_worker(void * unused) {
     char path[256], actual[65];
     uint64_t actual_size = 0;
     snprintf(path, sizeof(path), "%s/%s", OTA_SD_ROOT, pending.release.asset_name);
-    if (!sha256_file(path, &actual_size, actual)) {
+    if (!file_sha256(path, &actual_size, actual)) {
         /* An I/O error proves nothing about the image: keep it and its
          * record so the install can be retried. */
         set_failed(TR("Cannot read the update file on the SD card. Check the card and try again."));
@@ -918,10 +914,7 @@ static void * install_worker(void * unused) {
     }
     char sums_path[256];
     snprintf(sums_path, sizeof(sums_path), "%s/%s.install.part", OTA_WORK_DIR, OTA_SUMS_NAME);
-    int sums_status = 0;
-    if (!http_get_to_file_redirects(latest.sums_url, true, sums_path, OTA_MAX_SUMS_BYTES, NULL, NULL,
-                                    OTA_CONNECT_TIMEOUT_MS, OTA_READ_TIMEOUT_MS, NULL, 5, &sums_status)) {
-        unlink(sums_path);
+    if (download_staged(latest.sums_url, sums_path, OTA_MAX_SUMS_BYTES, NULL, NULL, NULL) != DOWNLOAD_OK) {
         set_failed(TR("Could not verify the latest release checksums."));
         return NULL;
     }
