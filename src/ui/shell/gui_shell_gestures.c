@@ -414,8 +414,10 @@ static void quick_drawer_poll_press_ownership(lv_point_t p) {
         }
     }
 
+    /* The open drawer covers the screen, so that screen's dead zones
+     * (progress bar, slider cards) must not block a drawer drag. */
     drag_adjust_press_owned = active_object_is_drag_adjust_widget() ||
-                              point_in_swipe_dead_zone(p) ||
+                              (!quick_drawer_open && point_in_swipe_dead_zone(p)) ||
                               quick_drawer_brightness_hit_test(p) ||
                               quick_drawer_volume_hit_test(p) ||
                               quick_drawer_expansion_dragging ||
