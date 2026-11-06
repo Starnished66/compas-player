@@ -28,6 +28,9 @@
 #ifndef OTA_RELEASES_URL
 #define OTA_RELEASES_URL "https://api.github.com/repos/Starnished66/compas-player/releases/latest"
 #endif
+#ifndef OTA_ALLOW_PRERELEASE
+#define OTA_ALLOW_PRERELEASE 0
+#endif
 #define OTA_TAG_PREFIX "weekly-beta-"
 #define OTA_VERSION_PREFIX "v"
 #define OTA_SUMS_NAME "SHA256SUMS"
@@ -215,7 +218,7 @@ bool firmware_ota_parse_releases(const char * json, size_t length, const char * 
     bool prerelease = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(release, "prerelease"));
     bool draft = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(release, "draft"));
     ota_identity_t identity;
-    if (!tag || draft || prerelease || !parse_identity(tag, &identity)) {
+    if (!tag || draft || (prerelease && OTA_ALLOW_PRERELEASE != 1) || !parse_identity(tag, &identity)) {
         snprintf(error, error_size, TR("GitHub's latest release is not a supported firmware release."));
         cJSON_Delete(release);
         return false;
