@@ -36,8 +36,6 @@
 #include "../settings/controls/gui_remote_settings.h"
 #include "gui_internal.h"
 
-#define SUBSONIC_STREAM_CACHE_DIR "/tmp/subsonic_stream_cache"
-
 #ifdef HOST_BUILD
 #define GUI_BOOT_CHECKPOINT(step) ((void) 0)
 #else

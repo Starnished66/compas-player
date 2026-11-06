@@ -1,6 +1,7 @@
 #include "player_queue_model.h"
 
 #include "../../../audio/engine/audio_helpers.h"
+#include "../../../library/browser/paths/library_paths.h"
 #include "../../../library/playlists/playback_order.h"
 #include "player_queue_storage.h"
 #include "../../../library/remote/remote_track.h"
@@ -12,8 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#define QUEUE_STREAM_CACHE_DIR "/tmp/subsonic_stream_cache"
 
 static char **queue_paths;
 static int queue_count;
@@ -262,7 +261,7 @@ const char *player_queue_model_path_at(int physical_index) {
 bool player_queue_model_has_lazy_order(void) { return queue_lazy_ranks != NULL; }
 
 bool player_queue_model_is_stream_cache_path(const char *path) {
-    return path && strncmp(path, QUEUE_STREAM_CACHE_DIR, strlen(QUEUE_STREAM_CACHE_DIR)) == 0;
+    return path && strncmp(path, SUBSONIC_STREAM_CACHE_DIR, strlen(SUBSONIC_STREAM_CACHE_DIR)) == 0;
 }
 
 bool player_queue_model_has_resolved_sd_path(const char *music_root) {

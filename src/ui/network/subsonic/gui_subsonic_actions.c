@@ -18,7 +18,6 @@ extern player_settings_t current_settings;
 
 subsonic_stream_song_meta_t * subsonic_stream_meta = NULL; /* parallel array, NULL when no Subsonic stream queue is loaded */
 int subsonic_stream_meta_count = 0;
-#define SUBSONIC_STREAM_CACHE_DIR MUSIC_ROOT_DIR "/.subsonic_cache"
 
 typedef enum { SUBSONIC_DOWNLOAD_PENDING_NONE, SUBSONIC_DOWNLOAD_PENDING_SONGS, SUBSONIC_DOWNLOAD_PENDING_ARTIST } subsonic_download_pending_t;
 

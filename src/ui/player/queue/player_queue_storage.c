@@ -14,9 +14,6 @@
 #include "../../../hardware/usb/usb_mode_control.h"
 
 #define PLAYER_QUEUE_PLAYLISTS_DIR MUSIC_ROOT_DIR "/Playlists"
-/* This player-local prefix intentionally matches gui_player.c's existing
- * filter; it is not the path used by the Subsonic download UI. */
-#define PLAYER_QUEUE_STREAM_CACHE_DIR "/tmp/subsonic_stream_cache"
 
 typedef struct {
     int target_dirfd;
@@ -161,7 +158,7 @@ static bool queue_save_path_provider(void * context, int index, const char ** pa
     if (!p && !ctx->snapshot && !ctx->file_index) return false;
     if (!p) p = ctx->resolved;
     if (!p || !p[0] || remote_track_path_is_remote(p) ||
-        strncmp(p, PLAYER_QUEUE_STREAM_CACHE_DIR, strlen(PLAYER_QUEUE_STREAM_CACHE_DIR)) == 0) return false;
+        strncmp(p, SUBSONIC_STREAM_CACHE_DIR, strlen(SUBSONIC_STREAM_CACHE_DIR)) == 0) return false;
     *path = p;
     return true;
 }
