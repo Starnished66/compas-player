@@ -182,10 +182,18 @@ void apply_release_year(track_metadata_t * out, const char * value, size_t value
     if (!parse_release_year(value, value_len, &year)) return;
     /* Canonical date/recording-time fields override year-only aliases even
      * when the alias appears later in the file. */
-    if (canonical_date || !out->has_release_year) {
+    if (!out->has_original_year && (canonical_date || !out->has_release_year)) {
         out->release_year = year;
         out->has_release_year = true;
     }
+}
+
+void apply_original_year(track_metadata_t * out, const char * value, size_t value_len) {
+    int year;
+    if (!parse_release_year(value, value_len, &year)) return;
+    out->release_year = year;
+    out->has_release_year = true;
+    out->has_original_year = true;
 }
 
 /* strtod() wrapper for REPLAYGAIN_* fields. Reports success only when at least
@@ -281,6 +289,10 @@ void apply_vorbis_comment_field(track_metadata_t * out, const char * comment, si
         SET_TAG_TEXT(out, album_artist, value, value_len);
     } else if (key_len == 5 && strncasecmp(comment, "GENRE", 5) == 0) {
         SET_TAG_TEXT(out, genre, value, value_len);
+    } else if (key_len == 12 &&
+               (strncasecmp(comment, "ORIGINALDATE", 12) == 0 ||
+                strncasecmp(comment, "ORIGINALYEAR", 12) == 0)) {
+        apply_original_year(out, value, value_len);
     } else if (key_len == 4 && strncasecmp(comment, "DATE", 4) == 0) {
         apply_release_year(out, value, value_len, true);
     } else if (key_len == 4 && strncasecmp(comment, "YEAR", 4) == 0) {

@@ -417,6 +417,7 @@ bool tagcache_lookup(const char *path, int32_t mtime, int32_t size, tagcache_son
     }
     if (idx.tag_seek[tag_mtime] != mtime || idx.tag_seek[tag_lastoffset] != size) return false;
     if (path_is_wav(path) && !(idx.flag & FLAG_WAV_ID3_TAGS)) return false;
+    if (!(idx.flag & FLAG_ORIGINAL_YEAR_TAGS)) return false;
     tagcache_song_t song;
     if (!reader_song_fields_raw(slot, TAGCACHE_FIELD_ALL, out ? out : &song)) return false;
     if (out) {
@@ -494,6 +495,7 @@ void tagcache_upsert_year_changed(const char *path, int32_t mtime, int32_t size,
     int32_t stored_year = release_year >= 1000 && release_year <= 9999 ? release_year : -1;
     bool wav = path_is_wav(path);
     bool tags_changed = fresh || (wav && !(idx.flag & FLAG_WAV_ID3_TAGS)) ||
+                        !(idx.flag & FLAG_ORIGINAL_YEAR_TAGS) ||
                         (idx.flag & (FLAG_DELETED | FLAG_TAGS_INCOMPLETE)) ||
                         idx.tag_seek[tag_tracknumber] != stored_track ||
                         idx.tag_seek[tag_discnumber] != stored_disc ||
@@ -507,6 +509,7 @@ void tagcache_upsert_year_changed(const char *path, int32_t mtime, int32_t size,
     idx.tag_seek[tag_year] = stored_year;
     idx.flag = (idx.flag & ~(FLAG_DELETED | FLAG_TAGS_INCOMPLETE)) | FLAG_SEEN;
     if (wav) idx.flag |= FLAG_WAV_ID3_TAGS;
+    idx.flag |= FLAG_ORIGINAL_YEAR_TAGS;
     if (!scan_write_index(slot, &idx)) return;
     reader_reset_cache();
     if (fresh) {

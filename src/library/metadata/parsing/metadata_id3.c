@@ -178,11 +178,12 @@ static void decode_id3v2_txxx_frame(const uint8_t * data, uint32_t size, track_m
 
     char value_str[40];
     uint32_t value_len = size - value_start;
-    if (value_len > sizeof(value_str) - 1) value_len = sizeof(value_str) - 1;
     id3_decode_text(encoding, data + value_start, value_len, value_str, sizeof(value_str));
 
-    /* A no-op for any TXXX description that isn't one of the four
-     * REPLAYGAIN_* names. */
+    if (strcasecmp(description, "ORIGINALYEAR") == 0 ||
+        strcasecmp(description, "ORIGINALDATE") == 0)
+        apply_original_year(out, value_str, strlen(value_str));
+
     apply_replaygain_field(out, description, strlen(description), value_str, strlen(value_str));
 }
 
@@ -316,7 +317,7 @@ static bool id3_stream_skip(id3_stream_t * s, uint32_t count) {
 typedef enum { ID3_KIND_TEXT, ID3_KIND_PICTURE, ID3_KIND_TXXX, ID3_KIND_LYRICS } id3_kind_t;
 typedef enum {
     ID3_F_TITLE, ID3_F_ARTIST, ID3_F_ALBUM, ID3_F_ALBUM_ARTIST, ID3_F_GENRE,
-    ID3_F_TRACK, ID3_F_DISC, ID3_F_YEAR, ID3_F_DATE, ID3_F_NONE
+    ID3_F_TRACK, ID3_F_DISC, ID3_F_YEAR, ID3_F_DATE, ID3_F_ORIGINAL_YEAR, ID3_F_NONE
 } id3_field_t;
 
 /* v22 is NULL for frames that do not exist in ID3v2.2. */
@@ -337,6 +338,8 @@ static const id3_frame_def_t id3_frames[] = {
     { "TPA", "TPOS", ID3_KIND_TEXT, ID3_F_DISC },
     { "TYE", "TYER", ID3_KIND_TEXT, ID3_F_YEAR },
     { NULL,  "TDRC", ID3_KIND_TEXT, ID3_F_DATE },
+    { "TOR", "TORY", ID3_KIND_TEXT, ID3_F_ORIGINAL_YEAR },
+    { NULL,  "TDOR", ID3_KIND_TEXT, ID3_F_ORIGINAL_YEAR },
     { "PIC", "APIC", ID3_KIND_PICTURE, ID3_F_NONE },
     { NULL,  "TXXX", ID3_KIND_TXXX, ID3_F_NONE },
     { NULL,  "USLT", ID3_KIND_LYRICS, ID3_F_NONE },
@@ -381,6 +384,10 @@ static void id3_apply_text_field(id3_field_t field, const uint8_t * payload, uin
     case ID3_F_DATE:
         decode_id3v2_text_frame(payload, n, text, ID3_DATE_FIELD_BYTES);
         apply_release_year(out, text, strlen(text), true);
+        break;
+    case ID3_F_ORIGINAL_YEAR:
+        decode_id3v2_text_frame(payload, n, text, ID3_DATE_FIELD_BYTES);
+        apply_original_year(out, text, strlen(text));
         break;
     case ID3_F_NONE:
         break;

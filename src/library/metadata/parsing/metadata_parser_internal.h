@@ -40,6 +40,7 @@ void set_sequence(track_metadata_t * out, bool disc, int number);
 uint32_t read_be32(const uint8_t * b, bool synchsafe);
 uint64_t read_u64be(const uint8_t * b);
 void apply_sequence_text(track_metadata_t * out, bool disc, const char * value, size_t value_len);
+void apply_original_year(track_metadata_t * out, const char * value, size_t value_len);
 void apply_release_year(track_metadata_t * out, const char * value, size_t value_len, bool canonical_date);
 void apply_replaygain_field(track_metadata_t * out, const char * key, size_t key_len, const char * value, size_t value_len);
 void apply_vorbis_comment_field(track_metadata_t * out, const char * comment, size_t comment_len, bool include_blobs);
