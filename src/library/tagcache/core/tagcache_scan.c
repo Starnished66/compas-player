@@ -1,6 +1,7 @@
 /* Scan staging: seen set, path hash, journal, staging files, lookup and upsert. */
 #include "tagcache_internal.h"
 #include "tagcache_scan_intern.h"
+#include <strings.h>
 
 bool updating;
 _Atomic bool update_failed;
@@ -397,6 +398,11 @@ void song_set_stats(tagcache_song_t *song, const struct index_entry *idx) {
     song->rating = idx->tag_seek[tag_rating];
 }
 
+static bool path_is_wav(const char *path) {
+    const char *ext = strrchr(path, '.');
+    return ext && (!strcasecmp(ext, ".wav") || !strcasecmp(ext, ".rf64"));
+}
+
 bool tagcache_lookup(const char *path, int32_t mtime, int32_t size, tagcache_song_t *out) {
     if (!db_open || !path) return false;
     SCAN_SCOPE;
@@ -410,6 +416,7 @@ bool tagcache_lookup(const char *path, int32_t mtime, int32_t size, tagcache_son
         scan_seen_set(slot);
     }
     if (idx.tag_seek[tag_mtime] != mtime || idx.tag_seek[tag_lastoffset] != size) return false;
+    if (path_is_wav(path) && !(idx.flag & FLAG_WAV_ID3_TAGS)) return false;
     tagcache_song_t song;
     if (!reader_song_fields_raw(slot, TAGCACHE_FIELD_ALL, out ? out : &song)) return false;
     if (out) {
@@ -485,7 +492,9 @@ void tagcache_upsert_year_changed(const char *path, int32_t mtime, int32_t size,
     int32_t stored_track = track_number > 0 ? track_number : -1;
     int32_t stored_disc = disc_number > 0 ? disc_number : -1;
     int32_t stored_year = release_year >= 1000 && release_year <= 9999 ? release_year : -1;
-    bool tags_changed = fresh || (idx.flag & (FLAG_DELETED | FLAG_TAGS_INCOMPLETE)) ||
+    bool wav = path_is_wav(path);
+    bool tags_changed = fresh || (wav && !(idx.flag & FLAG_WAV_ID3_TAGS)) ||
+                        (idx.flag & (FLAG_DELETED | FLAG_TAGS_INCOMPLETE)) ||
                         idx.tag_seek[tag_tracknumber] != stored_track ||
                         idx.tag_seek[tag_discnumber] != stored_disc ||
                         idx.tag_seek[tag_year] != stored_year;
@@ -497,6 +506,7 @@ void tagcache_upsert_year_changed(const char *path, int32_t mtime, int32_t size,
     idx.tag_seek[tag_discnumber] = stored_disc;
     idx.tag_seek[tag_year] = stored_year;
     idx.flag = (idx.flag & ~(FLAG_DELETED | FLAG_TAGS_INCOMPLETE)) | FLAG_SEEN;
+    if (wav) idx.flag |= FLAG_WAV_ID3_TAGS;
     if (!scan_write_index(slot, &idx)) return;
     reader_reset_cache();
     if (fresh) {

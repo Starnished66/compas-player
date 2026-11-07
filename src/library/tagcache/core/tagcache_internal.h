@@ -76,6 +76,7 @@ enum tag_type {
 #define TAGCACHE_MAGIC 0x54434810
 #define TAGCACHE_INDEXED_MAGIC 0x54434811
 #define FLAG_DELETED 0x0001
+#define FLAG_WAV_ID3_TAGS 0x0002 /* persisted: WAV tags read with ID3 precedence */
 #define FLAG_SEEN 0x01000000 /* RAM-only, stripped before persist */
 #define FLAG_TAGS_INCOMPLETE 0x02000000 /* RAM-only: unique-tag seek missed on load */
 #define FLAG_RAM_ONLY (FLAG_SEEN | FLAG_TAGS_INCOMPLETE)

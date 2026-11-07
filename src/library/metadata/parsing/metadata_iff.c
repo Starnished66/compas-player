@@ -4,8 +4,6 @@
 #include "../../../core/text/utf8_util.h"
 #include "../../artwork/support/library_endian.h"
 
-#include "dr_wav.h"
-
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -30,13 +28,6 @@ static uint64_t read_u64le(const uint8_t * b) {
     return v;
 }
 
-
-/* Unmarked LIST/INFO text is not guaranteed to be UTF-8. Preserve valid text,
- * but record when a title needed sanitizing so an embedded ID3 title
- * can recover it. This does not try to guess a legacy code page. */
-static bool is_valid_utf8(const char * text, size_t size) {
-    return utf8_is_valid(text, text ? strnlen(text, size) : size);
-}
 
 /* True for a FORM AIFF/AIFC header, or a RIFF/RF64 WAVE one when aiff is
  * false. Sets *rf64 for RF64, whose chunks match RIFF but whose "data" size
@@ -598,90 +589,96 @@ void read_wma_metadata(const char * path, track_metadata_t * out, bool include_b
     fclose(f);
 }
 
-/* ---- WAV: RIFF LIST/INFO chunk (dr_wav parses this natively) ---- */
+/* ---- WAV: one RIFF walk for INFO and embedded ID3 ---- */
 
-static bool read_wav_metadata(const char * path, track_metadata_t * out) {
-    drwav wav;
-    if (!drwav_init_file_with_metadata(&wav, path, drwav_metadata_type_list_all_info_strings, NULL)) return false;
-    bool invalid_title_utf8 = false;
-
-    for (drwav_uint32 i = 0; i < wav.metadataCount; i++) {
-        drwav_metadata * meta = &wav.pMetadata[i];
-        switch (meta->type) {
-            case drwav_metadata_type_list_info_title:
-                {
-                    const uint8_t * raw = (const uint8_t *) meta->data.infoText.pString;
-                    size_t len = meta->data.infoText.stringLength;
-                    invalid_title_utf8 = false;
-                    if (len >= 2 && ((raw[0] == 0xFF && raw[1] == 0xFE) || (raw[0] == 0xFE && raw[1] == 0xFF))) {
-                        uint8_t tagged[2 * sizeof(out->title) + 3];
-                        /* dr_wav exposes stringLength as chunkSize - 1 and
-                         * allocates/reads the final byte too, even when a
-                         * non-terminated UTF-16 value ends in a code unit. */
-                        size_t copy_len = len + 1;
-                        if (copy_len > sizeof(tagged) - 1) copy_len = sizeof(tagged) - 1;
-                        copy_len &= ~(size_t) 1;
-                        tagged[0] = 1;
-                        memcpy(tagged + 1, raw, copy_len);
-                        decode_id3v2_text_frame(tagged, (uint32_t) (copy_len + 1), out->title, sizeof(out->title));
-                        size_t decoded_len = strlen(out->title);
-                        if (!is_valid_utf8(out->title, decoded_len)) {
-                            invalid_title_utf8 = true;
-                            utf8_sanitize(out->title);
-                        }
-                    } else {
-                        if (len >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF) { raw += 3; len -= 3; }
-                        invalid_title_utf8 = !is_valid_utf8((const char *) raw, len);
-                        copy_bounded(out->title, sizeof(out->title), (const char *) raw, len);
-                    }
-                }
-                out->has_title = out->title[0] != '\0';
-                break;
-            case drwav_metadata_type_list_info_artist:
-                SET_TAG_TEXT(out, artist, meta->data.infoText.pString, meta->data.infoText.stringLength);
-                break;
-            case drwav_metadata_type_list_info_album:
-                SET_TAG_TEXT(out, album, meta->data.infoText.pString, meta->data.infoText.stringLength);
-                break;
-            case drwav_metadata_type_list_info_tracknumber:
-                apply_sequence_text(out, false, meta->data.infoText.pString, meta->data.infoText.stringLength);
-                break;
-            default:
-                break;
+static void wav_info_title(track_metadata_t * out, const uint8_t * raw, size_t len) {
+    if (len >= 2 && ((raw[0] == 0xFF && raw[1] == 0xFE) || (raw[0] == 0xFE && raw[1] == 0xFF))) {
+        uint8_t tagged[2 * sizeof(out->title) + 3];
+        size_t n = len < sizeof(tagged) - 1 ? len : sizeof(tagged) - 1;
+        n &= ~(size_t) 1;
+        tagged[0] = 1;
+        memcpy(tagged + 1, raw, n);
+        decode_id3v2_text_frame(tagged, (uint32_t) n + 1, out->title, sizeof(out->title));
+        if (!utf8_is_valid(out->title, strlen(out->title))) out->title[0] = '\0';
+    } else {
+        if (len >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF) { raw += 3; len -= 3; }
+        if (!utf8_is_valid((const char *) raw, strnlen((const char *) raw, len))) {
+            out->title[0] = '\0';
+            out->has_title = false;
+            return;
         }
+        copy_bounded(out->title, sizeof(out->title), (const char *) raw, len);
     }
+    out->has_title = out->title[0] != '\0';
+}
 
-    drwav_uninit(&wav);
-    return invalid_title_utf8;
+static void wav_read_info(FILE * f, uint64_t size, track_metadata_t * info) {
+    off_t end;
+    uint8_t kind[4];
+    if (size < 4 || !safe_file_advance(ftello(f), size, 0, &end) ||
+        fread(kind, 1, sizeof(kind), f) != sizeof(kind) || memcmp(kind, "INFO", 4) != 0) return;
+
+    while (ftello(f) >= 0 && end - ftello(f) >= 8) {
+        off_t start = ftello(f);
+        uint8_t header[8];
+        if (fread(header, 1, sizeof(header), f) != sizeof(header)) break;
+        uint32_t len = library_read_u32le(header + 4);
+        off_t data = ftello(f);
+        if ((uint64_t) (end - data) < len) break;
+        bool wanted = memcmp(header, "INAM", 4) == 0 || memcmp(header, "IART", 4) == 0 ||
+                      memcmp(header, "IPRD", 4) == 0 || memcmp(header, "ITRK", 4) == 0;
+        /* INFO strings are small; ignore unreasonable fields without allocating them. */
+        if (wanted && len > 0 && len <= (1u << 20)) {
+            uint8_t * text = malloc((size_t) len + 1);
+            if (text && fread(text, 1, len, f) == len) {
+                text[len] = 0;
+                if (memcmp(header, "INAM", 4) == 0) wav_info_title(info, text, len);
+                else if (memcmp(header, "IART", 4) == 0) SET_TAG_TEXT(info, artist, (char *) text, len);
+                else if (memcmp(header, "IPRD", 4) == 0) SET_TAG_TEXT(info, album, (char *) text, len);
+                else apply_sequence_text(info, false, (char *) text, len);
+            }
+            free(text);
+        }
+        if (!chunk_seek_next(f, start, data, len)) break;
+    }
 }
 
 void read_wav_all(const char * path, track_metadata_t * out, bool include_blobs) {
-    bool invalid_info_title = read_wav_metadata(path, out);
-    if (!out->has_title) {
-        read_iff_id3(path, out, include_blobs, false);
-    } else if (include_blobs || invalid_info_title || !out->has_release_year) {
-        /* LIST/INFO carries only text: a cover or lyrics can live solely in
-         * the "id3 " chunk. Its text stays authoritative unless INFO bytes
-         * were invalid UTF-8 and an ID3 title can recover the display text. */
-        track_metadata_t id3;
-        memset(&id3, 0, sizeof(id3));
-        read_iff_id3(path, &id3, include_blobs, false);
-        if (invalid_info_title && id3.has_title) {
-            copy_bounded(out->title, sizeof(out->title), id3.title, strnlen(id3.title, sizeof(id3.title)));
-            out->has_title = true;
-        }
-        if (!out->has_release_year && id3.has_release_year) {
-            out->release_year = id3.release_year;
-            out->has_release_year = true;
-        }
-        if (!include_blobs) {
-            free(id3.picture_data);
-            free(id3.lyrics);
-            return;
-        }
-        out->picture_data = id3.picture_data;
-        out->picture_size = id3.picture_size;
-        out->picture_too_large = id3.picture_too_large;
-        out->lyrics = id3.lyrics;
+    FILE * f = fopen(path, "rb");
+    if (!f) return;
+    uint8_t header[12];
+    bool rf64 = false;
+    if (fread(header, 1, sizeof(header), f) != sizeof(header) || !iff_header_ok(header, false, &rf64)) {
+        fclose(f);
+        return;
     }
+    track_metadata_t info = { 0 };
+    uint64_t rf64_data_size = 0;
+    bool read_id3 = false;
+    while (1) {
+        off_t start = ftello(f);
+        uint8_t chunk[8];
+        if (fread(chunk, 1, sizeof(chunk), f) != sizeof(chunk)) break;
+        uint64_t size = library_read_u32le(chunk + 4);
+        off_t data = ftello(f);
+        if (strncasecmp((const char *) chunk, "LIST", 4) == 0) {
+            wav_read_info(f, size, &info);
+        } else if (!read_id3 && strncasecmp((const char *) chunk, "id3 ", 4) == 0) {
+            read_id3v2(f, out, include_blobs);
+            read_id3 = true;
+        } else if (rf64 && memcmp(chunk, "ds64", 4) == 0 && size >= 16) {
+            uint8_t ds64[16];
+            if (fread(ds64, 1, sizeof(ds64), f) == sizeof(ds64)) rf64_data_size = read_u64le(ds64 + 8);
+        } else if (rf64 && size == 0xFFFFFFFFu && memcmp(chunk, "data", 4) == 0) {
+            size = rf64_data_size;
+        }
+        if (!chunk_seek_next(f, start, data, size)) break;
+    }
+    fclose(f);
+
+    /* ID3 text is Unicode; INFO can contain already-lost legacy characters. */
+    if (!out->has_title && info.has_title) SET_TAG_TEXT(out, title, info.title, strlen(info.title));
+    if (!out->has_artist && info.has_artist) SET_TAG_TEXT(out, artist, info.artist, strlen(info.artist));
+    if (!out->has_album && info.has_album) SET_TAG_TEXT(out, album, info.album, strlen(info.album));
+    if (!out->has_track_number && info.has_track_number) set_sequence(out, false, info.track_number);
 }
