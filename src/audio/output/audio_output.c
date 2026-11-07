@@ -83,6 +83,7 @@ static char active_usb_device[32] = "";
 static usb_dsd_output_t *usb_dsd = NULL;
 static int requested_usb_dsd_mode, active_usb_dsd_mode;
 static unsigned usb_dsd_refused_rate; /* config_mutex; reset on device/mode change */
+static unsigned usb_native_refused_rate; /* config_mutex; native may fail while DoP works */
 
 static unsigned int device_channels = 0;
 static unsigned int device_sample_rate = 0;
@@ -327,6 +328,37 @@ static void close_usb_device(void) {
     usb_aplay_fd = -1;
 }
 
+static usb_dsd_output_t * open_usb_passthrough(unsigned card, unsigned device, unsigned channels,
+                                                unsigned sample_rate, const char *usb_device, int usb_mode) {
+    usb_dsd_output_t *direct = NULL;
+    pthread_mutex_lock(&config_mutex);
+    bool native_refused = sample_rate == usb_native_refused_rate;
+    bool try_native = usb_mode == 1 && !native_refused;
+    pthread_mutex_unlock(&config_mutex);
+    if (try_native) {
+        direct = usb_dsd_output_open(card, device, true, channels, sample_rate);
+        if (!direct) {
+            pthread_mutex_lock(&config_mutex);
+            if (requested_target == OUTPUT_TARGET_USB && requested_usb_dsd_mode == usb_mode &&
+                !strcmp(usb_alsa_device, usb_device)) usb_native_refused_rate = sample_rate;
+            pthread_mutex_unlock(&config_mutex);
+            DBG_LOG("usb_dsd: native DSD refused at DoP-rate=%u; trying DoP\n", sample_rate);
+        }
+    }
+    if (usb_mode == 1 && native_refused)
+        DBG_LOG("usb_dsd: native DSD refusal cached at DoP-rate=%u; trying DoP\n", sample_rate);
+    if (!direct) direct = usb_dsd_output_open(card, device, false, channels, sample_rate);
+    if (!direct) {
+        DBG_LOG("usb_dsd: DoP refused at rate=%u; falling back to PCM conversion\n", sample_rate);
+        pthread_mutex_lock(&config_mutex);
+        if (requested_target == OUTPUT_TARGET_USB && requested_usb_dsd_mode == usb_mode &&
+            !strcmp(usb_alsa_device, usb_device)) usb_dsd_refused_rate = sample_rate;
+        pthread_mutex_unlock(&config_mutex);
+        return NULL;
+    }
+    return direct;
+}
+
 static bool open_device(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24,
                         bool dop, output_target_t target, const char * usb_device, int usb_mode) {
     if (target == OUTPUT_TARGET_USB) {
@@ -336,16 +368,14 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
             unsigned card, device; char extra;
             if (!usb_mode || sscanf(usb_device, "plughw:%u,%u%c", &card, &device, &extra) != 2)
                 return false;
-            direct = usb_dsd_output_open(card, device, usb_mode == 1, channels, sample_rate);
-            if (!direct) {
-                pthread_mutex_lock(&config_mutex);
-                if (requested_target == OUTPUT_TARGET_USB && requested_usb_dsd_mode == usb_mode &&
-                    !strcmp(usb_alsa_device, usb_device)) usb_dsd_refused_rate = sample_rate;
-                pthread_mutex_unlock(&config_mutex);
-                return false;
-            }
-        } else if (!spawn_aplay(usb_device, channels, sample_rate, format, false,
-                                &usb_aplay_pid, &usb_aplay_fd)) return false;
+            direct = open_usb_passthrough(card, device, channels, sample_rate, usb_device, usb_mode);
+            if (!direct) return false;
+        } else {
+            DBG_LOG("usb_dsd: USB PCM requested device=%s channels=%u rate=%u bits=%u\n",
+                    usb_device, channels, sample_rate, want_s24 ? 24u : 16u);
+            if (!spawn_aplay(usb_device, channels, sample_rate, format, false,
+                             &usb_aplay_pid, &usb_aplay_fd)) return false;
+        }
         pthread_mutex_lock(&state_mutex);
         usb_dsd = direct;
         active_usb_dsd_mode = usb_mode;
@@ -739,10 +769,10 @@ bool audio_output_write(const int16_t * buf, uint64_t frames, unsigned int chann
             
             if (err == ETIMEDOUT) {
                 DBG_LOG("audio_output: BT/USB pipe write timed out after 2s, closing device (target=%d written=%" PRIu64 "/%" PRIu64 " frames)\n",
-                        (int) target, out_frames_written ? *out_frames_written : 0ULL, frames);
+                        (int) target, out_frames_written ? *out_frames_written : UINT64_C(0), frames);
             } else {
                 DBG_LOG("audio_output: pipe write failed (target=%d errno=%d written=%" PRIu64 "/%" PRIu64 " frames)\n",
-                        (int) target, err, out_frames_written ? *out_frames_written : 0ULL, frames);
+                        (int) target, err, out_frames_written ? *out_frames_written : UINT64_C(0), frames);
             }
             return false;
         }
@@ -817,10 +847,10 @@ bool audio_output_write_s24(const int32_t * buf, uint64_t frames, unsigned int c
             else close_usb_device();
             if (err == ETIMEDOUT) {
                 DBG_LOG("audio_output: BT/USB S24 pipe write timed out after 2s, closing device (written=%" PRIu64 "/%" PRIu64 " frames)\n",
-                        out_frames_written ? *out_frames_written : 0ULL, frames);
+                        out_frames_written ? *out_frames_written : UINT64_C(0), frames);
             } else {
                 DBG_LOG("audio_output: BT/USB S24 pipe write failed (errno=%d written=%" PRIu64 "/%" PRIu64 " frames)\n",
-                        err, out_frames_written ? *out_frames_written : 0ULL, frames);
+                        err, out_frames_written ? *out_frames_written : UINT64_C(0), frames);
             }
             return false;
         }
@@ -853,7 +883,10 @@ bool audio_output_write_s24(const int32_t * buf, uint64_t frames, unsigned int c
 void audio_output_set_usb_dsd_mode(int mode) {
     pthread_mutex_lock(&config_mutex);
     mode = mode >= 0 && mode <= 2 ? mode : 0;
-    if (requested_usb_dsd_mode != mode) usb_dsd_refused_rate = 0;
+    if (requested_usb_dsd_mode != mode) {
+        usb_dsd_refused_rate = 0;
+        usb_native_refused_rate = 0;
+    }
     requested_usb_dsd_mode = mode;
     pthread_mutex_unlock(&config_mutex);
 }
@@ -953,8 +986,10 @@ void audio_output_set_bt_requested(bool requested) {
 
 void audio_output_set_usb_requested(bool requested, const char * alsa_device) {
     pthread_mutex_lock(&config_mutex);
-    if (usb_requested != requested || (requested && strcmp(usb_alsa_device, alsa_device)))
+    if (usb_requested != requested || (requested && strcmp(usb_alsa_device, alsa_device))) {
         usb_dsd_refused_rate = 0;
+        usb_native_refused_rate = 0;
+    }
     usb_requested = requested;
     if (requested) snprintf(usb_alsa_device, sizeof(usb_alsa_device), "%s", alsa_device);
     recompute_requested_target();

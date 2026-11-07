@@ -70,14 +70,21 @@ static unsigned int initial_period_size(unsigned int rate) {
 }
 
 static struct pcm * try_open(unsigned int card, unsigned int device, unsigned int channels,
-                             unsigned int rate, enum pcm_format format) {
+                             unsigned int rate, enum pcm_format format, const struct pcm_params *params) {
     struct pcm_config config;
     memset(&config, 0, sizeof(config));
     config.channels = channels;
     config.rate = rate;
     config.format = format;
     config.period_count = 4;
-    for (config.period_size = initial_period_size(rate);; config.period_size /= 2u) {
+    unsigned int min_period = pcm_params_get_min(params, PCM_PARAM_PERIOD_SIZE);
+    unsigned int max_period = pcm_params_get_max(params, PCM_PARAM_PERIOD_SIZE);
+    if (!min_period) min_period = 1;
+    if (max_period < min_period) return NULL;
+    config.period_size = initial_period_size(rate);
+    if (config.period_size > max_period) config.period_size = max_period;
+    if (config.period_size < min_period) config.period_size = min_period;
+    for (;;) {
         config.start_threshold = config.period_size * config.period_count;
         config.stop_threshold = config.start_threshold;
         struct pcm *pcm = pcm_open(card, device, PCM_OUT, &config);
@@ -86,7 +93,9 @@ static struct pcm * try_open(unsigned int card, unsigned int device, unsigned in
                 card, device, format_name(format), channels, rate, config.period_size,
                 pcm ? pcm_get_error(pcm) : "pcm_open returned NULL");
         if (pcm) pcm_close(pcm);
-        if (config.period_size == 1024) break;
+        if (config.period_size == min_period) break;
+        config.period_size /= 2u;
+        if (config.period_size < min_period) config.period_size = min_period;
     }
     return NULL;
 }
@@ -121,7 +130,7 @@ usb_dsd_output_t * usb_dsd_output_open(unsigned int card, unsigned int device,
                 DBG_LOG("usb_dsd: %s rate=%u is outside advertised range\n", format_name(f->format), rate);
                 continue;
             }
-            out->pcm = try_open(card, device, channels, rate, f->format);
+            out->pcm = try_open(card, device, channels, rate, f->format, params);
             if (out->pcm) {
                 out->format = f->format;
                 out->word_bytes = f->word_bytes;
@@ -138,7 +147,7 @@ usb_dsd_output_t * usb_dsd_output_open(unsigned int card, unsigned int device,
                         format_name(format), dop_rate, card, device);
                 continue;
             }
-            out->pcm = try_open(card, device, channels, dop_rate, format);
+            out->pcm = try_open(card, device, channels, dop_rate, format, params);
             if (out->pcm) { out->format = format; out->rate = dop_rate; break; }
         }
     }
