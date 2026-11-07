@@ -375,7 +375,7 @@ static bool subsonic_prepare_albums(const subsonic_album_t * albums, int count, 
 /* Shows an albums cache on the shared Albums screen. artist names the artist
  * for the artist mode and is ignored otherwise. */
 bool subsonic_show_albums(const subsonic_album_t * albums, int count, const char * title,
-                                 subsonic_albums_mode_t mode, const char * artist) {
+                                 subsonic_albums_mode_t mode, const char * artist, const char * artist_id) {
     if (!subsonic_prepare_albums(albums, count, mode)) return false;
     subsonic_albums_is_all = mode == SUBSONIC_ALBUMS_ALL;
     snprintf(subsonic_albums_context_artist, sizeof(subsonic_albums_context_artist), "%s",
@@ -384,7 +384,12 @@ bool subsonic_show_albums(const subsonic_album_t * albums, int count, const char
     subsonic_set_hidden(subsonic_refresh_buttons[SUBSONIC_LIST_ALBUMS], mode != SUBSONIC_ALBUMS_ALL);
     lv_label_set_text(subsonic_albums_title_label, title);
     subsonic_fit_albums_title(mode == SUBSONIC_ALBUMS_ARTIST);
-    if (mode == SUBSONIC_ALBUMS_ARTIST) gui_subsonic_artist_open(subsonic_albums_list, artist);
+    if (mode == SUBSONIC_ALBUMS_ARTIST) {
+        const char * cover = NULL;
+        for (int i = 0; i < subsonic_artists_cache_count && !cover; i++)
+            if (artist_id && !strcmp(subsonic_artists_cache[i].id, artist_id)) cover = subsonic_artists_cache[i].cover_art;
+        gui_subsonic_artist_open(subsonic_albums_list, artist, cover);
+    }
     nav_push(subsonic_albums_screen);
     return true;
 }
@@ -564,7 +569,7 @@ bool subsonic_install_all_albums(subsonic_album_t * items, int count, bool keep_
 void subsonic_show_list(subsonic_list_kind_t kind) {
     if (kind == SUBSONIC_LIST_ALBUMS) {
         if (!subsonic_show_albums(subsonic_all_albums_cache, subsonic_all_albums_count, TR("Albums"),
-                                  SUBSONIC_ALBUMS_ALL, NULL))
+                                  SUBSONIC_ALBUMS_ALL, NULL, NULL))
             show_error_toast(TR("Not enough memory to load from server"));
         return;
     }
@@ -624,7 +629,7 @@ void gui_subsonic_show_artists_view(const subsonic_artist_t * artists, int count
 }
 
 void gui_subsonic_show_albums_view(const subsonic_album_t * albums, int count, const char * title) {
-    if (!subsonic_show_albums(albums, count, title, SUBSONIC_ALBUMS_LIST, NULL))
+    if (!subsonic_show_albums(albums, count, title, SUBSONIC_ALBUMS_LIST, NULL, NULL))
         show_error_toast(TR("Not enough memory to load from server"));
 }
 

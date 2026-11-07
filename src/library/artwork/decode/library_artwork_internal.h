@@ -20,7 +20,8 @@
 
 typedef enum {
     THUMBNAIL_KEY_ALBUM,
-    THUMBNAIL_KEY_ARTIST
+    THUMBNAIL_KEY_ARTIST,
+    THUMBNAIL_KEY_ARTIST_PHOTO
 } thumbnail_key_kind_t;
 
 typedef enum {
@@ -68,6 +69,11 @@ bool album_thumbnail_load_or_decode_ex(const song_row_t * song, artwork_priority
         artwork_cancel_fn cancel_cb, void * user_data, uint16_t ** out_pixels);
 bool album_thumbnail_reload_persisted(const song_row_t * song);
 void album_art_enable_player_cache_materialization(void);
+
+artist_thumbnail_result_t artist_thumbnail_load_photo(
+        int64_t representative_song_id, metadata_db_group_kind_t group_kind, const char * artist_name,
+        artwork_priority_t prio, uint64_t artist_key, artwork_cancel_fn cancel_cb,
+        void * cancel_user_data, artist_thumbnail_resolution_t * resolution);
 
 artist_thumbnail_result_t artist_thumbnail_load_or_decode(
         int64_t representative_song_id, metadata_db_group_kind_t group_kind, const char * artist_name,

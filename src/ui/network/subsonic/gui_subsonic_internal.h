@@ -113,7 +113,7 @@ extern lv_obj_t * subsonic_songs_title_label;
 extern lv_obj_t * subsonic_refresh_buttons[SUBSONIC_LIST_KINDS];
 extern subsonic_playlist_t * subsonic_playlists_cache;
 extern int subsonic_playlists_count;
-bool subsonic_show_albums(const subsonic_album_t * albums, int count, const char * title, subsonic_albums_mode_t mode, const char * artist);
+bool subsonic_show_albums(const subsonic_album_t * albums, int count, const char * title, subsonic_albums_mode_t mode, const char * artist, const char * artist_id);
 void subsonic_keep_albums(bool all, subsonic_album_t * fresh, int count);
 bool subsonic_install_all_albums(subsonic_album_t * items, int count, bool keep_scroll);
 void subsonic_set_songs_context(subsonic_list_kind_t kind, const char * id, const char * title);

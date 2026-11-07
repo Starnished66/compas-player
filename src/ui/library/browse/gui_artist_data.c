@@ -207,6 +207,13 @@ static void * worker(void * arg) {
     int best = 0;
     for (int i = 0; i < job->genre_count; i++)
         if (job->genres[i].count > best) { best = job->genres[i].count; snprintf(s.genre, sizeof(s.genre), "%s", job->genres[i].name); }
+    int64_t offset = metadata_db_get_group_offset(job->kind, job->name, NULL);
+    group_row_t artist;
+    if (offset >= 0 && offset <= INT32_MAX && metadata_db_get_groups_page(job->kind, (int) offset, 1, &artist) == 1) {
+        s.artist_key = albumart_artist_thumbnail_key(job->name);
+        s.artist_song_id = artist.first_song_id;
+        s.artist_group_kind = job->kind;
+    }
     group_row_t first[ARTIST_PAGE_MOSAIC_ALBUMS];
     int n = metadata_db_get_albums_for_group_sorted(job->kind, job->name, job->sort, 0, ARTIST_PAGE_MOSAIC_ALBUMS, first);
     for (int i = 0; i < n; i++) {

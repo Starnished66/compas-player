@@ -22,6 +22,9 @@ typedef struct {
     char genre[128];       /* most common, never "Unknown Genre"; may be empty */
     bool duration_known;   /* every track's duration is known */
     double total_seconds;
+    uint64_t artist_key;
+    int64_t artist_song_id;
+    metadata_db_group_kind_t artist_group_kind;
     int mosaic_count;
     int64_t mosaic_song_id[ARTIST_PAGE_MOSAIC_ALBUMS];
     uint64_t mosaic_key[ARTIST_PAGE_MOSAIC_ALBUMS];

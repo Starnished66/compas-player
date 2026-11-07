@@ -453,7 +453,7 @@ void library_thumbnails_note_album_page_open(void) { albums_page_open_requested_
 static bool queue_match_artist_work(const album_thumbnail_request_t * req, const void * ctx) {
     (void) ctx;
     const thumbnail_binding_t *binding = thumbnail_binding_for_list(req->list);
-    return req->key_kind == THUMBNAIL_KEY_ARTIST ||
+    return req->key_kind != THUMBNAIL_KEY_ALBUM ||
            (binding && (binding->role == LIBRARY_THUMB_LIST_ARTISTS ||
                         binding->role == LIBRARY_THUMB_LIST_ALBUM_ARTISTS));
 }
@@ -472,6 +472,7 @@ void library_thumbnails_set_artist_images_enabled(bool enabled) {
 void library_thumbnails_invalidate_album(uint64_t album_key) {
     album_thumbnail_cache_remove(THUMBNAIL_KEY_ALBUM, album_key);
     album_thumbnail_cache_remove_kind(THUMBNAIL_KEY_ARTIST);
+    album_thumbnail_cache_remove_kind(THUMBNAIL_KEY_ARTIST_PHOTO);
     artist_thumbnail_alias_cache_clear();
 }
 
@@ -486,6 +487,7 @@ void library_thumbnails_invalidate_publication(bool clear_all, bool invalidate_a
     if (clear_all) album_thumbnail_cache_clear();
     else if (invalidate_artists) {
         album_thumbnail_cache_remove_kind(THUMBNAIL_KEY_ARTIST);
+        album_thumbnail_cache_remove_kind(THUMBNAIL_KEY_ARTIST_PHOTO);
         artist_thumbnail_alias_cache_clear();
     }
 }

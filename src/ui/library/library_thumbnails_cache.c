@@ -245,7 +245,7 @@ void album_thumbnail_cache_commit(thumbnail_key_kind_t key_kind, uint64_t key,
          * song for the rest of this cache slot's lifetime. Leaving the slot
          * at its just-memset "unused" state (known=false) instead lets a
          * future request legitimately retry this song. */
-        bool commit_known = pixels != NULL;
+        bool commit_known = pixels != NULL || (key_kind == THUMBNAIL_KEY_ARTIST_PHOTO && have_source_mtime);
         if (!commit_known && key_kind == THUMBNAIL_KEY_ALBUM && have_source_mtime) {
             artwork_fail_reason_t fail_reason = ARTWORK_FAIL_NONE;
             if (artwork_failure_cache_is_blocked(source_song_id, source_mtime, &fail_reason) &&
@@ -319,5 +319,14 @@ bool library_thumbnails_copy_album(uint64_t artwork_key, uint16_t * dst, bool * 
     if (!cached) return false;
     if (!cached->pixels) { if (out_no_art) *out_no_art = true; return false; }
     memcpy(dst, cached->pixels, (size_t) ALBUM_THUMBNAIL_PX * ALBUM_THUMBNAIL_PX * 2);
+    return true;
+}
+
+bool library_thumbnails_copy_artist_photo(uint64_t key, uint16_t * dst, bool * no_art) {
+    if (no_art) *no_art = false;
+    album_thumbnail_cache_entry_t * entry = key ? album_thumbnail_cache_find(THUMBNAIL_KEY_ARTIST_PHOTO, key) : NULL;
+    if (!entry) return false;
+    if (!entry->pixels) { if (no_art) *no_art = true; return false; }
+    memcpy(dst, entry->pixels, (size_t) ALBUM_THUMBNAIL_PX * ALBUM_THUMBNAIL_PX * 2);
     return true;
 }

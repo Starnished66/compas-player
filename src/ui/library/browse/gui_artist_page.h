@@ -15,6 +15,7 @@ typedef struct {
     /* Optional external facts and copied RGB565 thumbnails (ALBUM_THUMBNAIL_PX). */
     void * source;
     void (*snapshot)(void *, gui_artist_summary_t *, gui_artist_revisions_t *);
+    bool (*copy_artist)(void *, uint16_t * pixels, bool * no_art);
     bool (*copy_tile)(void *, int album, uint16_t * pixels, bool * no_art);
     const char * name;
     int albums, songs;         /* from the database counts, known at once */

@@ -281,7 +281,7 @@ static bool subsonic_commit_albums_result(void) {
     subsonic_albums_mode_t mode = all ? SUBSONIC_ALBUMS_ALL
         : subsonic_browse_result_kind == SUBSONIC_BROWSE_ALBUM_LIST ? SUBSONIC_ALBUMS_LIST : SUBSONIC_ALBUMS_ARTIST;
     if (!subsonic_show_albums(fresh, subsonic_browse_result_count, subsonic_browse_result_title, mode,
-                              subsonic_browse_result_title)) {
+                              subsonic_browse_result_title, subsonic_browse_result_id)) {
         free(fresh);
         return false;
     }

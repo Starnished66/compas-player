@@ -9,6 +9,7 @@
 #include "../../widgets/lists/compact_list.h"
 #include "../../assets/assets.h"
 #include "../../../core/system/runtime/board_config.h"
+#include "../../../core/persistence/settings.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,7 +22,9 @@ typedef struct {
     gui_artist_page_params_t params;
     char name[128];
     gui_artist_revisions_t rev;   /* what the header currently shows */
-    uint32_t request_tick;
+    uint32_t request_tick, artist_request_tick, artist_commits;
+    uint16_t * artist_pixels;
+    bool artist_ready, artist_missing, artist_enabled, artist_checked;
     bool songs_long_fired;
     /* The header's widgets live as long as the list: later facts only change
      * text and visibility. */
@@ -133,19 +136,23 @@ static void songs_row_cb(lv_event_t * e) {
 
 /* ---- Mosaic -------------------------------------------------------------- */
 /* One album: a single cover. Two or three: the covers repeated so the square
- * stays full. Four or more: the first four. */
+ * stays full. Four or more: the first four. An artist photo counts as the
+ * first picture, ahead of the albums. */
 static void plan_tiles(page_t * p, const gui_artist_summary_t * s) {
     int n = s->ready ? s->mosaic_count : 0;
+    int photo = p->artist_ready && p->artist_enabled && n > 0;
+    int m = n + photo;
     static const int two[4] = { 0, 1, 1, 0 }, three[4] = { 0, 1, 2, 0 }, four[4] = { 0, 1, 2, 3 };
-    const int * map = n >= 4 ? four : n == 3 ? three : two;
-    p->tile_count = n <= 0 ? 0 : n == 1 ? 1 : 4;
+    const int * map = m >= 4 ? four : m == 3 ? three : two;
+    p->tile_count = m <= 0 ? 0 : m == 1 ? 1 : 4;
     for (int i = 0; i < p->tile_count; i++) {
-        int a = n == 1 ? 0 : map[i];
-        if (p->tile_key[i] != s->mosaic_key[a] || p->tile_song[i] != s->mosaic_song_id[a]) {
-            p->tile_key[i] = s->mosaic_key[a];
-            p->tile_song[i] = s->mosaic_song_id[a];
-            p->tile_state[i] = 0;
-            p->tile_shown[i] = 0;
+        int a = (m == 1 ? 0 : map[i]) - photo; /* -1 is the photo */
+        uint64_t key = a < 0 ? UINT64_MAX : s->mosaic_key[a];
+        int64_t song = a < 0 ? 0 : s->mosaic_song_id[a];
+        if (p->tile_key[i] != key || p->tile_song[i] != song) {
+            p->tile_key[i] = key;
+            p->tile_song[i] = song;
+            p->tile_state[i] = key ? 0 : 2;
             p->tiles_due = true;
         }
         p->tile_album[i] = a;
@@ -171,6 +178,7 @@ static void layout_tiles(page_t * p) {
 /* Assigns the tile's source only when what it shows actually changes. */
 static void show_tile(page_t * p, int i) {
     if (!p->tile_img[i] || i >= p->tile_count) return;
+    if (p->tile_state[i] == 0 && p->tile_shown[i] == 2) return;
     uint8_t want = p->tile_state[i] == 1 && p->tile_pixels[i] ? 2 : 1;
     if (p->tile_shown[i] == want) return;
     p->tile_shown[i] = want;
@@ -204,14 +212,22 @@ static bool fill_tiles(page_t * p, lv_obj_t * list) {
         if (p->tile_state[i] != 0 || !p->tile_key[i]) continue;
         if (!p->tile_pixels[i]) p->tile_pixels[i] = malloc(TILE_BYTES);
         bool no_art = false;
-        if (p->tile_pixels[i] && (p->params.copy_tile ? p->params.copy_tile(p->params.source, p->tile_album[i], p->tile_pixels[i], &no_art) :
+        if (p->tile_album[i] < 0 && p->tile_pixels[i]) {
+            memcpy(p->tile_pixels[i], p->artist_pixels, TILE_BYTES);
+            gui_image_dsc_init_rgb565(&p->tile_dsc[i], p->tile_pixels[i], ALBUM_THUMBNAIL_PX);
+            p->tile_state[i] = 1;
+            p->tile_shown[i] = 0;
+            show_tile(p, i);
+        } else if (p->tile_pixels[i] && (p->params.copy_tile ? p->params.copy_tile(p->params.source, p->tile_album[i], p->tile_pixels[i], &no_art) :
             library_thumbnails_copy_album(p->tile_key[i], p->tile_pixels[i], &no_art))) {
             gui_image_dsc_init_rgb565(&p->tile_dsc[i], p->tile_pixels[i], ALBUM_THUMBNAIL_PX);
             p->tile_state[i] = 1;
+            p->tile_shown[i] = 0;
             show_tile(p, i);
             lv_obj_invalidate(p->tile_img[i]);
         } else if (no_art) {
             p->tile_state[i] = 2;
+            show_tile(p, i);
         } else {
             waiting = true;
         }
@@ -219,7 +235,7 @@ static bool fill_tiles(page_t * p, lv_obj_t * list) {
     if (!p->params.copy_tile && waiting && lv_tick_elaps(p->request_tick) >= 400) {
         p->request_tick = lv_tick_get();
         for (int i = 0; i < p->tile_count; i++)
-            if (p->tile_state[i] == 0 && p->tile_key[i]) library_thumbnails_request_album(list, p->tile_song[i], p->tile_key[i]);
+            if (p->tile_state[i] == 0 && p->tile_key[i] && p->tile_album[i] >= 0) library_thumbnails_request_album(list, p->tile_song[i], p->tile_key[i]);
     }
     if (p->params.copy_tile) p->request_tick = lv_tick_get();
     return waiting;
@@ -430,7 +446,9 @@ void gui_artist_page_build(lv_obj_t * list, const gui_artist_page_params_t * par
     for (int i = 0; i < TILES; i++) { p->tile_key[i] = 0; p->tile_state[i] = 0; p->tile_shown[i] = 0; }
     p->tile_count = 0;
     p->tiles_due = true;
-    p->request_tick = 0;
+    p->request_tick = p->artist_request_tick = 0;
+    p->artist_ready = p->artist_missing = p->artist_checked = false;
+    p->artist_enabled = current_settings.show_artist_images;
     if (!reuse) {
         p->genre_text[0] = p->year_text[0] = p->total_text[0] = 0;
         p->header_height = -1;
@@ -469,6 +487,34 @@ bool gui_artist_page_poll(lv_obj_t * list, bool visible) {
     if (rev.summary != p->rev.summary || rev.duration != p->rev.duration) {
         if (apply_summary(p, &s)) relayout(p);
     }
+    bool enabled = current_settings.show_artist_images;
+    bool photo_pending = enabled && !p->artist_ready && !p->artist_missing &&
+                         (p->params.copy_artist || s.artist_key);
+    bool photo_due = !p->artist_checked || library_thumbnails_commit_count() != p->artist_commits ||
+                     lv_tick_elaps(p->artist_request_tick) >= 400;
+    if (photo_pending && photo_due) {
+        p->artist_checked = true;
+        p->artist_request_tick = lv_tick_get();
+        p->artist_commits = library_thumbnails_commit_count();
+        if (!p->artist_pixels) p->artist_pixels = malloc(TILE_BYTES);
+        bool no_art = false;
+        bool ready = p->artist_pixels && (p->params.copy_artist ?
+            p->params.copy_artist(p->params.source, p->artist_pixels, &no_art) :
+            library_thumbnails_copy_artist_photo(s.artist_key, p->artist_pixels, &no_art));
+        if (ready) p->artist_ready = true;
+        else if (no_art) p->artist_missing = true;
+        else if (!p->params.copy_artist)
+            library_thumbnails_request_artist_photo(list, s.artist_song_id, s.artist_key,
+                                                    s.artist_group_kind, p->name);
+    }
+    if (p->artist_enabled != enabled || (p->artist_ready && photo_pending)) {
+        bool hide_photo = p->artist_enabled && !enabled && p->tile_count > 0 && p->tile_album[0] < 0;
+        if (hide_photo) p->tile_shown[0] = 0;
+        p->artist_enabled = enabled;
+        plan_tiles(p, &s);
+        layout_tiles(p);
+        for (int i = 0; i < p->tile_count; i++) show_tile(p, i);
+    }
     p->rev = rev;
     /* Each look scans the thumbnail cache per tile: only when a tile is waiting
      * and something new landed, the set changed, or the re-request is due. */
@@ -487,6 +533,9 @@ bool gui_artist_page_poll(lv_obj_t * list, bool visible) {
 void gui_artist_page_release(lv_obj_t * list) {
     page_t * p = page_for(list, false);
     if (!p) return;
+    free(p->artist_pixels);
+    p->artist_pixels = NULL;
+    p->artist_ready = p->artist_missing = false;
     for (int i = 0; i < TILES; i++) {
         free(p->tile_pixels[i]);
         p->tile_pixels[i] = NULL;

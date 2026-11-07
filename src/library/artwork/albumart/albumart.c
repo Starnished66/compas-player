@@ -658,12 +658,25 @@ bool albumart_store_rgb565(const albumart_info_t * info, int width, int height, 
     return store_rgb565_file(path, ALBUMART_DIR, albumart_source_mtime(info), width, height, pixels);
 }
 
-static bool artist_thumbnail_path(const char * artist, int width, int height,
-                                  const char * suffix, char * path, size_t path_size) {
+static bool artist_cache_path(const char * prefix, const char * artist, int width, int height,
+                              const char * suffix, char * path, size_t path_size) {
     if (!artist || !artist[0] || width <= 0 || height <= 0 || !suffix || !path || path_size == 0) return false;
-    int n = snprintf(path, path_size, "%s/artist-v1-%016llx.%dx%d.%s", ALBUMART_DIR,
+    int n = snprintf(path, path_size, "%s/%s%016llx.%dx%d.%s", ALBUMART_DIR, prefix,
                      (unsigned long long) albumart_artist_thumbnail_key(artist), width, height, suffix);
     return n > 0 && (size_t) n < path_size;
+}
+
+static bool artist_thumbnail_path(const char * artist, int width, int height,
+                                  const char * suffix, char * path, size_t path_size) {
+    return artist_cache_path("artist-v1-", artist, width, height, suffix, path, path_size);
+}
+
+/* Artist photos (artist.jpg/png only) get their own names, so a folder or cover
+ * fallback is never mistaken for one. */
+static bool artist_bmp_path(const char * artist, int width, int height, bool photo,
+                            char * path, size_t path_size) {
+    return artist_cache_path(photo ? "artist-photo-v1-" : "artist-v1-", artist, width, height, "bmp",
+                             path, path_size);
 }
 
 static bool artist_alias_path(const char * artist, unsigned int scope, char * path, size_t path_size) {
@@ -673,11 +686,11 @@ static bool artist_alias_path(const char * artist, unsigned int scope, char * pa
     return n > 0 && (size_t) n < path_size;
 }
 
-bool albumart_artist_sized_thumb_fresh(const char * artist, uint32_t source_mtime,
-                                       int width, int height, char * found, size_t found_size) {
+static bool artist_sized_thumb_fresh(const char * artist, uint32_t source_mtime,
+                                       int width, int height, char * found, size_t found_size, bool photo) {
     if (!found || found_size == 0) return false;
     char path[PATH_MAX];
-    if (!artist_thumbnail_path(artist, width, height, "bmp", path, sizeof(path)) ||
+    if (!artist_bmp_path(artist, width, height, photo, path, sizeof(path)) ||
         strlen(path) >= found_size)
         return false;
     uint32_t stored = 0;
@@ -687,15 +700,32 @@ bool albumart_artist_sized_thumb_fresh(const char * artist, uint32_t source_mtim
     return found[0] != '\0';
 }
 
-bool albumart_artist_store_rgb565(const char * artist, uint32_t source_mtime,
-                                  int width, int height, const uint16_t * pixels) {
+static bool artist_store_rgb565(const char * artist, uint32_t source_mtime,
+                                  int width, int height, const uint16_t * pixels, bool photo) {
     if (!artist || !artist[0] || !pixels || width <= 0 || height <= 0) return false;
     mkdir(ALBUMART_COMPAS_DIR, 0755);
     mkdir(ALBUMART_DIR, 0755);
     request_old_album_cache_cleanup();
     char path[PATH_MAX];
-    if (!artist_thumbnail_path(artist, width, height, "bmp", path, sizeof(path))) return false;
+    if (!artist_bmp_path(artist, width, height, photo, path, sizeof(path))) return false;
     return store_rgb565_file(path, ALBUMART_DIR, source_mtime, width, height, pixels);
+}
+
+bool albumart_artist_sized_thumb_fresh(const char * artist, uint32_t mtime,
+        int w, int h, char * found, size_t room) {
+    return artist_sized_thumb_fresh(artist, mtime, w, h, found, room, false);
+}
+bool albumart_artist_photo_sized_thumb_fresh(const char * artist, uint32_t mtime,
+        int w, int h, char * found, size_t room) {
+    return artist_sized_thumb_fresh(artist, mtime, w, h, found, room, true);
+}
+bool albumart_artist_store_rgb565(const char * artist, uint32_t mtime,
+        int w, int h, const uint16_t * pixels) {
+    return artist_store_rgb565(artist, mtime, w, h, pixels, false);
+}
+bool albumart_artist_photo_store_rgb565(const char * artist, uint32_t mtime,
+        int w, int h, const uint16_t * pixels) {
+    return artist_store_rgb565(artist, mtime, w, h, pixels, true);
 }
 
 bool albumart_artist_negative_fresh(const char * artist, uint64_t source_signature) {
@@ -859,15 +889,16 @@ static bool parse_album_cache_filename(const char * name, uint64_t * out_key) {
 
 static bool parse_artist_cache_filename(const char * name, uint64_t * out_key,
                                         bool * out_is_alias) {
-    static const char prefix[] = "artist-v1-";
-    if (!name || !out_key || !out_is_alias || strncmp(name, prefix, sizeof(prefix) - 1) != 0 ||
-        !has_hex_key(name + sizeof(prefix) - 1))
+    const char * prefix = name && !strncmp(name, "artist-photo-v1-", sizeof("artist-photo-v1-") - 1) ? "artist-photo-v1-" : "artist-v1-";
+    size_t prefix_len = strlen(prefix);
+    if (!name || !out_key || !out_is_alias || strncmp(name, prefix, prefix_len) != 0 ||
+        !has_hex_key(name + prefix_len))
         return false;
-    const char * separator = name + sizeof(prefix) - 1 + 16;
+    const char * separator = name + prefix_len + 16;
     if (*separator != '.' && *separator != '-') return false;
     uint64_t key = 0;
     for (int i = 0; i < 16; i++) {
-        unsigned char c = (unsigned char) name[sizeof(prefix) - 1 + i];
+        unsigned char c = (unsigned char) name[prefix_len + i];
         unsigned int nibble = c >= '0' && c <= '9' ? (unsigned int) (c - '0')
             : (unsigned int) (tolower(c) - 'a' + 10);
         key = (key << 4) | nibble;

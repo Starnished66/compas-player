@@ -6,10 +6,12 @@
 #include "../../player/screen/gui_player.h"
 #include "../../application/gui.h"
 #include "../../text/i18n/i18n.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static lv_obj_t * artist_list;
+static char artist_cover[256];
 static gui_artist_summary_t summary;
 static gui_artist_revisions_t revisions;
 static subsonic_song_t * artist_songs;
@@ -27,6 +29,11 @@ static void snapshot(void * source, gui_artist_summary_t * out, gui_artist_revis
 static bool copy_tile(void * source, int album, uint16_t * pixels, bool * no_art) {
     (void) source;
     return gui_subsonic_covers_copy(subsonic_albums_cache[album].cover_art, pixels, no_art);
+}
+
+static bool copy_artist(void * source, uint16_t * pixels, bool * no_art) {
+    (void) source;
+    return gui_subsonic_covers_copy(artist_cover, pixels, no_art);
 }
 
 static bool perform_action(void) {
@@ -79,15 +86,16 @@ void gui_subsonic_artist_clear(lv_obj_t * list) {
     artist_list = NULL;
 }
 
-void gui_subsonic_artist_open(lv_obj_t * list, const char * name) {
+void gui_subsonic_artist_open(lv_obj_t * list, const char * name, const char * cover_id) {
     gui_subsonic_artist_clear(list);
     artist_list = list;
+    snprintf(artist_cover, sizeof(artist_cover), "%s", cover_id ? cover_id : "");
     gui_subsonic_artist_summary(subsonic_albums_cache, subsonic_albums_count, &summary);
     revisions = (gui_artist_revisions_t){ .summary = 1, .duration = 1 };
     for (int i = 0; i < summary.mosaic_count; i++)
         summary.mosaic_key[i] = gui_subsonic_covers_key(subsonic_albums_cache[i].cover_art);
     gui_artist_page_params_t params = { .name = name, .albums = summary.albums, .songs = summary.songs,
-        .counts_from_summary = true, .snapshot = snapshot, .copy_tile = copy_tile, .on_play = play, .on_shuffle = shuffle, .on_songs = songs };
+        .copy_artist = artist_cover[0] ? copy_artist : NULL, .counts_from_summary = true, .snapshot = snapshot, .copy_tile = copy_tile, .on_play = play, .on_shuffle = shuffle, .on_songs = songs };
     gui_artist_page_build(list, &params);
 }
 

@@ -95,6 +95,9 @@ uint32_t library_thumbnails_commit_count(void);
 /* Copies a cached album thumbnail (ALBUM_THUMBNAIL_PX square RGB565) for a page
  * that draws its own tiles. False when it is not cached yet, or *out_no_art
  * when the album is known to have no cover. */
+bool library_thumbnails_copy_artist_photo(uint64_t key, uint16_t * dst, bool * no_art);
+void library_thumbnails_request_artist_photo(lv_obj_t * list, int64_t song_id, uint64_t key,
+                                             metadata_db_group_kind_t kind, const char * name);
 bool library_thumbnails_copy_album(uint64_t artwork_key, uint16_t *dst, bool *out_no_art);
 /* Asks the shared pipeline to decode an album's thumbnail for `list` (the
  * visible, bound list); a no-op when cached, queued or the list is not shown. */

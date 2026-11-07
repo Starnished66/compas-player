@@ -95,6 +95,10 @@ uint32_t albumart_source_mtime_with_path(const albumart_info_t * info, char * si
 /* Artist thumbnails share the albumart cache directory, with a separate
  * filename namespace and a source mtime in the BMP header. Negative markers
  * store a caller-computed signature of the artist and album directories. */
+bool albumart_artist_photo_sized_thumb_fresh(const char * artist, uint32_t source_mtime,
+        int width, int height, char * found, size_t found_size);
+bool albumart_artist_photo_store_rgb565(const char * artist, uint32_t source_mtime,
+        int width, int height, const uint16_t * pixels);
 bool albumart_artist_sized_thumb_fresh(const char * artist, uint32_t source_mtime,
                                        int width, int height, char * found, size_t found_size);
 bool albumart_artist_store_rgb565(const char * artist, uint32_t source_mtime,

@@ -168,6 +168,14 @@ static void * album_thumbnail_thread_func(void * arg) {
                 artwork_failure_cache_note_success(req->song_id);
             }
         }
+    } else if (req->key_kind == THUMBNAIL_KEY_ARTIST_PHOTO) {
+        artist_thumbnail_resolution_t resolution;
+        (void) artist_thumbnail_load_photo(req->song_id, req->artist_group_kind, req->artist_name,
+                    ARTWORK_PRIO_THUMBNAIL, req->key, album_thumbnail_cancel_cb,
+                    (void *) (intptr_t) req->cache_epoch, &resolution);
+        pixels = resolution.pixels;
+        /* PHOTO uses this bit for confirmed absence, without an album failure record. */
+        album_thumbnail_result.have_source_mtime = resolution.negative_confirmed;
     } else {
         artist_thumbnail_resolution_t resolution;
         (void) artist_thumbnail_load_or_decode(req->song_id, req->artist_group_kind, req->artist_name,
@@ -256,7 +264,7 @@ static void start_next_album_thumbnail(void) {
 void queue_thumbnail(lv_obj_t * list, int logical_index, thumbnail_key_kind_t key_kind,
                             uint64_t key, int64_t representative_song_id,
                             metadata_db_group_kind_t artist_group_kind, const char * artist_name) {
-    if ((key_kind == THUMBNAIL_KEY_ARTIST && !atomic_load(&artist_thumbnail_work_enabled)) ||
+    if ((key_kind != THUMBNAIL_KEY_ALBUM && !atomic_load(&artist_thumbnail_work_enabled)) ||
         thumbnail_policy(LIBRARY_THUMB_POLICY_LAZY) || representative_song_id <= 0 || key == 0 || album_thumbnail_scrolling ||
         list != album_thumbnail_active_list || !album_thumbnail_list_is_visible(list) ||
         album_thumbnail_cache_find(key_kind, key)) return;
@@ -288,7 +296,7 @@ void queue_thumbnail(lv_obj_t * list, int logical_index, thumbnail_key_kind_t ke
         .logical_index = logical_index,
         .list = list
     };
-    if (key_kind == THUMBNAIL_KEY_ARTIST)
+    if (key_kind != THUMBNAIL_KEY_ALBUM)
         snprintf(album_thumbnail_queue[album_thumbnail_queue_count - 1].artist_name,
                  sizeof(album_thumbnail_queue[album_thumbnail_queue_count - 1].artist_name),
                  "%s", artist_name ? artist_name : "");
@@ -358,7 +366,7 @@ void album_thumbnail_poll_cb(lv_timer_t * timer) {
                 result_committed = true;
             }
         } else {
-            album_thumbnail_cache_commit(THUMBNAIL_KEY_ALBUM, album_thumbnail_result.key,
+            album_thumbnail_cache_commit(album_thumbnail_result.key_kind, album_thumbnail_result.key,
                 album_thumbnail_result.song_id, album_thumbnail_result.pixels,
                 album_thumbnail_result.have_source_mtime, album_thumbnail_result.source_mtime);
             album_thumbnail_result.pixels = NULL;
@@ -430,4 +438,9 @@ void library_thumbnails_dispatch_ready(void) {
 
 void library_thumbnails_request_album(lv_obj_t * list, int64_t song_id, uint64_t artwork_key) {
     queue_thumbnail(list, 0, THUMBNAIL_KEY_ALBUM, artwork_key, song_id, METADATA_DB_GROUP_ARTIST, NULL);
+}
+
+void library_thumbnails_request_artist_photo(lv_obj_t * list, int64_t song_id, uint64_t key,
+                                             metadata_db_group_kind_t kind, const char * name) {
+    queue_thumbnail(list, 0, THUMBNAIL_KEY_ARTIST_PHOTO, key, song_id, kind, name);
 }
