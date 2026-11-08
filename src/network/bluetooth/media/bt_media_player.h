@@ -8,6 +8,11 @@
  * queries. BlueZ transport buttons are read by hw_buttons and delivered
  * through bt_media_player_dispatch_avrcp_key(). */
 void bt_media_player_init(void);
+/* Nonblocking DAC button queue; dispatched on the Bluetooth worker. */
+void bt_media_player_control_phone(int direction);
+void bt_media_player_set_phone_control_enabled(bool enabled);
+void bt_media_player_set_phone_target(const char *mac);
+void bt_media_player_dispatch_phone_command(void);
 
 /* One BlueZ AVRCP transport event from the hardware reader. value 1 enqueues
  * play/pause, next, or previous on the same flags the D-Bus methods use.

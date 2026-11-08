@@ -31,6 +31,7 @@ const char *playlist_path_at(int index) {
 }
 
 bool gui_player_queue_restart_displayed(int selected) {
+    if (!gui_player_local_playback_allowed()) return false;
     int physical = -1;
     return player_queue_model_restart_displayed(selected, current_settings.play_mode, &physical);
 }
@@ -137,6 +138,7 @@ bool gui_player_queue_edit(uint64_t revision, int from, int to) {
 }
 
 bool gui_player_queue_select(uint64_t revision, int index) {
+    if (!gui_player_local_playback_allowed()) return false;
     if (audio_consume_track_advanced()) gui_player_handle_auto_advance();
     int physical = -1;
     if (!player_queue_model_select_displayed(revision, index, current_settings.play_mode, &physical))

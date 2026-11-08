@@ -80,6 +80,7 @@ static void * bt_connect_thread_func(void * arg) {
 }
 
 static void start_bt_connect(const char * mac) {
+    if (current_settings.bt_dac_mode_enabled) return;
     if (bt_connect_active) return; /* one at a time -- bt_connect_thread/succeeded are single shared slots */
 
     bt_connect_request_t * req = malloc(sizeof(*req));
@@ -939,11 +940,11 @@ void open_bluetooth_screen(void) {
 
 /* Called from the periodic refresh and when a pairing screen opens: pairing
  * stays open while a screen a phone pairs from is shown: Bluetooth, the
- * Bluetooth DAC overlay, and Remote Control while it is enabled. */
+ * Bluetooth DAC screen, and Remote Control while it is enabled. */
 void gui_network_extend_bt_pairing_window(void) {
-    lv_obj_t * dac_overlay = gui_network_get_bt_dac_overlay();
+    lv_obj_t * dac_screen = gui_network_get_bt_dac_screen();
     if ((bt_screen && gui_navigation_is_top(bt_screen)) ||
-        (dac_overlay && gui_navigation_is_top(dac_overlay)) ||
+        (dac_screen && gui_navigation_is_top(dac_screen)) ||
         (remote_control_screen && current_settings.remote_control_enabled &&
          gui_navigation_is_top(remote_control_screen)))
         bt_pairing_agent_allow_pairing_for(BT_PAIRING_WINDOW_MS);

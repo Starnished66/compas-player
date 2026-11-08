@@ -6,7 +6,7 @@
 lv_obj_t * gui_network_get_wifi_screen(void);
 lv_obj_t * gui_network_get_bt_screen(void);
 lv_obj_t * gui_network_get_wireless_screen(void);
-lv_obj_t * gui_network_get_bt_dac_overlay(void);
+lv_obj_t * gui_network_get_bt_dac_screen(void);
 lv_obj_t * gui_network_get_usb_dac_overlay(void);
 
 /* True while USB DAC mode owns the UI -- i.e. the device is presenting
@@ -105,5 +105,12 @@ void gui_network_handle_wifi_disabled(void);
  * the caller should draw. Safe to call before the corresponding settings
  * screen has ever been built. */
 bool gui_network_toggle_airplay(void);
+bool gui_network_toggle_bt_dac(void);
+void gui_network_open_bt_dac(void);
 bool gui_network_toggle_dlna(void);
 bool gui_network_toggle_remote_control(void);
+
+bool gui_network_airplay_enable_pending(void);
+bool gui_network_usb_dac_pending(void);
+
+void disable_bt_dac_mode(void);

@@ -86,7 +86,8 @@ static bool idle_shutdown_attempted = false;
 /* Receiver modes that need their radio or gadget up to keep receiving. */
 static bool dac_receive_mode_active(void) {
     return current_settings.wifi_dac_mode_enabled || current_settings.bt_dac_mode_enabled ||
-           current_settings.usb_mode == (int) USB_MODE_DAC;
+           gui_shell_bt_dac_busy() || gui_network_airplay_enable_pending() ||
+           gui_network_usb_dac_pending() || current_settings.usb_mode == (int) USB_MODE_DAC;
 }
 
 /* Idle radio suspend and idle shutdown never interrupt a DAC mode, playback,
@@ -473,6 +474,7 @@ static void request_screen_power(bool on) {
 }
 
 void gui_sleep_timer_expired(void) {
+    if (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy()) disable_bt_dac_mode();
     /* A deliberate sleep timer must still finish the session when pausing
      * alone no longer releases the visible-lyrics keep-awake hold. */
     if (current_settings.lyrics_keep_screen_on && gui_lyrics_is_visible())
@@ -587,9 +589,9 @@ static bool physical_button_dispatch(button_mapping_action_t action,
     switch (action) {
         case BUTTON_MAPPING_ACTION_SCREEN_TOGGLE: physical_button_screen_toggle(); break;
         case BUTTON_MAPPING_ACTION_POWER_MENU: physical_button_power_menu(); break;
-        case BUTTON_MAPPING_ACTION_PLAY_PAUSE: toggle_play_pause(); break;
-        case BUTTON_MAPPING_ACTION_NEXT: gui_player_step_manual(1); break;
-        case BUTTON_MAPPING_ACTION_PREVIOUS: gui_player_step_manual(-1); break;
+        case BUTTON_MAPPING_ACTION_PLAY_PAUSE: if (!gui_player_transport_button(0)) toggle_play_pause(); break;
+        case BUTTON_MAPPING_ACTION_NEXT: if (!gui_player_transport_button(1)) gui_player_step_manual(1); break;
+        case BUTTON_MAPPING_ACTION_PREVIOUS: if (!gui_player_transport_button(-1)) gui_player_step_manual(-1); break;
         case BUTTON_MAPPING_ACTION_SEEK_FORWARD:
         case BUTTON_MAPPING_ACTION_SEEK_BACKWARD:
             gui_player_hw_seek_steps(action == BUTTON_MAPPING_ACTION_SEEK_FORWARD ? 1 : -1,
@@ -927,6 +929,7 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
         !shutdown_background_work_active() &&
         gui_network_prepare_radio_sleep()) {
         if (current_settings.idle_suspend_enabled) {
+            if (!gui_shell_bt_dac_shutdown(true)) return;
             plugin_manager_notify_suspending();
             led_control_suspend();
             power_suspend_now();
@@ -947,6 +950,7 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
              * indefinitely after a single spurious wake. */
             idle_shutdown_attempted = false;
         } else {
+            (void) gui_shell_bt_dac_shutdown(false);
             idle_shutdown_attempted = true;
             idle_shutdown_now();
         }

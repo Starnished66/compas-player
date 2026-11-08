@@ -1,4 +1,5 @@
 #include "gui_plugin_library.h"
+#include "../../library/parsers/cue/cue_parser.h"
 #include "../../library/artwork/support/library_player_art.h"
 #include "../../library/metadata/db/metadata_db.h"
 #include "../library/browse/gui_library.h"
@@ -31,44 +32,47 @@ char ** gui_plugin_get_artist_albums(const char * artist, int * out_count) {
     return names;
 }
 
+/* A file's tracks: one per cue track when it has an embedded sheet, else the file itself. */
+static char ** album_row_tracks(const char * path, int * count) {
+    cue_sheet_t sheet;
+    bool embedded = !cue_reference_is(path) && cue_parse_embedded(path, &sheet);
+    *count = embedded ? sheet.track_count : 0;
+    if (embedded) cue_sheet_free(&sheet);
+    if (*count > 0) return cue_sheet_references(path, *count);
+    *count = 1;
+    char ** tracks = malloc(sizeof(*tracks));
+    if (tracks && !(tracks[0] = strdup(path))) { free(tracks); tracks = NULL; }
+    return tracks;
+}
+
 static char ** load_plugin_album_group_paths(const char * album, const char * album_artist, int * out_count) {
     *out_count = 0;
     char ** paths = NULL;
-    size_t capacity = 0;
-    int loaded = 0;
+    int loaded = 0, offset = 0;
     song_row_t rows[64];
     for (;;) {
-        int got = metadata_db_get_album_songs(album, album_artist, loaded, rows, 64);
+        int got = metadata_db_get_album_songs(album, album_artist, offset, rows, 64);
         if (got <= 0) break;
-        if ((size_t) (loaded + got) > capacity) {
-            size_t new_capacity = capacity == 0 ? 64 : capacity * 2;
-            while (new_capacity < (size_t) (loaded + got)) new_capacity *= 2;
-            char ** grown = realloc(paths, new_capacity * sizeof(*paths));
-            if (!grown) {
-                for (int j = 0; j < loaded; j++) free(paths[j]);
-                free(paths);
-                return NULL;
-            }
-            paths = grown;
-            capacity = new_capacity;
-        }
         for (int i = 0; i < got; i++) {
-            paths[loaded + i] = strdup(rows[i].path);
-            if (!paths[loaded + i]) {
-                for (int j = 0; j < loaded + i; j++) free(paths[j]);
-                free(paths);
-                return NULL;
-            }
+            int count;
+            char ** tracks = album_row_tracks(rows[i].path, &count);
+            if (!tracks) goto fail;
+            char ** grown = loaded <= INT_MAX - count ?
+                realloc(paths, ((size_t) loaded + count) * sizeof(*paths)) : NULL;
+            if (!grown) { gui_plugin_free_string_array(tracks, count); goto fail; }
+            paths = grown;
+            memcpy(paths + loaded, tracks, (size_t) count * sizeof(*tracks));
+            free(tracks);
+            loaded += count;
         }
-        loaded += got;
+        offset += got;
         if (got < 64) break;
-    }
-    if (loaded == 0) {
-        free(paths);
-        return NULL;
     }
     *out_count = loaded;
     return paths;
+fail:
+    gui_plugin_free_string_array(paths, loaded);
+    return NULL;
 }
 
 char ** gui_plugin_get_album_tracks(const char * artist, const char * album, int * out_count) {

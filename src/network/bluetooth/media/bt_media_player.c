@@ -613,6 +613,7 @@ static void * dispatch_thread_func(void * arg) {
     clock_gettime(CLOCK_MONOTONIC, &previous_iteration);
     struct timespec metadata_change_time = previous_iteration;
     for (;;) {
+        bt_media_player_dispatch_phone_command();
         struct timespec iteration_time;
         clock_gettime(CLOCK_MONOTONIC, &iteration_time);
         double elapsed_seconds = (double) (iteration_time.tv_sec - previous_iteration.tv_sec) +

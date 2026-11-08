@@ -179,4 +179,8 @@ void bt_pref_rate_changed(void);
 /* Posts to the output watch's preference worker; false when none runs. */
 bool bt_pref_request(const char * path);
 
+/* Device identity of the BlueALSA PCM owner. */
+bool bt_pcm_path_mac(const char * path, char * mac);
+bool bt_device_info_text(const char * mac, char * out, size_t size);
+
 #endif

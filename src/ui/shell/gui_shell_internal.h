@@ -89,10 +89,7 @@
 #define QUICK_DRAWER_TOGGLE_STATE_GAP BOARD_SCALE_PY(24)
 #define QUICK_DRAWER_TOGGLE_CAPTION_GAP BOARD_SCALE_PY(2)
 #endif
-/* 4 native row-1 toggles + 5 native expanded-row ones (qd_toggle_t, declared further
- * down) + PLUGIN_MAX_QUICK_TOGGLES row-3 plugin tiles. Not expressed as
- * QD_TOGGLE_COUNT + ... because that enum is declared below this point. */
-#define QUICK_DRAWER_TOGGLE_SLOTS (9 + PLUGIN_MAX_QUICK_TOGGLES)
+#define QUICK_DRAWER_TOGGLE_SLOTS (QD_TOGGLE_COUNT + PLUGIN_MAX_QUICK_TOGGLES)
 
 /* ---- Expanded area ----------------------------------------------------
  * The handle under the first toggle row drags down to reveal two more rows.
@@ -168,6 +165,7 @@ typedef enum {
     /* Row 2, revealed by the expansion handle -- see build_quick_drawer()'s
      * own comment on the expanded area. */
     QD_TOGGLE_AIRPLAY,
+    QD_TOGGLE_BT_DAC,
     QD_TOGGLE_DLNA,
     QD_TOGGLE_GAPLESS,
     QD_TOGGLE_RC,
@@ -280,8 +278,8 @@ extern lv_obj_t * quick_drawer_volume_track;
 extern lv_obj_t * quick_drawer_volume_label;
 extern lv_obj_t * quick_drawer_toggle_state[QUICK_DRAWER_TOGGLE_SLOTS];
 extern lv_color_t shell_drawer_off_color;
-extern lv_obj_t * quick_drawer_toggle_icon[9 + PLUGIN_MAX_QUICK_TOGGLES];
-extern lv_obj_t * quick_drawer_toggle_name[9 + PLUGIN_MAX_QUICK_TOGGLES];
+extern lv_obj_t * quick_drawer_toggle_icon[QUICK_DRAWER_TOGGLE_SLOTS];
+extern lv_obj_t * quick_drawer_toggle_name[QUICK_DRAWER_TOGGLE_SLOTS];
 #if defined(BOARD_TEMPOTEC_V1)
 #else
 extern const int quick_drawer_column_label_x[];
@@ -290,6 +288,7 @@ extern lv_obj_t * quick_drawer_expansion_box;
 extern lv_obj_t * quick_drawer_expansion_handle;
 extern lv_obj_t * quick_drawer_card;
 extern lv_obj_t * quick_drawer_airplay_icon;
+extern lv_obj_t * quick_drawer_bt_dac_icon;
 extern lv_obj_t * quick_drawer_dlna_icon;
 extern lv_obj_t * quick_drawer_gapless_icon;
 extern lv_obj_t * quick_drawer_rc_icon;
@@ -411,6 +410,7 @@ void start_bt_source_codec_reconcile_if_needed(void);
 void poll_bt_source_codec_reconcile(void);
 void poll_bt_reconnect(void);
 void poll_bt_apply_output_settings(void);
+void poll_bt_dac_session(void);
 void brightness_hw_apply_timer_cb(lv_timer_t * timer);
 void quick_drawer_brightness_changed_cb(lv_event_t * e);
 void quick_drawer_make_toggle_labels(int slot, int32_t x, int32_t row_y,

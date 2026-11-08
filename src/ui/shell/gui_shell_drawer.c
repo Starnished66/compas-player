@@ -47,10 +47,9 @@ lv_obj_t * quick_drawer_volume_label = NULL;
 static hw_volume_coalesce_t quick_drawer_volume_hv = { .pending = -1 };
 lv_obj_t * quick_drawer_toggle_state[QUICK_DRAWER_TOGGLE_SLOTS];
 /* Stable references let customization move a complete toggle without
- * rebuilding widgets or changing their event callbacks. IDs 0..8 are the
- * native toggles; ID 9 is represented by plugin indices below. */
-lv_obj_t * quick_drawer_toggle_icon[9 + PLUGIN_MAX_QUICK_TOGGLES];
-lv_obj_t * quick_drawer_toggle_name[9 + PLUGIN_MAX_QUICK_TOGGLES];
+ * rebuilding widgets or changing their event callbacks. Native IDs match qd_toggle_t; plugin IDs follow QD_TOGGLE_COUNT. */
+lv_obj_t * quick_drawer_toggle_icon[QUICK_DRAWER_TOGGLE_SLOTS];
+lv_obj_t * quick_drawer_toggle_name[QUICK_DRAWER_TOGGLE_SLOTS];
 #if defined(BOARD_TEMPOTEC_V1)
 #else
 const int quick_drawer_column_label_x[] = { 39, 143, 251, 358 };
@@ -68,7 +67,7 @@ void quick_drawer_size_toggle_caption(lv_obj_t * label) {
 }
 #if defined(BOARD_TEMPOTEC_V1)
 static void quick_drawer_pack_primary_captions(void) {
-    enum { MAX_LABELS = 9 + PLUGIN_MAX_QUICK_TOGGLES,
+    enum { MAX_LABELS = QUICK_DRAWER_TOGGLE_SLOTS,
            LEFT = 10, RIGHT = 230, GAP = 4, FALLBACK_W = 51 };
     lv_obj_t * labels[MAX_LABELS];
     lv_obj_t * icons[MAX_LABELS];
@@ -159,6 +158,7 @@ lv_obj_t * quick_drawer_expansion_box = NULL;
 lv_obj_t * quick_drawer_expansion_handle = NULL;
 lv_obj_t * quick_drawer_card = NULL;
 lv_obj_t * quick_drawer_airplay_icon = NULL;
+lv_obj_t * quick_drawer_bt_dac_icon = NULL;
 lv_obj_t * quick_drawer_dlna_icon = NULL;
 lv_obj_t * quick_drawer_gapless_icon = NULL;
 lv_obj_t * quick_drawer_rc_icon = NULL;
@@ -273,6 +273,7 @@ static const char * const qd_toggle_on_asset[QD_TOGGLE_COUNT] = {
     "pull_down/sleep_switch_s.png",
     "pull_down/fade_s.png",
     "pull_down/airplay_s.png",
+    "pull_down/bt_dac_s.png",
     "pull_down/dlna_s.png",
     "pull_down/gapless_play_s.png",
     "pull_down/hibylink_s.png",
@@ -284,6 +285,7 @@ static const char * const qd_toggle_off_asset[QD_TOGGLE_COUNT] = {
     "pull_down/sleep_switch.png",
     "pull_down/fade.png",
     "pull_down/airplay.png",
+    "pull_down/bt_dac.png",
     "pull_down/dlna.png",
     "pull_down/gapless_play.png",
     "pull_down/hibylink.png",
@@ -483,6 +485,7 @@ void gui_shell_refresh_quick_drawer_expansion_toggles(void) {
         bool on;
     } toggles[] = {
         { QD_TOGGLE_AIRPLAY, quick_drawer_airplay_icon, current_settings.wifi_dac_mode_enabled },
+        { QD_TOGGLE_BT_DAC, quick_drawer_bt_dac_icon, current_settings.bt_dac_mode_enabled },
         { QD_TOGGLE_DLNA, quick_drawer_dlna_icon, current_settings.dlna_renderer_enabled },
         { QD_TOGGLE_GAPLESS, quick_drawer_gapless_icon, current_settings.gapless_enabled },
         { QD_TOGGLE_RC, quick_drawer_rc_icon, current_settings.remote_control_enabled },
@@ -734,8 +737,7 @@ static void quick_drawer_place_widget(lv_obj_t * obj, lv_obj_t * parent,
 }
 
 /* Repositions existing objects in semantic order. The first row remains
- * visible when the drawer is collapsed; the next four toggles occupy the
- * first revealed row and the remaining five fit in the second. */
+ * visible when the drawer is collapsed; two revealed rows hold four more each. */
 _Static_assert(UI_DRAWER_COUNT + PLUGIN_MAX_QUICK_TOGGLES <= UI_ORDER_MAX,
                "Quick Drawer order cannot hold every plugin toggle");
 void quick_drawer_reflow_customization(void) {
@@ -744,11 +746,11 @@ void quick_drawer_reflow_customization(void) {
     ui_customization_t customization = ui_customization_effective();
     quick_drawer_reset_expansion();
 
-    quick_drawer_layout_item_t items[9 + PLUGIN_MAX_QUICK_TOGGLES];
+    quick_drawer_layout_item_t items[QUICK_DRAWER_TOGGLE_SLOTS];
     int count = 0;
-    for (unsigned i = 0; i < customization.drawer.count && i < UI_ORDER_MAX; ++i) {
+    for (unsigned i = 0; i < customization.drawer.count && i < UI_ORDER_MAX && count < UI_DRAWER_MAX_TILES; ++i) {
         unsigned id = customization.drawer.ids[i];
-        if (id < 9) {
+        if (id < QD_TOGGLE_COUNT) {
             if (quick_drawer_toggle_icon[id] && quick_drawer_toggle_name[id] &&
                 quick_drawer_toggle_state[id]) {
                 items[count++] = (quick_drawer_layout_item_t){
@@ -757,8 +759,8 @@ void quick_drawer_reflow_customization(void) {
                 };
             }
         } else if (id >= UI_DRAWER_COUNT) {
-            /* One plugin toggle; id 9 ("plugins") only marks where new ones go. */
-            int index = 9 + (int)(id - UI_DRAWER_COUNT);
+            /* The final native order key marks where new plugins go. */
+            int index = QD_TOGGLE_COUNT + (int)(id - UI_DRAWER_COUNT);
             int state_index = QD_TOGGLE_COUNT + (int)(id - UI_DRAWER_COUNT);
             if (id - UI_DRAWER_COUNT < (unsigned)quick_drawer_plugin_toggle_count &&
                 quick_drawer_toggle_icon[index] && quick_drawer_toggle_name[index] &&
@@ -795,10 +797,8 @@ void quick_drawer_reflow_customization(void) {
         int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP
                              : (row - 1) * (QUICK_DRAWER_TOGGLE_ROW_PITCH - BOARD_SCALE_PY(60));
 #else
-        int row = i < 4 ? 0 : i < 8 ? 1 : 2;
-        int column = row == 0 ? i : row == 1 ? i - 4 : i - 8;
-        int row_count = row == 0 ? (count < 4 ? count : 4) :
-                        row == 1 ? (count - 4 < 4 ? count - 4 : 4) : count - 8;
+        int row = i / 4, column = i % 4;
+        int row_count = count - row * 4 < 4 ? count - row * 4 : 4;
         int32_t x = quick_drawer_toggle_column_x(column, row_count);
         int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP :
                     row == 1 ? 0 : QUICK_DRAWER_TOGGLE_ROW_PITCH;
@@ -836,7 +836,7 @@ void quick_drawer_reflow_customization(void) {
     }
     /* Keep omitted toggles hidden even if a timer or a state refresh updates
      * their image or caption later. */
-    for (int i = 0; i < 9 + quick_drawer_plugin_toggle_count; ++i) {
+    for (int i = 0; i < QD_TOGGLE_COUNT + quick_drawer_plugin_toggle_count; ++i) {
         bool visible = false;
         for (int j = 0; j < count; ++j)
             if (items[j].id == i) { visible = true; break; }
@@ -844,7 +844,7 @@ void quick_drawer_reflow_customization(void) {
             lv_obj_t * parent = i < 4 ? quick_drawer : quick_drawer_expansion_box;
             quick_drawer_place_widget(quick_drawer_toggle_icon[i], parent, 0, 0, false);
             quick_drawer_place_widget(quick_drawer_toggle_name[i], parent, 0, 0, false);
-            int state_index = i < 9 ? i : QD_TOGGLE_COUNT + (i - 9);
+            int state_index = i;
             if (state_index < QUICK_DRAWER_TOGGLE_SLOTS)
                 quick_drawer_place_widget(quick_drawer_toggle_state[state_index], parent, 0, 0, false);
         }
@@ -937,7 +937,7 @@ void quick_drawer_teardown_widgets(void) {
     quick_drawer_volume_track = NULL;
     quick_drawer_volume_label = NULL;
     for (int i = 0; i < QUICK_DRAWER_TOGGLE_SLOTS; i++) quick_drawer_toggle_state[i] = NULL;
-    for (int i = 0; i < 9 + PLUGIN_MAX_QUICK_TOGGLES; i++) {
+    for (int i = 0; i < QUICK_DRAWER_TOGGLE_SLOTS; i++) {
         quick_drawer_toggle_icon[i] = NULL;
         quick_drawer_toggle_name[i] = NULL;
     }
@@ -949,6 +949,7 @@ void quick_drawer_teardown_widgets(void) {
     quick_drawer_expansion_handle = NULL;
     quick_drawer_card = NULL;
     quick_drawer_airplay_icon = NULL;
+    quick_drawer_bt_dac_icon = NULL;
     quick_drawer_dlna_icon = NULL;
     quick_drawer_gapless_icon = NULL;
     quick_drawer_rc_icon = NULL;

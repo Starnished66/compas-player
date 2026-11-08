@@ -111,3 +111,8 @@ void gui_network_services_cancel(void);
 void gui_network_choice_settings_build(void);
 void gui_network_choice_settings_teardown(void);
 
+
+/* gui_network_bt_dac.c */
+void gui_network_bt_dac_build(void);
+void gui_network_bt_dac_refresh(void);
+void gui_network_bt_dac_teardown(void);

@@ -163,6 +163,8 @@ void on_file_browser_selected(char ** new_playlist, int count, int selected_inde
 void on_track_auto_advanced(int index);
 void play_track_at(int index);
 void play_track_at_from(int index, double start_seconds);
+bool gui_player_local_playback_allowed(void);
+bool gui_player_transport_button(int direction); /* -1 previous, 0 play/pause, 1 next */
 void toggle_play_pause(void);
 int compute_manual_step_index(int index, int direction);
 void arm_next_track_for_audio(int current_index);

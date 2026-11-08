@@ -66,11 +66,12 @@ void remote_control_get_import_state(remote_import_state_t *state, char *error, 
  * 3=Shuffle with repeat, 4=Shuffle once).
  * favorite is the player's cached heart state for that track. accent_rgb is
  * the effective UI accent copied by the UI-thread caller; the network thread
- * only reads its published snapshot. */
+ * only reads its published snapshot. dac_mode means the enabled Bluetooth
+ * receiver owns playback; its cached stream replaces local track state. */
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
                                    int duration_seconds, float volume, int play_mode, bool favorite,
-                                   uint32_t accent_rgb);
+                                   uint32_t accent_rgb, bool dac_mode);
 void remote_control_notify_library_sorting(int albums, int artists, int album_artists);
 bool remote_control_consume_library_sorting(int *scope, int *mode);
 bool remote_control_consume_collection(remote_collection_play_request_t *request);

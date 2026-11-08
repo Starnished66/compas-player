@@ -13,7 +13,6 @@
 #include "../../../library/remote/remote_track.h"
 #include "../../assets/assets.h"
 #include "../../text/rendering/fallback_font.h"
-#include "src/misc/lv_text_private.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,10 +39,10 @@ static uint64_t displayed_revision;
 static bool queue_editing;
 static lv_obj_t * queue_actions, * queue_actions_backdrop;
 static void queue_actions_open(lv_event_t * e);
-static int displayed_current = -1;
+static lv_obj_t * queue_current_row;
+static lv_obj_t * queue_current_heading;
 
-/* Slot = display index - queue_page. Only rows after the current track are
- * draggable; they are contiguous in queue_list. */
+/* Slot = display index - queue_page. Only future songs are draggable. */
 static lv_obj_t * queue_rows[QUEUE_PAGE_SIZE];
 static lv_obj_t * queue_handles[QUEUE_PAGE_SIZE];
 static gui_list_reorder_state_t queue_reorder_state = { .drag_id = -1 };
@@ -126,22 +125,6 @@ static void queue_screen_unload_cb(lv_event_t * e) {
     queue_finish_drag();
 }
 
-static int32_t queue_state_column_width(void) {
-    static const char * states[] = { N_("Played"), N_("Playing"), N_("Queued"), N_("Next") };
-    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
-    lv_text_attributes_t attributes;
-    lv_text_attributes_init(&attributes);
-    int32_t width = BOARD_SCALE_PX(72);
-    for (size_t i = 0; i < sizeof(states) / sizeof(states[0]); ++i) {
-        const char * state = TR(states[i]);
-        int32_t text_width = lv_text_get_width(state, (uint32_t) strlen(state), font, &attributes);
-        if (text_width > width) width = text_width;
-    }
-    int32_t maximum = LIST_ROW_WIDTH / 3;
-    if (width > maximum) width = maximum;
-    return width + BOARD_SCALE_PX(8);
-}
-
 bool gui_queue_boot_prompt_blocked(void) {
     return (queue_actions && !lv_obj_has_flag(queue_actions, LV_OBJ_FLAG_HIDDEN)) ||
            (queue_actions_backdrop && !lv_obj_has_flag(queue_actions_backdrop, LV_OBJ_FLAG_HIDDEN)) ||
@@ -189,7 +172,8 @@ void populate_queue_screen(void) {
     queue_reorder_state.restore = queue_reorder_restore;
     lv_obj_clean(queue_list);
     displayed_revision = revision;
-    displayed_current = current;
+    queue_current_row = NULL;
+    queue_current_heading = NULL;
     /* No in-list "Start playlist" row here -- the header's own "Options"
      * button (build_queue_screen()) already opens this exact same
      * queue_actions popup (Start sequentially/Shuffle/Edit/Clear/Save),
@@ -207,7 +191,29 @@ void populate_queue_screen(void) {
     }
     int end = queue_page + QUEUE_PAGE_SIZE;
     if (end > count) end = count;
+    int pending = gui_player_get_queued_count();
+    if (pending < 0) pending = 0;
+    if (pending > count - current - 1) pending = count - current - 1;
+    int previous_section = -1;
     for (int i = queue_page; i < end; i++) {
+        int section = i < current ? 0 : i == current ? 1 :
+                      i - current <= pending ? 2 : 3;
+        if (section != previous_section) {
+            const char * heading;
+            char queued_heading[160];
+            if (section == 0) heading = TR("Played");
+            else if (section == 1) heading = TR("Now Playing");
+            else if (section == 2) {
+                snprintf(queued_heading, sizeof(queued_heading), "%s · %d", TR("In Queue"), pending);
+                heading = queued_heading;
+            } else heading = TR("Continue Playing");
+            lv_obj_t * header = add_wrapped_section_header(queue_list, heading);
+            lv_obj_set_width(header, LIST_ROW_WIDTH);
+            lv_obj_set_style_pad_left(header, GUI_TEXT_INSET, 0);
+            lv_obj_set_style_pad_right(header, GUI_TEXT_INSET, 0);
+            if (section == 1) queue_current_heading = header;
+            previous_section = section;
+        }
         const char * path = gui_player_get_track_path_at(order[i]);
         char title[128], subtitle[256], numbered_title[160];
         song_row_t song;
@@ -278,8 +284,6 @@ void populate_queue_screen(void) {
             get_display_names(path, title, sizeof(title), folder, sizeof(folder));
             subtitle[0] = '\0';
         }
-        const char * state = i < current ? TR("Played") : i == current ? TR("Playing") :
-            i <= current + gui_player_get_queued_count() ? TR("Queued") : TR("Next");
         snprintf(numbered_title, sizeof(numbered_title), "%d. %s", i + 1, title);
         if (queue_editing && i > current) {
             const int32_t action_slot = BOARD_SCALE_PX(44);
@@ -340,25 +344,9 @@ void populate_queue_screen(void) {
             lv_obj_align(button, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(34), 0);
             lv_obj_add_event_cb(button, queue_edit_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
         } else {
-            /* Same title/metadata geometry as Favorites/Most Played, with a
-             * dedicated trailing column reserved before either label is
-             * laid out. The queue state aligns with the metadata line and
-             * cannot overlap or be crossed by either marquee. */
-            const int32_t state_column_width = queue_state_column_width();
-            const int32_t state_column_reserve = state_column_width + GUI_TEXT_INSET + BOARD_SCALE_PX(8);
-            lv_obj_t * row = build_music_list_row(queue_list, numbered_title, subtitle, state_column_reserve);
-            lv_obj_t * state_label = lv_label_create(row);
-            lv_label_set_text(state_label, state);
-            lv_obj_add_style(state_label, &style_theme_text_muted, 0);
-            lv_obj_set_style_text_font(state_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-            lv_obj_set_width(state_label, state_column_width);
-            lv_obj_set_pos(state_label, LIST_ROW_WIDTH - GUI_TEXT_INSET - state_column_width, 0);
-            lv_obj_set_style_text_align(state_label, LV_TEXT_ALIGN_RIGHT, 0);
-            row_label_apply_bounded_height(state_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
-            music_list_row_align_badge(row, state_label);
-            lv_label_set_long_mode(state_label, LV_LABEL_LONG_DOT);
+            lv_obj_t * row = build_music_list_row(queue_list, numbered_title, subtitle, 0);
             if (i == current) {
-                lv_obj_add_style(state_label, gui_theme_accent_style(), 0);
+                queue_current_row = row;
                 lv_obj_set_style_border_side(row, LV_BORDER_SIDE_LEFT, 0);
                 lv_obj_set_style_border_width(row, 4, 0);
                 lv_obj_set_style_border_color(row, accent_lv_color(), 0);
@@ -454,10 +442,11 @@ void open_queue_screen(void) {
     queue_editing = false;
     populate_queue_screen();
     nav_push(queue_screen);
-    int row = displayed_current - queue_page + 1 + (queue_page > 0 ? 1 : 0);
     lv_obj_update_layout(queue_list);
-    if (row >= 0 && row < (int) lv_obj_get_child_count(queue_list))
-        lv_obj_scroll_to_view(lv_obj_get_child(queue_list, row), LV_ANIM_OFF);
+    if (queue_current_row) {
+        lv_obj_scroll_to_view(queue_current_row, LV_ANIM_OFF);
+        lv_obj_scroll_to_view(queue_current_heading, LV_ANIM_OFF);
+    }
 }
 
 void gui_queue_poll(void) {
@@ -562,4 +551,6 @@ void gui_queue_teardown(void) {
     if (song_context_menu_popup_backdrop) { lv_obj_delete(song_context_menu_popup_backdrop); song_context_menu_popup_backdrop = NULL; }
     if (queue_screen) { lv_obj_delete(queue_screen); queue_screen = NULL; }
     queue_list = NULL;
+    queue_current_row = NULL;
+    queue_current_heading = NULL;
 }

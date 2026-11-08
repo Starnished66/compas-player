@@ -20,6 +20,10 @@ typedef struct {
 typedef struct {
     bool available;
     bool running;
+    char mac[18];
+    char pcm_path[256];
+    uint32_t generation;
+    char device_name[64];
     char codec[32];
     char pcm_format[32];
     unsigned int sample_rate;
@@ -29,9 +33,13 @@ typedef struct {
 
 /* Non-blocking, thread-safe cached snapshot. */
 void bt_control_get_dac_stream_info(bt_dac_stream_info_t * out);
+bool bt_control_dac_route_start(const bt_dac_stream_info_t * stream, bt_control_cancel_callback_t cancelled, void * ctx);
+bool bt_control_dac_route_alive(void);
+void bt_control_dac_set_reserved(bool reserved);
+bool bt_control_dac_route_stop(void);
 
-/* bluetoothd and BlueALSA 5 are already running on this device (plus a
- * pairing agent: bt-agent in DAC mode, bt_pairing_agent.c in source mode); everything here just drives bluetoothctl's
+/* bluetoothd and BlueALSA 5 are already running on this device (plus an
+ * in-process pairing agent); everything here just drives bluetoothctl's
  * non-interactive CLI mode (`bluetoothctl <command> [args]`), which
  * produces clean output with no ANSI/prompt junk to strip. */
 
@@ -139,11 +147,10 @@ int bt_control_scan(int seconds, bt_device_t * out, int max_count);
 /* Pair (if not already) + trust + connect, in that order -- trusting first
  * means a future reconnect (e.g. after the device is turned off and back
  * on) won't need to go through this flow again, matching normal phone/OS
- * Bluetooth UX. Source mode runs the in-process DisplayYesNo agent
- * (bt_pairing_agent.c) that auto-confirms numeric comparison, since some car
- * head units refuse A2DP over an unauthenticated Just Works key, and answers
- * PIN requests with 0000; DAC mode keeps a NoInputNoOutput bt-agent.
- * No PIN prompt is needed from this app. Blocking;
+ * Bluetooth UX. Both audio modes use the in-process DisplayYesNo agent
+ * (bt_pairing_agent.c): the user confirms numeric comparison on the player,
+ * and legacy PIN requests are answered with 0000. Authenticated pairing also
+ * supports Remote Control and car head units that require MITM protection. Blocking;
  * call off the UI thread. */
 bool bt_control_connect_with_rate(const char * mac, unsigned int rate);
 

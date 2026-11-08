@@ -1,6 +1,7 @@
 #include "gui_shell_internal.h"
 
 static bool bt_toggle_active = false;
+static bool bt_dac_power_off_pending;
 static bool bt_toggle_target_enabled = false;
 static bool bt_toggle_followup_pending = false;
 static bool bt_toggle_followup_target_enabled = false;
@@ -493,9 +494,8 @@ static void * bt_toggle_thread_func(void * arg) {
     bool chip_wedged = false;
     if (!turning_on) {
         atomic_store_explicit(&bt_media_player_enable_pending, false, memory_order_release);
-        /* If Bluetooth DAC mode is active, tear down its processes
-         * (bluealsa/bt-agent) before powering down the radio to prevent
-         * orphaned processes from corrupting bluetoothd adapter registration. */
+        /* Leave DAC mode before powering down: stop playback and restore
+         * the source profile while keeping the shared pairing agent. */
         if (current_settings.bt_dac_mode_enabled) {
             bt_control_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
             bt_toggle_forced_dac_off = true;
@@ -596,12 +596,23 @@ void quick_drawer_bt_event_cb(lv_event_t * e) {
 }
 
 void gui_shell_bt_request_power(bool bt_will_be_powered) {
+    if (bt_will_be_powered) bt_dac_power_off_pending = false;
+    if (!bt_will_be_powered && (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())) {
+        bt_dac_power_off_pending = true;
+        gui_shell_bt_dac_remember(true);
+        current_settings.bt_dac_mode_enabled = false;
+        gui_shell_bt_dac_release();
+        start_bt_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
+        return;
+    }
     if (current_settings.bt_last_on != bt_will_be_powered) {
         current_settings.bt_last_on = bt_will_be_powered;
         settings_save_async(&current_settings);
     }
 
     if (!bt_will_be_powered) {
+        current_settings.bt_dac_mode_enabled = false;
+        gui_shell_bt_dac_release();
         /* Explicit OFF is user intent immediately, before the slow toggle
          * worker has produced its next authoritative snapshot. */
         gui_shell_cancel_bt_reconnect();
@@ -659,12 +670,7 @@ void poll_bt_toggle(void) {
     if (bt_toggle_forced_dac_off) {
         current_settings.bt_dac_mode_enabled = false;
         settings_save(&current_settings);
-        /* Bluetooth just got disabled out from under DAC mode -- if its
-         * overlay is the screen currently showing, staying on it is
-         * meaningless (there's no Bluetooth left to receive audio over),
-         * so close it automatically instead of leaving a "Bluetooth DAC
-         * mode" screen up with nothing backing it. */
-        if (lv_screen_active() == gui_network_get_bt_dac_overlay()) nav_pop();
+
     }
 
     if (bt_toggle_followup_pending) {
@@ -827,13 +833,20 @@ void poll_bt_reconnect(void) {
                         current_settings.bt_sample_rate;
     bt_reconnect_start_with_rate(preferred_mac, rate);
 }
+static bool bt_apply_succeeded;
+static bool bt_profile_applied;
+static bool bt_profile_failed;
 typedef struct {
     bool dac_mode_enabled;
     bool volume_sync_enabled;
+    bool close_source;
 } bt_apply_output_settings_request_t;
 static void * bt_apply_output_settings_thread_func(void * arg) {
     bt_apply_output_settings_request_t * req = (bt_apply_output_settings_request_t *) arg;
-    bt_control_apply_output_settings(req->dac_mode_enabled, req->volume_sync_enabled);
+    int waited = 0;
+    while (req->close_source && !audio_is_idle() && waited < 2000) { usleep(10000); waited += 10; }
+    bt_apply_succeeded = (!req->close_source || audio_is_idle()) &&
+        bt_control_apply_output_settings(req->dac_mode_enabled, req->volume_sync_enabled);
     free(req);
     atomic_store_explicit(&bt_apply_output_settings_job.done, true, memory_order_release); /* written last -- poll_bt_apply_output_settings only checks this flag */
     return NULL;
@@ -850,6 +863,11 @@ static bool bt_apply_inflight_dac_mode;
 static bool bt_apply_inflight_volume_sync;
 
 void start_bt_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enabled) {
+    if (!dac_mode_enabled) gui_shell_bt_dac_release();
+    if (gui_shell_bt_dac_owns_output()) { bt_apply_output_settings_rerun = true; return; }
+#ifndef HOST_BUILD
+    bt_media_player_set_phone_control_enabled(dac_mode_enabled);
+#endif
     if (bt_apply_output_settings_job.active) {
         bt_apply_output_settings_rerun = dac_mode_enabled != bt_apply_inflight_dac_mode ||
                                          volume_sync_enabled != bt_apply_inflight_volume_sync;
@@ -862,6 +880,8 @@ void start_bt_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enab
         return;
     }
     gui_shell_cancel_bt_reconnect();
+    req->close_source = dac_mode_enabled && gui_shell_is_bt_audio_connected();
+    if (req->close_source) gui_player_stop_for_external_session();
     req->dac_mode_enabled = dac_mode_enabled;
     req->volume_sync_enabled = volume_sync_enabled;
     bt_apply_inflight_dac_mode = dac_mode_enabled;
@@ -873,8 +893,16 @@ void start_bt_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enab
 }
 void poll_bt_apply_output_settings(void) {
     bool reaped = shell_job_reap(&bt_apply_output_settings_job);
+    if (reaped) {
+        bt_profile_failed = !bt_apply_succeeded;
+        if (bt_apply_succeeded) bt_profile_applied = bt_apply_inflight_dac_mode;
+    }
     if (bt_apply_output_settings_rerun && !bt_apply_output_settings_job.active)
         start_bt_apply_output_settings(current_settings.bt_dac_mode_enabled, current_settings.bt_volume_sync_enabled);
+    if (bt_dac_power_off_pending && !gui_shell_bt_dac_busy()) {
+        bt_dac_power_off_pending = false;
+        gui_shell_bt_request_power(false);
+    }
     if (reaped) populate_bt_dac_screen(); /* the DAC screen's own toggle rows need the post-apply state */
 }
 #ifndef HOST_BUILD
@@ -943,3 +971,20 @@ void bt_background_cancel_workers(void) {
     shell_job_cancel(&bt_source_codec_reconcile_job);
     shell_job_cancel(&refresh_bt_icon_job);
 }
+
+bool gui_shell_bt_dac_busy(void) {
+    return gui_shell_bt_dac_owns_output() || bt_apply_output_settings_job.active ||
+           bt_apply_output_settings_rerun || bt_profile_applied || bt_profile_failed;
+}
+bool gui_shell_bt_dac_profile_ready(void) {
+    return current_settings.bt_dac_mode_enabled && bt_is_powered_cached && bt_profile_applied &&
+           !bt_profile_failed && !bt_apply_output_settings_job.active && !bt_apply_output_settings_rerun;
+}
+void gui_shell_bt_dac_finish_profiles(void) {
+    shell_job_cancel(&bt_apply_output_settings_job);
+    bt_apply_output_settings_rerun = false;
+    bt_profile_failed = !bt_control_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
+    if (!bt_profile_failed) bt_profile_applied = false;
+}
+
+bool gui_shell_bt_dac_profile_failed(void) { return bt_profile_failed; }

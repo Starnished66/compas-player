@@ -300,6 +300,7 @@ bool remote_collection_busy(void) {
 void play_remote_control_song(const char * song_path, const char * playlist_name, const char * artist_filter,
                                       const char * album_artist_filter, const char * album_filter) {
     if (!song_path || !song_path[0]) return;
+    if (!gui_player_local_playback_allowed()) return;
     group_song_entry_t * scoped_entries = NULL;
     int scoped_count = 0;
     char scoped_title[128] = "";
@@ -485,19 +486,8 @@ static void cue_track_row_click_cb(lv_event_t * e) {
     if (!current_cue_sheet_valid || index < 0 || index >= current_cue_sheet.track_count) return;
 
     int count = current_cue_sheet.track_count;
-    char ** paths = malloc(sizeof(char *) * (size_t) count);
-    if (!paths) return;
-    int copied = 0;
-    for (; copied < count; copied++) {
-        char reference[PATH_MAX];
-        if (!cue_reference_format(current_cue_source_path, (unsigned) copied + 1,
-                                  reference, sizeof(reference))) break;
-        paths[copied] = strdup(reference);
-        if (!paths[copied]) break;
-    }
-    if (copied != count) {
-        for (int i = 0; i < copied; i++) free(paths[i]);
-        free(paths);
+    char ** paths = cue_sheet_references(current_cue_source_path, count);
+    if (!paths) {
         show_error_toast(TR("Not enough memory to load CUE tracks"));
         return;
     }

@@ -21,11 +21,11 @@ static const char * const toolbar_labels[UI_MUSIC_TOOLBAR_COUNT] = {
     N_("Sound"), N_("Playback"), N_("Library")
 };
 static const char * const drawer_keys[UI_DRAWER_COUNT] = {
-    "wifi", "bluetooth", "sleep", "crossfade", "airplay", "dlna", "gapless",
+    "wifi", "bluetooth", "sleep", "crossfade", "airplay", "bt_dac", "dlna", "gapless",
     "remote_control", "car_mode", "plugins"
 };
 static const char * const drawer_labels[UI_DRAWER_COUNT] = {
-    N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep Timer"), N_("Crossfade"), N_("AirPlay"), N_("DLNA"),
+    N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep Timer"), N_("Crossfade"), N_("AirPlay"), N_("Bluetooth DAC"), N_("DLNA"),
     N_("Gapless"), N_("Remote Control"), N_("Car Mode"), N_("Plugins")
 };
 
@@ -157,8 +157,11 @@ static void default_text(ui_order_kind_t kind, char *out, size_t cap) {
     size_t used = 0;
     for (int i = 0; i < order_desc_for(kind)->count; ++i) {
         if (kind == UI_ORDER_MUSIC && i == UI_MUSIC_COVER_FLOW) continue; /* hidden until switched on */
+        if (kind == UI_ORDER_DRAWER && !strcmp(ui_order_key(kind, i), "dlna")) continue;
         used += (size_t)snprintf(out + used, cap - used, "%s%s", used ? "," : "", ui_order_key(kind, i));
     }
+    /* DLNA goes last so it is the tile dropped when plugins fill the drawer. */
+    if (kind == UI_ORDER_DRAWER) snprintf(out + used, cap - used, ",dlna");
 }
 
 /* Plugin entries go at the end, or right after the "plugins" entry in the

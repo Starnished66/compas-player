@@ -245,6 +245,12 @@ void gui_shell_poll(void) {
     poll_bt_source_codec_reconcile();
     poll_bt_dac_startup_reapply();
     poll_bt_apply_output_settings();
+    poll_bt_dac_session();
+    static bool drawer_bt_dac_enabled;
+    if (drawer_bt_dac_enabled != current_settings.bt_dac_mode_enabled) {
+        drawer_bt_dac_enabled = current_settings.bt_dac_mode_enabled;
+        gui_shell_refresh_quick_drawer_expansion_toggles();
+    }
     poll_refresh_bt_icon();
     start_bt_source_codec_reconcile_if_needed();
     poll_bt_monitor_lifecycle();
@@ -316,6 +322,7 @@ void gui_shell_cancel_background_work(void) {
     bt_background_cancel_toggle();
     wifi_background_cancel_toggle();
     bt_background_cancel_workers();
+    (void) gui_shell_bt_dac_shutdown(true);
 }
 lv_obj_t * gui_shell_get_home_screen(void) { return home_screen; }
 lv_obj_t * gui_shell_get_dac_home_screen(void) { return dac_home_screen; }

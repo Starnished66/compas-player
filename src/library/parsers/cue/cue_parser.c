@@ -4,6 +4,7 @@
 #include "../../sacd/sacd_iso.h"
 #include "../../metadata/parsing/metadata.h"
 #include <ctype.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -674,6 +675,21 @@ bool cue_reference_format(const char *path, unsigned ordinal, char *out, size_t 
         return false;
     int n = snprintf(out, cap, "%s" CUE_FRAGMENT "%u", path, ordinal);
     return n >= 0 && (size_t)n < cap;
+}
+char **cue_sheet_references(const char *path, int count) {
+    if (count <= 0) return NULL;
+    char **paths = calloc((size_t)count, sizeof(*paths));
+    if (!paths) return NULL;
+    for (int i = 0; i < count; i++) {
+        char reference[PATH_MAX];
+        if (!cue_reference_format(path, (unsigned)i + 1, reference, sizeof(reference)) ||
+            !(paths[i] = strdup(reference))) {
+            for (int j = 0; j < i; j++) free(paths[j]);
+            free(paths);
+            return NULL;
+        }
+    }
+    return paths;
 }
 bool cue_reference_is(const char *s) { return s && strstr(s, CUE_FRAGMENT) != NULL; }
 bool cue_reference_parse(const char *s, char *out, size_t cap, unsigned *ordinal) {

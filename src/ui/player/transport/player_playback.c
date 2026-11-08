@@ -5,6 +5,7 @@
 #include "../../application/gui.h"
 #include "../../settings/gui_settings.h"
 #include "../../shell/gui_notifications.h"
+#include "../../shell/gui_shell.h"
 #include "../../settings/lock/gui_lock_screen.h"
 #include "../../widgets/builders/screen_builders.h"
 #include "../../text/i18n/i18n.h"
@@ -17,6 +18,9 @@
 #include "../../../library/workers/track_metadata_worker.h"
 #include "../../../network/airplay/airplay_control.h"
 #include "../../../plugins/manager/plugin_manager.h"
+#ifndef HOST_BUILD
+#include "../../../network/bluetooth/media/bt_media_player.h"
+#endif
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -79,31 +83,28 @@ void gui_player_stop_for_external_session(void) {
     audio_stop();
 }
 
-/* Bluetooth DAC mode and AirPlay receive mode both feed real-time audio
- * from another device straight into this device's own physical ALSA
- * hardware (hw:0,0) -- confirmed by checking what each one's consumer
- * process (aplay -D bluealsa; shairport -o ot) actually targets. Local
- * playback uses that same hardware directly via tinyalsa, so all three are
- * mutually exclusive: only one may be "using" the speaker/DAC output at a
- * time. the Bluetooth DAC toggle/airplay_toggle_cb() turn each other off when
- * either is enabled; this covers local playback's side of the same rule.
- *
- * bt_dac_mode_enabled is also gated on bt_is_powered_cached: it's a
- * persisted setting, so it can still read true from a previous session
- * after a reboot where Bluetooth was never turned back on (chip
- * re-init isn't automatic -- see local/notes/development/TESTING.md). With Bluetooth actually off,
- * bt_control_apply_output_settings() never started bluealsa/aplay, so
- * nothing is really using the DAC output -- blocking playback in that case
- * was a real dead end: the Bluetooth DAC toggle to turn it back off only
- * appears once Bluetooth is powered, which needs a chip re-init the app
- * itself has no way to trigger. */
-/* Checks whether Bluetooth DAC or USB DAC mode is actively blocking
- * local playback. AirPlay discoverability does not block local playback;
- * active streams are auto-disconnected instead. */
+/* A phone reserves output through handoff and receiver cleanup. */
 static const char * external_dac_block_reason(void) {
-    if (current_settings.bt_dac_mode_enabled && bt_is_powered_cached) return TR("Turn off Bluetooth DAC to play music on this device");
+    if (gui_shell_bt_dac_owns_output()) return TR("Pause Bluetooth audio or stop Bluetooth DAC to play music on this device");
     if (current_settings.usb_mode == USB_MODE_DAC) return TR("Exit USB DAC mode to play music on this device");
     return NULL;
+}
+
+bool gui_player_local_playback_allowed(void) {
+    const char *reason = external_dac_block_reason();
+    if (reason) show_error_toast(reason);
+    return !reason;
+}
+
+/* Physical and touch transport share this routing; explicit play requests stay local. */
+bool gui_player_transport_button(int direction) {
+    if (!gui_shell_bt_dac_owns_output()) return false;
+#ifndef HOST_BUILD
+    bt_media_player_control_phone(direction);
+#else
+    (void) direction;
+#endif
+    return true;
 }
 
 static void play_track_at_from_internal(int index, double start_seconds, bool push_nav, bool skip_airplay_disconnect) {
@@ -195,6 +196,7 @@ static void play_track_at_from_internal(int index, double start_seconds, bool pu
 }
 
 void play_track_at_from(int index, double start_seconds) {
+    if (!gui_player_local_playback_allowed()) return;
     reset_decoder_failure_tracking();
     play_track_at_from_internal(index, start_seconds, true, false);
 }
@@ -239,6 +241,7 @@ void on_file_selected_stay(char ** new_playlist, int count, int selected_index) 
 }
 
 void toggle_play_pause(void) {
+    if (!gui_player_local_playback_allowed()) return;
     reset_decoder_failure_tracking();
     if (player_queue_model_current() < 0) return; /* nothing loaded yet */
     /* Same reasoning as play_track_at_from_internal()'s own call -- local
@@ -275,12 +278,7 @@ void toggle_play_pause(void) {
         play_track_at_from(player_queue_model_current(), start_seconds);
         return;
     }
-    /* Same DAC-mode exclusion as play_track_at_from() -- only blocks
-     * resuming (paused -> playing), pausing an already-playing track always
-     * goes through (though the Bluetooth DAC toggle/airplay_toggle_cb() already
-     * stop playback the moment either DAC mode turns on, so in practice
-     * there's nothing left playing to pause by the time this could
-     * matter). */
+    /* Block local resume while a receiver owns output. Pausing stays available. */
     if (!audio_is_playing()) {
         const char * block_reason = external_dac_block_reason();
         if (block_reason) {
@@ -313,7 +311,7 @@ void toggle_play_pause(void) {
 
 void play_btn_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    toggle_play_pause();
+    if (!gui_player_transport_button(0)) toggle_play_pause();
 }
 
 /* Standard CD-player/iPod convention: a tap partway into a track restarts
@@ -322,29 +320,26 @@ void play_btn_event_cb(lv_event_t * e) {
  * double-tap timer needed, since "already near the start" is naturally true
  * right after the first tap rewound it. */
 #define PREV_BUTTON_REWIND_THRESHOLD_SECONDS 3.0
-
 void prev_btn_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     /* Consume LVGL's CLICKED after a long press; PRESS_LOST cleanup is in the seek controller. */
     if (player_seek_input_consume_transport_click(-1)) return;
+    if (gui_player_transport_button(-1)) return;
+    if (!gui_player_local_playback_allowed()) return;
     reset_decoder_failure_tracking();
     if (player_queue_model_current() < 0) return;
-
     if (transport_skip_manual(-1)) return;
     if (audio_get_position_seconds() > PREV_BUTTON_REWIND_THRESHOLD_SECONDS) {
         audio_seek(0.0);
         return;
     }
-
     gui_player_step_manual(-1);
 }
 
 void next_btn_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (player_seek_input_consume_transport_click(1)) return;
-    reset_decoder_failure_tracking();
-    if (player_queue_model_current() < 0) return;
-    gui_player_step_manual(1);
+    if (!gui_player_transport_button(1)) gui_player_step_manual(1);
 }
 
 /* The one place crossfade is applied, for both entry points (the Settings
@@ -421,6 +416,7 @@ void gui_player_poll_confirmed_playback(void) {
 }
 
 void gui_player_step_manual(int direction) {
+    if (!gui_player_local_playback_allowed()) return;
     if (transport_skip_manual(direction)) return;
     reset_decoder_failure_tracking();
     if (player_queue_model_current() < 0) return;

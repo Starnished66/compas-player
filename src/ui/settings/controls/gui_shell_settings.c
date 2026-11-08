@@ -2,6 +2,7 @@
 
 #include "../../library/browse/gui_list_reorder.h"
 #include "../../shell/gui_navigation.h"
+#include "../../shell/gui_notifications.h"
 #include "../../shell/gui_reload.h"
 #include "../../shell/gui_shell.h"
 #include "../../appearance/gui_theme.h"
@@ -57,6 +58,13 @@ static void ui_order_store(void) {
 }
 static void populate_ui_order_screen(void);
 static void ui_order_open_kind(ui_order_kind_t kind, const char * title);
+/* The drawer shows at most three rows of four; "plugins" only marks a place. */
+static bool drawer_full(const ui_item_order_t * order, int id) {
+    int anchor = ui_order_find_key(UI_ORDER_DRAWER, "plugins"), tiles = 0;
+    if (ui_order_kind != UI_ORDER_DRAWER || id == anchor) return false;
+    for (unsigned i = 0; i < order->count; ++i) tiles += order->ids[i] != anchor;
+    return tiles >= UI_DRAWER_MAX_TILES;
+}
 static void ui_order_control_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     if (ui_order_drag_state.active) gui_list_reorder_finish(&ui_order_drag_state, false);
@@ -68,6 +76,11 @@ static void ui_order_control_cb(lv_event_t * e) {
     int at = -1;
     for (unsigned i = 0; i < saved_count; ++i)
         if (order->ids[i] == id) { at = (int)i; break; }
+    if (at < 0 && drawer_full(order, id)) {
+        show_error_toast(TR("Turn another item off first"));
+        populate_ui_order_screen();
+        return;
+    }
     if (at < 0 && order->count < UI_ORDER_MAX) order->ids[order->count++] = (uint8_t)id;
     else if (at >= 0) {
         for (unsigned i = (unsigned)at + 1; i < order->count; ++i) order->ids[i - 1] = order->ids[i];

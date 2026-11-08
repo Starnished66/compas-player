@@ -2,6 +2,7 @@
 #include "../text/rendering/ui_label_text.h"
 #include "../text/i18n/i18n.h"
 #include "gui_network.h"
+#include "../shell/gui_shell.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../assets/assets.h"
 #include "../../hardware/usb/usb_dac_bridge.h"
@@ -12,9 +13,6 @@
 #include <stdlib.h>
 #include "gui_network_internal.h"
 
-static lv_obj_t * bt_dac_screen;
-static lv_obj_t * bt_dac_overlay_screen;
-static lv_obj_t * bt_dac_stream_label;
 lv_obj_t * usb_dac_overlay_screen;
 static lv_obj_t * usb_dac_hint_label;
 static lv_obj_t * usb_dac_input_label;
@@ -24,41 +22,11 @@ static lv_obj_t * airplay_overlay_screen;
 static lv_obj_t * airplay_overlay_cover_img;
 static lv_obj_t * airplay_overlay_title_label;
 static bool airplay_overlay_showing = false;
+static bool airplay_enable_pending;
+
+bool gui_network_airplay_enable_pending(void) { return airplay_enable_pending; }
 static lv_image_dsc_t airplay_overlay_cover_dsc;
 static uint8_t * airplay_overlay_cover_bytes = NULL;
-
-/* ---- Bluetooth DAC screen -- lets this device accept incoming A2DP audio
- * (another device streaming TO it, using it as an external DAC) rather than
- * only ever sending audio out. See bt_control_apply_output_settings()'s own
- * doc comment for exactly what toggling this does at the bluealsa/
- * discoverability level -- it's a real running-service restart, not just a
- * flag flip. ---- */
-
-static lv_obj_t * bt_dac_list;
-
-static void bt_dac_enable_row_cb(lv_event_t * e);
-
-/* Explanation + a single "Enable" action, not a toggle -- turning Bluetooth
- * DAC on takes over the whole screen with its own overlay (see
- * build_bt_dac_overlay_screen() below), matching USB DAC mode's own design
- * (build_usb_dac_overlay_screen()): the device can't sensibly be used as a
- * normal music player while it's set up to receive and play audio FROM
- * another device, so that isn't something a background toggle should hide.
- * bt_dac_settings_row_cb() only ever reaches this screen when Bluetooth DAC is
- * currently off -- while on, it goes straight to the overlay instead. */
-void populate_bt_dac_screen(void) {
-    lv_obj_clean(bt_dac_list);
-
-    lv_obj_t * explanation = add_network_explanation(bt_dac_list,
-                      TR("When on, this device stays visible and pairable to other Bluetooth devices, "
-                      "so a phone or computer can stream audio TO it and play through this device's "
-                      "own output -- using it as an external DAC."));
-    lv_obj_set_style_pad_bottom(explanation, BOARD_SCALE_PX(12), 0);
-
-    lv_obj_t * row = add_pill_row_base(bt_dac_list, TR("Enable Bluetooth DAC"));
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, bt_dac_enable_row_cb, LV_EVENT_CLICKED, NULL);
-}
 
 /* Local playback, Bluetooth DAC and AirPlay share the hw:0 output and are
  * mutually exclusive; these are the "turn the other one off" halves. */
@@ -70,77 +38,12 @@ void stop_local_playback(void) {
     }
 }
 
-void disable_bt_dac_mode(void) {
-    current_settings.bt_dac_mode_enabled = false;
-    settings_save_async(&current_settings);
-    start_bt_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
-}
-
 void disable_airplay_mode(void) {
+    airplay_enable_pending = false;
     current_settings.wifi_dac_mode_enabled = false;
     settings_save_async(&current_settings);
     airplay_control_stop();
 }
-
-/* Shared by bt_dac_enable_row_cb() and bt_dac_settings_row_cb()'s "already
- * enabled" shortcut -- reapplies the bluealsa/bt-agent sink configuration
- * rather than relying solely on current_settings.bt_dac_mode_enabled, ensuring
- * the underlying pipeline matches the active UI state. */
-static void enable_bt_dac_and_show_overlay(void) {
-    gui_shell_cancel_bt_reconnect();
-    current_settings.bt_dac_mode_enabled = true;
-    settings_save_async(&current_settings);
-    start_bt_apply_output_settings(true, current_settings.bt_volume_sync_enabled);
-
-    /* Bluetooth DAC, AirPlay, and local playback share the same physical ALSA
-     * audio device and are mutually exclusive. Enabling Bluetooth DAC stops local
-     * playback and turns off AirPlay if active. */
-    stop_local_playback();
-    if (current_settings.wifi_dac_mode_enabled) disable_airplay_mode();
-
-    nav_push(bt_dac_overlay_screen);
-    gui_network_extend_bt_pairing_window();
-}
-
-static void bt_dac_enable_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    enable_bt_dac_and_show_overlay();
-}
-
-void bt_dac_settings_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    /* Bluetooth itself has to be on before any of this makes sense -- only
-     * actually reachable via the DAC home tile's "Bluetooth DAC" row
-     * (build_dac_home_screen()): the Bluetooth settings screen's own
-     * "Bluetooth DAC" chevron row only exists while populate_bt_screen()
-     * has already gated its whole extra-rows section on Bluetooth being
-     * powered (see its own "if (!powered) return;"), so that path can
-     * never reach here with Bluetooth off in the first place -- but the DAC
-     * home tile has no such gating, so tapping it with Bluetooth off used
-     * to head straight into enable_bt_dac_and_show_overlay(), which just
-     * spawns bluealsa/bt-agent against a radio that isn't even on. */
-    if (!bt_is_powered_cached) {
-        show_error_toast(TR("Enable Bluetooth in settings to use BT DAC mode"));
-        return;
-    }
-    /* Already on -- re-apply and go straight to the overlay rather than
-     * showing the "explanation + Enable" screen for a mode that's already
-     * supposed to be active (see enable_bt_dac_and_show_overlay()'s own
-     * comment on why re-applying here, not just trusting the flag,
-     * matters). */
-    if (current_settings.bt_dac_mode_enabled) {
-        enable_bt_dac_and_show_overlay();
-        return;
-    }
-    populate_bt_dac_screen();
-    nav_push(bt_dac_screen);
-}
-
-/* ---- Bluetooth DAC overlay + leave-confirmation popup -- same shape as
- * USB DAC mode's own (build_usb_dac_overlay_screen()
- * and its leave popup): full-screen takeover, no swipe-to-back, the
- * only way out is the back button which asks for confirmation first. ---- */
-static gui_popup_t bt_dac_leave_popup;
 
 /* "Leave <DAC> mode?" popup shared by both DAC overlays. dismiss serves as
  * both the Cancel button and the tap-outside backdrop. */
@@ -152,25 +55,7 @@ static void build_dac_leave_popup(gui_popup_t * popup, const char * title,
                                        dismiss, &popup->backdrop);
 }
 
-static void bt_dac_leave_dismiss_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&bt_dac_leave_popup);
-}
-
-static void bt_dac_leave_confirm_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&bt_dac_leave_popup);
-    nav_pop(); /* leave the DAC overlay screen */
-
-    disable_bt_dac_mode();
-}
-
-static void bt_dac_overlay_back_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_show(&bt_dac_leave_popup);
-}
-
-/* Shared frame of the two DAC takeover screens: black screen with header,
+/* USB DAC takeover frame: black screen with header,
  * content container (a scrolling flex column on TEMPOTEC_V1), the source icon
  * and the title-font status label. v1_icon_px sizes the icon on V1 only
  * (0 keeps the native size). */
@@ -251,23 +136,6 @@ static lv_obj_t * dac_overlay_add_line(lv_obj_t * content, lv_obj_t * below, con
     return label;
 }
 
-static lv_obj_t * build_bt_dac_overlay_screen(void) {
-    lv_obj_t * content;
-    lv_obj_t * status_label;
-    lv_obj_t * scr = build_dac_overlay_frame(bt_dac_overlay_back_cb, "bt/bt.png", 300,
-                                             TR("Bluetooth DAC mode"), &content, &status_label);
-
-    /* Fixed width + center, same as the USB DAC screen's labels. The hint is
-     * long enough that it needs an explicit width to wrap within (no width
-     * means no wrap boundary, so it would overflow past the screen edge). */
-    lv_obj_t * hint_label = dac_overlay_add_line(content, status_label,
-                                                 TR("This device is now receiving Bluetooth audio"), BOARD_SCALE_PX(8));
-    bt_dac_stream_label = dac_overlay_add_line(content, hint_label,
-                                               TR("Waiting for Bluetooth stream…"), BOARD_SCALE_PX(8));
-
-    return scr;
-}
-
 /* ---- USB DAC mode overlay + leave-confirmation popup --------------------
  * Full-screen takeover matching the stock firmware's hiby_usb.view (a
  * centered USB icon + a top-left back button, nothing else) -- deliberately
@@ -325,22 +193,8 @@ static lv_timer_t * dac_stream_labels_timer = NULL;
 
 static void dac_stream_labels_timer_cb(lv_timer_t * timer) {
     (void) timer;
-    bt_dac_stream_info_t bt;
-    bt_control_get_dac_stream_info(&bt);
+    gui_network_bt_dac_refresh();
     char text[160];
-    if (!bt.available || !bt.running) {
-        snprintf(text, sizeof(text), "%s", TR("Waiting for Bluetooth stream…"));
-    } else {
-        char rate[32];
-        format_rate(rate, sizeof(rate), bt.sample_rate);
-        const char * format = bt.bit_depth ? NULL : (bt.pcm_format[0] ? bt.pcm_format : TR("Unknown format"));
-        if (bt.bit_depth)
-            snprintf(text, sizeof(text), "%s · %s · %u-bit", bt.codec[0] ? bt.codec : TR("Unknown codec"), rate, bt.bit_depth);
-        else
-            snprintf(text, sizeof(text), "%s · %s · %s", bt.codec[0] ? bt.codec : TR("Unknown codec"), rate, format);
-    }
-    set_label_if_changed(bt_dac_stream_label, text);
-
     usb_dac_stream_info_t usb;
     usb_dac_bridge_get_stream_info(&usb);
     set_label_if_changed(usb_dac_hint_label, usb.streaming ? TR("This device is now a USB sound card") : TR("Waiting for USB audio…"));
@@ -400,7 +254,7 @@ static void refresh_airplay_screen_if_built(void) {
  * resulting enabled state, which is NOT always the requested one (a rejected
  * enable returns false). */
 bool gui_network_toggle_airplay(void) {
-    bool turning_on = !current_settings.wifi_dac_mode_enabled;
+    bool turning_on = !current_settings.wifi_dac_mode_enabled && !airplay_enable_pending;
     /* Guard the enable path even though the tile itself is already guarded
      * (airplay_tile_cb() below) -- this screen can already be open when
      * Wi-Fi goes away, so a stale toggle tap must still be rejected here.
@@ -411,6 +265,17 @@ bool gui_network_toggle_airplay(void) {
     if (turning_on && !wifi_feature_guard()) {
         refresh_airplay_screen_if_built(); /* nothing changed, but keeps the toggle row's own drawn state honest */
         return current_settings.wifi_dac_mode_enabled;
+    }
+    if (turning_on && (gui_network_usb_dac_mode_active() || gui_network_usb_dac_pending())) {
+        show_error_toast(TR("Failed to enable AirPlay"));
+        return false;
+    }
+    airplay_enable_pending = false;
+    if (turning_on && (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())) {
+        disable_bt_dac_mode();
+        airplay_enable_pending = true;
+        refresh_airplay_screen_if_built();
+        return true;
     }
     current_settings.wifi_dac_mode_enabled = turning_on;
     settings_save_async(&current_settings);
@@ -430,21 +295,6 @@ bool gui_network_toggle_airplay(void) {
             return current_settings.wifi_dac_mode_enabled;
         }
 
-        /* Deliberately does NOT touch local playback here -- toggling
-         * AirPlay only makes this device discoverable/ready to receive
-         * (airplay_bridge_start() starts in a LISTENING state, see its own
-         * comment); an actual incoming AirPlay stream starting is what
-         * stops local playback (gui_network_poll_airplay_overlay(),
-         * reacting to airplay_bridge_is_streaming()), not this
-         * toggle. Still mutually exclusive with Bluetooth DAC mode
-         * specifically, unlike local playback: BT DAC mode's bluealsa-aplay
-         * writes straight to the local hw:0 device as an entirely separate
-         * process, outside this app's own audio_output.c arbitration, so
-         * the two really can conflict at the hardware level the moment
-         * AirPlay does start streaming -- turning BT DAC off here, rather
-         * than only when AirPlay actually starts streaming, avoids ever
-         * having both simultaneously fighting over real hardware. */
-        if (current_settings.bt_dac_mode_enabled) disable_bt_dac_mode();
     } else {
         /* Turning off must actually stop shairport and the bridge, not just
          * clear the setting -- otherwise the device stays discoverable and
@@ -548,6 +398,10 @@ static lv_obj_t * build_airplay_overlay_screen(void) {
  * be the currently active screen, so metadata keeps updating even if the
  * user navigated away from it. */
 void gui_network_poll_airplay_overlay(void) {
+    if (airplay_enable_pending && !gui_shell_bt_dac_busy()) {
+        airplay_enable_pending = false;
+        gui_network_toggle_airplay();
+    }
     /* Between gui_network_teardown() and the next init the widgets below do
      * not exist; the state catches up on the first tick after the rebuild. */
     if (!airplay_overlay_screen) return;
@@ -660,15 +514,12 @@ void gui_network_poll_airplay_overlay(void) {
 }
 
 void gui_network_receivers_build(void) {
-    bt_dac_screen = network_list_screen(TR("Bluetooth DAC"), &bt_dac_list);
-    bt_dac_overlay_screen = build_bt_dac_overlay_screen();
+    gui_network_bt_dac_build();
     usb_dac_overlay_screen = build_usb_dac_overlay_screen();
     airplay_screen = network_list_screen(TR("AirPlay"), &airplay_list);
     airplay_overlay_screen = build_airplay_overlay_screen();
     build_dac_leave_popup(&usb_dac_leave_popup, TR("Leave USB DAC mode?"),
                           usb_dac_leave_confirm_cb, usb_dac_leave_dismiss_cb);
-    build_dac_leave_popup(&bt_dac_leave_popup, TR("Leave Bluetooth DAC mode?"),
-                          bt_dac_leave_confirm_cb, bt_dac_leave_dismiss_cb);
     dac_stream_labels_timer_cb(NULL);
     /* Guarded like library_az_index.c's drag timer -- gui_network_init()
      * can run again after a UI reload, and an unguarded lv_timer_create()
@@ -680,16 +531,12 @@ void gui_network_receivers_build(void) {
  * guarded/reused correctly by gui_network_receivers_build()). */
 void gui_network_receivers_teardown(void) {
     gui_popup_teardown(&usb_dac_leave_popup);
-    gui_popup_teardown(&bt_dac_leave_popup);
-    network_delete_screen(&bt_dac_screen);
-    network_delete_screen(&bt_dac_overlay_screen);
+    gui_network_bt_dac_teardown();
     network_delete_screen(&usb_dac_overlay_screen);
     network_delete_screen(&airplay_screen);
     network_delete_screen(&airplay_overlay_screen);
     /* The widgets died with their screens; the 500 ms label timer and the
      * refresh_*_if_built guards survive a reload and must see NULL. */
-    bt_dac_list = NULL;
-    bt_dac_stream_label = NULL;
     usb_dac_hint_label = NULL;
     usb_dac_input_label = NULL;
     usb_dac_path_label = NULL;
@@ -698,11 +545,10 @@ void gui_network_receivers_teardown(void) {
     airplay_overlay_title_label = NULL;
 }
 
-lv_obj_t * gui_network_get_bt_dac_overlay(void) { return bt_dac_overlay_screen; }
 lv_obj_t * gui_network_get_usb_dac_overlay(void) { return usb_dac_overlay_screen; }
 
 bool gui_network_boot_prompt_blocked(void) {
     lv_obj_t * active = lv_screen_active();
-    return gui_network_usb_prompt_invalidated() || active == bt_dac_screen || active == bt_dac_overlay_screen ||
+    return gui_network_usb_prompt_invalidated() || active == gui_network_get_bt_dac_screen() ||
            active == usb_dac_overlay_screen || active == airplay_overlay_screen;
 }

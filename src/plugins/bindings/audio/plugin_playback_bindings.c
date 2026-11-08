@@ -263,6 +263,7 @@ static int l_plugin_clear_ab_loop(lua_State * L) {
  * resumes or starts. See audio_loop_start(). */
 static int l_plugin_audio_loop_start(lua_State * L) {
     const char * path = plugin_lua_check_external_path(L, 1, "plugin.audio_loop_start");
+    if (!gui_player_local_playback_allowed()) { lua_pushboolean(L, false); return 1; }
     if (audio_is_playing()) gui_plugin_toggle_pause();
     lua_pushboolean(L, audio_loop_start(path));
     return 1;

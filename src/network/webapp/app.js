@@ -288,7 +288,8 @@ function poll() {
 function renderStatus() {
   var s = player;
   if (!s) return;
-  var hasTrack = !!s.title;
+  var dacMode = !!s.bluetooth_dac_mode;
+  var hasTrack = !!s.title && !dacMode;
   if (s.device_model) $('#deviceName').textContent = s.device_model;
   applyAccent(s.accent_color);
   document.title = hasTrack ? s.title + (s.artist ? ' · ' + s.artist : '') + ' — Compás' : 'Compás Remote';
@@ -303,11 +304,12 @@ function renderStatus() {
     if (artUrl) probe.src = artUrl; else setArt(null);
   }
 
-  $all('[data-np-title]').concat([$('#npTitle')]).forEach(function (el) { el.textContent = hasTrack ? s.title : 'Not playing'; });
-  $('#npArtist').textContent = hasTrack ? [s.artist, s.album].filter(Boolean).join(' — ') : '';
-  $all('[data-np-sub]').forEach(function (el) { el.textContent = [s.artist, s.album].filter(Boolean).join(' — '); });
+  $all('[data-np-title]').concat([$('#npTitle')]).forEach(function (el) { el.textContent = dacMode ? 'Bluetooth DAC' : hasTrack ? s.title : 'Not playing'; });
+  $('#npArtist').textContent = dacMode ? (s.playing ? 'Receiving Bluetooth audio' : 'Waiting for Bluetooth audio') : hasTrack ? [s.artist, s.album].filter(Boolean).join(' — ') : '';
+  $all('[data-np-sub]').forEach(function (el) { el.textContent = dacMode ? (s.playing ? 'Receiving Bluetooth audio' : 'Waiting for Bluetooth audio') : [s.artist, s.album].filter(Boolean).join(' — '); });
   $all('[data-np-format]').forEach(function (el) { var f = audioFormat(s); el.textContent = f; el.style.display = f ? '' : 'none'; });
   $all('[data-play]').forEach(function (el) { el.innerHTML = icon(s.playing ? 'pause' : 'play'); el.setAttribute('aria-label', s.playing ? 'Pause' : 'Play'); });
+  $all('#modeBtn, [data-mode], [data-fav], [data-seek]').forEach(function (el) { el.disabled = dacMode; el.setAttribute('aria-disabled', String(dacMode)); });
   var mode = MODES[s.play_mode | 0] || MODES[0];
   $all('#modeBtn, [data-mode]').forEach(function (el) {
     el.innerHTML = icon(mode.icon);
@@ -349,6 +351,7 @@ function paintTrack(el, fraction) {
 function bindSlider(el, onDrag, onChange, setDragging) {
   function fraction(e) { var r = el.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); }
   el.addEventListener('pointerdown', function (e) {
+    if (el.disabled) return;
     el.setPointerCapture(e.pointerId);
     setDragging(true);
     el.classList.add('drag');
@@ -363,6 +366,7 @@ function bindSlider(el, onDrag, onChange, setDragging) {
     setTimeout(function () { setDragging(false); }, 1200);
   });
   el.addEventListener('keydown', function (e) {
+    if (el.disabled) return;
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     var current = parseFloat($('.fill', el).style.width) / 100 || 0;

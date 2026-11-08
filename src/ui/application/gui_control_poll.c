@@ -430,7 +430,7 @@ static void car_mode_sample_power(car_mode_state_t *s,
         if (s->power_absent_polls < CAR_POWER_REMOVAL_DEBOUNCE_POLLS) s->power_absent_polls++;
         if (s->power_absent_polls >= CAR_POWER_REMOVAL_DEBOUNCE_POLLS) {
             s->last_external_power = false;
-            s->car_shutdown_pending = audio_is_playing() || audio_is_paused();
+            s->car_shutdown_pending = true;
             DBG_LOG("car_mode: external power removal confirmed; shutdown_pending=%d\n",
                     s->car_shutdown_pending);
         }
@@ -439,11 +439,14 @@ static void car_mode_sample_power(car_mode_state_t *s,
 
 static void car_mode_shutdown_if_pending(const car_mode_state_t *s) {
     if (s->car_shutdown_pending && !shutdown_background_work_active()) {
-        current_settings.last_position = audio_get_resume_position_seconds();
+        /* Stopped audio has no live position; keep the saved one. */
+        if (audio_is_playing() || audio_is_paused())
+            current_settings.last_position = audio_get_resume_position_seconds();
         /* This save is intentionally synchronous: idle_shutdown_now() is
          * imminent, so the final playback checkpoint must reach storage
          * before power is removed. */
         settings_save(&current_settings);
+        (void) gui_shell_bt_dac_shutdown(false);
         idle_shutdown_now(); /* full poweroff -- does not return, see idle_shutdown.h */
     }
 }
@@ -459,7 +462,7 @@ static void car_mode_shutdown_if_pending(const car_mode_state_t *s) {
  * removal must persist for three consecutive 500ms control ticks to filter
  * transient fluctuations.
  *
- * Only triggers if a track is actively playing or paused. */
+ * Powers off whatever is running: local playback, stopped, AirPlay or a DAC mode. */
 static void poll_car_mode(void) {
     car_mode_state_t *s = &car_mode_state;
     if (!current_settings.car_mode_enabled) {

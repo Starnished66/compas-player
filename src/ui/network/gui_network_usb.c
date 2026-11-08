@@ -1,6 +1,7 @@
 #include "../application/gui.h"
 #include "../text/i18n/i18n.h"
 #include "gui_network.h"
+#include "../shell/gui_shell.h"
 #include "../settings/gui_settings.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../../hardware/power/battery.h"
@@ -146,9 +147,21 @@ bool start_usb_mode_switch(usb_mode_t target) {
     usb_mode_switch_active = true;
     /* Preserve the explicit request without letting gadget teardown race a
      * watchdog start already in flight. Polling launches it once safe. */
-    usb_mode_switch_queued = usb_bridge_restart_active;
+    if (target == USB_MODE_DAC) {
+        if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending())
+            disable_airplay_mode();
+        if (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())
+            disable_bt_dac_mode();
+    }
+    usb_mode_switch_queued = usb_bridge_restart_active ||
+        (target == USB_MODE_DAC && gui_shell_bt_dac_busy());
     if (!usb_mode_switch_queued) return launch_usb_mode_switch();
     return true;
+}
+
+bool gui_network_usb_dac_pending(void) {
+    return (usb_mode_switch_active && usb_mode_switch_target == USB_MODE_DAC) ||
+           usb_bridge_restart_active;
 }
 
 /* The state the ADB control should show: the target while a switch is in
@@ -175,7 +188,8 @@ void poll_usb_mode_switch(void) {
         atomic_load_explicit(&usb_bridge_restart_done, memory_order_acquire)) {
         usb_bridge_restart_active = false;
     }
-    if (usb_mode_switch_queued && !usb_bridge_restart_active) {
+    if (usb_mode_switch_queued && !usb_bridge_restart_active &&
+        (usb_mode_switch_target != USB_MODE_DAC || !gui_shell_bt_dac_busy())) {
         /* Deferred launch: same failure consequence as the immediate one, but
          * the original caller has long since returned, so the control it
          * flipped has to be corrected from here. */
@@ -189,6 +203,10 @@ void poll_usb_mode_switch(void) {
         usb_dac_stream_info_t info;
         usb_dac_bridge_get_stream_info(&info);
         if (!info.bridge_running) {
+            if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending())
+                disable_airplay_mode();
+            if (current_settings.bt_dac_mode_enabled) disable_bt_dac_mode();
+            if (gui_shell_bt_dac_busy()) return;
             pthread_attr_t attr;
             if (pthread_attr_init(&attr) == 0) {
                 if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) == 0) {
@@ -268,8 +286,6 @@ void poll_usb_mode_switch(void) {
          * needs its own explicit refresh, same as every other call site
          * that stops playback out from under the UI. */
         stop_local_playback();
-        if (current_settings.bt_dac_mode_enabled) disable_bt_dac_mode();
-        if (current_settings.wifi_dac_mode_enabled) disable_airplay_mode();
         nav_push(usb_dac_overlay_screen);
     }
 }

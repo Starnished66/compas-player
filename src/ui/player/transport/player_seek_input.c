@@ -1,4 +1,5 @@
 #include "player_seek_input.h"
+#include "../../shell/gui_shell.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -55,6 +56,7 @@ static double clamp_seek_target(double target) {
 static void apply_transport_seek_step(double dir, int step_count, bool is_first, double step_seconds,
                                       double * target_seconds, uint64_t * playback_generation,
                                       bool * hold_cancelled) {
+    if (gui_shell_bt_dac_owns_output()) return;
     if (step_count <= 0) return;
     uint64_t gen = audio_get_playback_generation();
     if (is_first) {

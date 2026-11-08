@@ -1,3 +1,7 @@
+#include <fcntl.h>
+#ifndef HOST_BUILD
+#include "../media/bt_media_player.h"
+#endif
 #include "bluetooth_control_internal.h"
 
 /* /etc/init.d/S80_bt_init always starts a second, independent dbus-daemon
@@ -19,7 +23,7 @@
 static int count_ps(const char * needle, bool exact_basename) {
     char out[4096];
     char * argv[] = { (char *) "ps", NULL };
-    if (!subprocess_run(argv, out, sizeof(out))) return 0;
+    if (!subprocess_run(argv, out, sizeof(out))) return -1;
 
     int count = 0;
     char * line_save = NULL;
@@ -346,6 +350,8 @@ bool bluealsa_source_pcm_may_be_connected(void) {
 static bool last_applied_dac_mode_enabled = false;
 static bool last_applied_volume_sync_enabled = false;
 static bool output_settings_ever_applied = false;
+static atomic_uint output_request_generation;
+static unsigned int last_applied_generation;
 
 static bool bt_agent_process_running(void) {
     DIR * proc = opendir("/proc");
@@ -376,17 +382,14 @@ static void spawn_stock_agent(void) {
     subprocess_spawn_daemon(agent_argv);
 }
 
-/* Source mode pairs through the in-process DisplayYesNo agent: some car head
- * units demand MITM protection and refuse A2DP over the unauthenticated key a
- * NoInputNoOutput (Just Works) agent produces. The stock bt-agent that
- * bt_init/bt_resume start at boot is killed only once ours is registered, so
- * pairing is never left without an agent. DAC mode keeps its own bt-agent.
- * The caller holds bt_daemon_respawn_mutex, which also guards the last-applied
- * settings. One D-Bus round trip when already registered. */
-static void ensure_source_agent(void) {
-    if (output_settings_ever_applied && last_applied_dac_mode_enabled) return;
-    if (!bt_pairing_agent_activate()) return;
-    if (bt_agent_process_running()) subprocess_kill_all_matching("bt-agent");
+/* Both audio modes share authenticated pairing for Remote Control. Keep the
+ * stock agent only when ours cannot register. Caller holds bt_daemon_respawn_mutex. */
+static void ensure_pairing_agent(void) {
+    if (bt_pairing_agent_activate()) {
+        if (bt_agent_process_running()) subprocess_kill_all_matching("bt-agent");
+    } else if (!bt_agent_process_running()) {
+        spawn_stock_agent();
+    }
 }
 
 /* hci0 can come up already-present at the kernel level (module auto-load,
@@ -402,7 +405,11 @@ static void ensure_source_agent(void) {
  * synchronization are handled by their own call sites. */
 bool ensure_bluealsa_running_rate_ex(unsigned int requested_rate, bool * out_deferred) {
     pthread_mutex_lock(&bt_daemon_respawn_mutex);
-    ensure_source_agent();
+    if (last_applied_dac_mode_enabled) {
+        pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+        return true;
+    }
+    ensure_pairing_agent();
     bt_codec_preference_t preference = (bt_codec_preference_t) atomic_load(&bt_codec_preference);
     bool must_restart = bluealsa_needs_source_restart(preference, requested_rate);
     /* Killing the daemon tears down every A2DP link it owns, and encoder
@@ -561,6 +568,19 @@ void bt_control_enable(void) {
  * later bt_enable can bring it back in ~1s with no re-flash -- this is the
  * safe pairing. */
 void bt_control_disable(void) {
+#ifndef HOST_BUILD
+    bt_media_player_set_phone_control_enabled(false);
+#endif
+    pthread_mutex_lock(&bt_daemon_respawn_mutex);
+    bool sink = last_applied_dac_mode_enabled;
+    bool volume_sync = last_applied_volume_sync_enabled;
+    pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+    if (sink) {
+        if (!bt_control_apply_output_settings(false, volume_sync)) return;
+    } else {
+        if (!bt_control_dac_route_stop()) return;
+        bt_dac_info_monitor_stop();
+    }
     pthread_mutex_lock(&bt_chip_mutex);
     char out[256];
     char * argv[] = { (char *) "/usr/bin/bt_disable", NULL };
@@ -583,11 +603,108 @@ static bool spawn_bluealsa_and_verify(char * const argv[]) {
 #endif
 }
 
-bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enabled) {
+static pid_t dac_route_pid = -1;
+static int dac_route_fd = -1;
+
+/* These helpers serialize with profile changes and adapter power-off. */
+static bool dac_route_stop_locked(void) {
+    if (dac_route_pid <= 0) return true;
+    subprocess_terminate(dac_route_pid);
+    pid_t result;
+    do { result = waitpid(dac_route_pid, NULL, 0); } while (result < 0 && errno == EINTR);
+    if (result < 0 && errno != ECHILD) return false;
+    close(dac_route_fd);
+    dac_route_fd = -1;
+    dac_route_pid = -1;
+    return true;
+}
+
+bool bt_control_dac_route_stop(void) {
+    pthread_mutex_lock(&bt_daemon_respawn_mutex);
+    bool stopped = dac_route_stop_locked();
+    pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+    return stopped;
+}
+
+static bool dac_route_alive_locked(void) {
+    if (dac_route_pid <= 0) return false;
+    char discard[512];
+    for (int i = 0; i < 32 && read(dac_route_fd, discard, sizeof(discard)) > 0; i++) {}
+    pid_t result = waitpid(dac_route_pid, NULL, WNOHANG);
+    if (result == 0 || (result < 0 && errno == EINTR)) return true;
+    if (result == dac_route_pid || (result < 0 && errno == ECHILD)) {
+        close(dac_route_fd); dac_route_fd = -1; dac_route_pid = -1;
+    }
+    return false;
+}
+
+bool bt_control_dac_route_alive(void) {
+    pthread_mutex_lock(&bt_daemon_respawn_mutex);
+    bool alive = dac_route_alive_locked();
+    pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+    return alive;
+}
+
+bool bt_control_dac_route_start(const bt_dac_stream_info_t * stream, bt_control_cancel_callback_t cancelled, void * ctx) {
+    pthread_mutex_lock(&bt_daemon_respawn_mutex);
+    bt_dac_stream_info_t now;
+    bt_control_get_dac_stream_info(&now);
+    bool valid = !cancelled(ctx) && last_applied_dac_mode_enabled && now.running && stream->mac[0] &&
+                 now.generation == stream->generation && !strcmp(now.pcm_path, stream->pcm_path);
+    if (valid && dac_route_pid <= 0) {
+        char * argv[] = { (char *) "bluealsa-aplay", (char *) "--pcm-buffer-time=200000",
+                         (char *) "--pcm-period-time=50000", (char *) stream->mac, NULL };
+        valid = subprocess_popen(argv, &dac_route_pid, &dac_route_fd);
+        if (valid && cancelled(ctx)) { dac_route_stop_locked(); valid = false; }
+        if (valid) {
+            int flags = fcntl(dac_route_fd, F_GETFL, 0);
+            if (flags < 0 || fcntl(dac_route_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+                dac_route_stop_locked(); valid = false;
+            }
+        }
+    } else valid = false;
+    pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+    return valid;
+}
+
+static bool wait_bluealsa_profile(bool started, bool sink) {
+    uint32_t deadline = bt_control_monotonic_ms() + 2000;
+    for (;;) {
+        int remaining = (int32_t) (deadline - bt_control_monotonic_ms());
+        if (remaining <= 0) return false;
+        char output[4096];
+        char * ps[] = { (char *) "ps", NULL };
+        int status;
+        if (!subprocess_run_checked(ps, output, sizeof(output), remaining, &status) || status != 0) return false;
+        char * daemon = strstr(output, BLUEALSA_DAEMON_NAME);
+        if (!started && !daemon) return true;
+        if (started && daemon) {
+            daemon[strcspn(daemon, "\n")] = '\0';
+            remaining = (int32_t) (deadline - bt_control_monotonic_ms());
+            char * pcms[] = { (char *) BLUEALSA_CTL, (char *) "list-pcms", NULL };
+            if (remaining > 0 && strstr(daemon, sink ? "a2dp-sink" : "a2dp-source") &&
+                    subprocess_run_checked(pcms, NULL, 0, remaining, &status) && status == 0) return true;
+        }
+        usleep(50000);
+    }
+}
+
+static bool apply_output_settings_generation(bool dac_mode_enabled, bool volume_sync_enabled, unsigned int generation) {
     /* Serializes bluealsa/bt-agent respawns and updates last-applied settings
      * to protect against concurrent caller races. */
     pthread_mutex_lock(&bt_chip_mutex);
     pthread_mutex_lock(&bt_daemon_respawn_mutex);
+    if (generation != atomic_load(&output_request_generation)) {
+        pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+        pthread_mutex_unlock(&bt_chip_mutex);
+        return false;
+    }
+    if (!dac_route_stop_locked()) {
+        pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+        pthread_mutex_unlock(&bt_chip_mutex);
+        return false;
+    }
+    last_applied_generation = generation;
     last_applied_dac_mode_enabled = dac_mode_enabled;
     last_applied_volume_sync_enabled = volume_sync_enabled;
     output_settings_ever_applied = true;
@@ -608,13 +725,11 @@ bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_en
     bluealsa_clear_soft_volume_path(NULL);
 
     subprocess_kill_all_matching(BLUEALSA_DAEMON_NAME);
-    subprocess_kill_all_matching("aplay");
-    /* usleep(500000) delay TEMPORARILY REMOVED for the same live A/B test
-     * as the codec restriction and bluealsa-aplay below -- the stock
-     * player's own bluealsa_profile script has zero delay between the
-     * kills and respawning bluealsa/bt-agent (both backgrounded with a
-     * bare `&`, script just ends), and was just confirmed working
-     * flawlessly. */
+    if (!wait_bluealsa_profile(false, false)) {
+        pthread_mutex_unlock(&bt_daemon_respawn_mutex);
+        pthread_mutex_unlock(&bt_chip_mutex);
+        return false;
+    }
 
     char * argv[14];
     int i = 0;
@@ -645,38 +760,15 @@ bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_en
         i = bt_codec_append_daemon_args(argv, i);
     }
     argv[i] = NULL;
-    if (!spawn_bluealsa_and_verify(argv)) {
+    if (!spawn_bluealsa_and_verify(argv) || !wait_bluealsa_profile(true, dac_mode_enabled)) {
         pthread_mutex_unlock(&bt_daemon_respawn_mutex);
         pthread_mutex_unlock(&bt_chip_mutex);
         return false;
     }
 
-    if (dac_mode_enabled) {
-        /* The DAC agent takes the default role when it registers. Ours stays queued behind
-         * it, so pairing is answered until then and if bt-agent fails or dies. If ours could
-         * not be queued, a running bt-agent (also NoInputNoOutput) is kept rather than replaced. */
-        if (bt_pairing_agent_yield() || !bt_agent_process_running()) {
-            subprocess_kill_all_matching("bt-agent");
-            char * agent_argv[] = { (char *) "bt-agent", (char *) "-c", (char *) "NoInputNoOutput", NULL };
-            subprocess_spawn_daemon(agent_argv);
-        }
-    } else if (bt_pairing_agent_activate()) {
-        /* Ours is the default before the old agent goes, so pairing is never unanswered. */
-        if (bt_agent_process_running()) subprocess_kill_all_matching("bt-agent");
-    } else if (!bt_agent_process_running()) {
-        spawn_stock_agent(); /* keep whatever agent is already answering */
-    }
+    ensure_pairing_agent();
 
-    if (dac_mode_enabled) {
-        /* Runs bluealsa-aplay with 200ms buffer (4 periods of 50ms) to ensure
-         * exact frame boundaries at both 44.1kHz and 48kHz and reduce latency
-         * while buffering against clock drift. */
-        char * bluealsa_aplay_argv[] = { (char *) "bluealsa-aplay",
-                                          (char *) "--pcm-buffer-time=200000",
-                                          (char *) "--pcm-period-time=50000",
-                                          NULL };
-        subprocess_spawn_daemon(bluealsa_aplay_argv);
-    } else {
+    if (!dac_mode_enabled) {
         char * disc_argv[] = { (char *) "bluetoothctl", (char *) "discoverable", (char *) "off", NULL };
         subprocess_run(disc_argv, NULL, 0);
     }
@@ -686,10 +778,16 @@ bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_en
     return true;
 }
 
+bool bt_control_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enabled) {
+    unsigned int generation = atomic_fetch_add(&output_request_generation, 1) + 1;
+    return apply_output_settings_generation(dac_mode_enabled, volume_sync_enabled, generation);
+}
+
 static void bt_control_reapply_last_output_settings(void) {
     /* Read settings under lock to avoid racing concurrent updates,
      * then call bt_control_apply_output_settings outside the lock. */
     pthread_mutex_lock(&bt_daemon_respawn_mutex);
+    unsigned int generation = last_applied_generation;
     bool ever_applied = output_settings_ever_applied;
     bool dac_mode = last_applied_dac_mode_enabled;
     bool volume_sync = last_applied_volume_sync_enabled;
@@ -702,5 +800,5 @@ static void bt_control_reapply_last_output_settings(void) {
         pthread_mutex_unlock(&bt_chip_mutex);
         return;
     }
-    bt_control_apply_output_settings(dac_mode, volume_sync);
+    apply_output_settings_generation(dac_mode, volume_sync, generation);
 }

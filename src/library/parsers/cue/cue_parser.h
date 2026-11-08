@@ -31,6 +31,8 @@ void cue_sheet_free(cue_sheet_t *out);
  * 1-based). */
 bool cue_reference_format(const char *source_path, unsigned ordinal_1based, char *out,
                           size_t out_size);
+/* Caller owns the array and each reference; NULL on allocation/format failure. */
+char **cue_sheet_references(const char *source_path, int track_count);
 bool cue_reference_is(const char *reference);
 bool cue_reference_parse(const char *reference, char *source_path_out, size_t source_out_size,
                          unsigned *ordinal_1based_out);

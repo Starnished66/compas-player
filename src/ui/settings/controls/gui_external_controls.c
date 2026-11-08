@@ -75,15 +75,10 @@ static void poll_screenshot_completion(bool screenshot_request_pending) {
 }
 
 static void poll_remote_playback_commands(void) {
-    if (remote_control_consume_play_pause()) {
-        toggle_play_pause();
-    }
-    if (remote_control_consume_next()) {
-        gui_player_step_manual(1);
-    }
-    if (remote_control_consume_prev()) {
-        gui_player_step_manual(-1);
-    }
+    /* In Bluetooth DAC mode these control the phone, like the R1's buttons. */
+    if (remote_control_consume_play_pause() && !gui_player_transport_button(0)) toggle_play_pause();
+    if (remote_control_consume_next() && !gui_player_transport_button(1)) gui_player_step_manual(1);
+    if (remote_control_consume_prev() && !gui_player_transport_button(-1)) gui_player_step_manual(-1);
     if (remote_control_consume_mode_cycle()) {
         cycle_play_mode();
     }
@@ -224,7 +219,8 @@ void gui_external_controls_publish_status(bool favorite) {
                                   gui_player_get_now_playing_folder(), gui_player_get_now_playing_album(), now_playing_path,
                                   (int) audio_get_position_seconds(), (int) audio_get_duration_seconds(),
                                   audio_get_volume(), current_settings.play_mode,
-                                  now_playing_path && favorite, gui_theme_accent_rgb());
+                                  now_playing_path && favorite, gui_theme_accent_rgb(),
+                                  gui_shell_bt_dac_owns_output());
     remote_control_notify_library_sorting(current_settings.album_sort_mode |
                                           (current_settings.album_sort_reverse ? METADATA_DB_ALBUM_SORT_REVERSE : 0),
                                           current_settings.artist_albums_sort_mode |

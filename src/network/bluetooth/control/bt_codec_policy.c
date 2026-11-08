@@ -327,7 +327,7 @@ void bt_mac_to_path(char * out, size_t out_size, const char * prefix, const char
  * lines, read with one D-Bus call: bluetoothctl loads BlueZ's whole object
  * tree and registers an advertisement monitor on every start, which is
  * heavy next to a Bluetooth stream being set up. */
-static bool bt_device_info_text(const char * mac, char * out, size_t size) {
+bool bt_device_info_text(const char * mac, char * out, size_t size) {
     char object[64], dbus[8192];
     bt_mac_to_path(object, sizeof(object), "/org/bluez/hci0/dev_", mac, "");
     char * argv[] = { (char *) "dbus-send", (char *) "--system", (char *) "--print-reply",

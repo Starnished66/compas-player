@@ -6,7 +6,6 @@ bool gesture_home_state_is_eligible(const gesture_home_config_t * cfg, int32_t t
     bool in_band = (touch_y >= cfg->screen_height - cfg->band_height);
     return cfg->swipe_up_home_enabled &&
            !cfg->quick_drawer_open &&
-           !cfg->is_bt_dac_overlay &&
            !cfg->is_usb_dac_overlay &&
            !cfg->is_lyrics_screen &&
            !cfg->is_lock_screen &&

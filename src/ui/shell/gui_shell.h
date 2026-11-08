@@ -143,6 +143,22 @@ bool gui_shell_player_topbar_hidden(lv_obj_t * screen);
 #define gui_shell_player_topbar_hidden(screen) \
     (current_settings.hide_player_topbar && \
      ((screen) == gui_player_get_screen() || (screen) == gui_lyrics_get_screen()))
+
 #endif
 void gui_shell_set_status_bar_screen_context(lv_obj_t * screen);
 void gui_shell_set_home_indicator_visible(bool visible);
+
+bool gui_shell_bt_dac_owns_output(void);
+bool gui_shell_bt_dac_receiving(void);
+bool gui_shell_bt_dac_failed(void);
+bool gui_shell_bt_dac_busy(void);
+bool gui_shell_bt_dac_profile_ready(void);
+void gui_shell_bt_dac_release(void);
+/* Leave Bluetooth DAC; restore_source also brings back the source profile (false when powering off). */
+bool gui_shell_bt_dac_shutdown(bool restore_source);
+/* Turn Bluetooth DAC back on once Bluetooth has gone off and come back on. */
+void gui_shell_bt_dac_remember(bool restore);
+void gui_shell_bt_dac_finish_profiles(void);
+
+
+bool gui_shell_bt_dac_profile_failed(void);

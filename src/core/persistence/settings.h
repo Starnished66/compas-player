@@ -194,12 +194,7 @@ typedef struct {
     /* Bluetooth output settings -- see bluetooth_control.h for the BlueALSA
      * 5 service behavior. */
     bool bt_volume_sync_enabled; /* Mirror hardware volume changes to the paired device. */
-    /* a2dp-sink profile: lets another device stream audio TO this one.
-     * Runtime-only, never persisted: the single-profile daemon cannot serve
-     * a2dp-source at the same time, so restoring this at boot would leave
-     * headphones unable to connect with no DAC overlay on screen to exit
-     * from. Leaving the overlay already clears it, so a stored "true" only
-     * ever came from powering off while the overlay was open. */
+    /* Runtime armed intent; incoming streams reserve output separately. */
     bool bt_dac_mode_enabled;
     char bt_codec[16];           /* "auto"/"ldac_hq"/"ldac_sq"/"ssc"/"aptx"/"aac"/"sbc"/"sbc_xq" */
     /* Resample Bluetooth output with the speex converter instead of

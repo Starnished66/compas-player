@@ -67,7 +67,7 @@ bool bt_control_is_a2dp_source_connected(void) {
 
 /* The accessory's MAC ("XX:XX:XX:XX:XX:XX") from the "dev_XX_XX_XX_XX_XX_XX"
  * part of a BlueALSA PCM path; mac holds 18 bytes. */
-static bool bt_pcm_path_mac(const char * path, char * mac) {
+bool bt_pcm_path_mac(const char * path, char * mac) {
     const char * dev = strstr(path, "dev_");
     if (!dev) return false;
     dev += 4; /* skip "dev_" */

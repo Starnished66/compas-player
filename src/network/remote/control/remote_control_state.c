@@ -5,6 +5,7 @@
 #include "../../../audio/output/audio_output.h" /* target-only, like audio.c's own audio_output_* calls */
 #endif
 #include "../../../core/persistence/settings_registry.h"
+#include "../../bluetooth/control/bluetooth_control.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -14,6 +15,7 @@
 #include <string.h>
 
 static pthread_mutex_t status_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool status_bluetooth_dac_mode = false;
 static bool status_playing = false;
 static bool status_paused = false;
 static char status_title[256] = {0};
@@ -182,7 +184,7 @@ void remote_state_favorite_written(const char * song_path, bool is_favorite) {
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
                                    int duration_seconds, float volume, int play_mode, bool favorite,
-                                   uint32_t accent_rgb) {
+                                   uint32_t accent_rgb, bool dac_mode) {
     /* Take the audio snapshot before status_mutex. Match its copied path
      * against this now-playing snapshot so a track transition cannot publish
      * the previous decoder's format beside the new track's metadata. */
@@ -191,7 +193,19 @@ void remote_control_notify_status(bool playing, bool paused, const char * title,
         audio_get_current_format_info(&format) && format.valid && !format.is_stream &&
         strcmp(format.path, path) == 0;
 
+    /* This runs on the UI thread, where receiver settings are owned. The
+     * stream getter only copies its cached snapshot; no D-Bus work here. */
+    bt_dac_stream_info_t stream = {0};
+    if (dac_mode) {
+        bt_control_get_dac_stream_info(&stream);
+        playing = stream.running;
+        paused = false;
+        title = artist = album = path = "";
+        position_seconds = duration_seconds = 0;
+        favorite = false;
+    }
     pthread_mutex_lock(&status_mutex);
+    status_bluetooth_dac_mode = dac_mode;
     status_playing = playing;
     status_paused = paused;
     snprintf(status_title, sizeof(status_title), "%s", title ? title : "");
@@ -206,9 +220,9 @@ void remote_control_notify_status(bool playing, bool paused, const char * title,
     status_accent_rgb = accent_rgb & 0xFFFFFF;
     status_accent_valid = true;
     snprintf(status_codec, sizeof(status_codec), "%s",
-             format_matches_track ? audio_codec_name(format.codec) : "");
-    status_source_bit_depth = format_matches_track ? format.source_bit_depth : 0;
-    status_source_sample_rate = format_matches_track ? format.source_sample_rate : 0;
+             dac_mode ? stream.codec : format_matches_track ? audio_codec_name(format.codec) : "");
+    status_source_bit_depth = dac_mode ? stream.bit_depth : format_matches_track ? format.source_bit_depth : 0;
+    status_source_sample_rate = dac_mode ? stream.sample_rate : format_matches_track ? format.source_sample_rate : 0;
     pthread_mutex_unlock(&status_mutex);
 }
 
@@ -439,13 +453,13 @@ static void status_format(char * out, size_t out_size, const char * revision_jso
              "\"position_seconds\":%d,\"duration_seconds\":%d,\"volume\":%.2f,\"play_mode\":%d,"
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
              "\"catalog_revision\":%s,\"features\":{\"plugin_store\":true,\"plugin_management\":true,\"player_layouts\":true},"
-             "\"bluetooth_audio_output\":%s,\"favorite\":%s,\"accent_color\":%s,"
+             "\"bluetooth_audio_output\":%s,\"bluetooth_dac_mode\":%s,\"favorite\":%s,\"accent_color\":%s,"
              "\"device_model\":\"%s\",\"player_version\":\"%s\",\"settingsRevision\":%u,\"settingsEpoch\":%u,"
              "\"sort_modes\":[%d,%d,%d],\"collection_job\":{\"id\":%u,\"state\":\"%s\",\"error\":\"%s\"}}",
              status_playing ? "true" : "false", status_paused ? "true" : "false", title_esc, artist_esc, album_esc,
              status_position_seconds, status_duration_seconds, (double) status_volume, status_play_mode,
              status_codec, status_source_bit_depth, status_source_sample_rate, revision_json,
-             bluetooth_audio_output ? "true" : "false", status_favorite ? "true" : "false", accent_json,
+             bluetooth_audio_output ? "true" : "false", status_bluetooth_dac_mode ? "true" : "false", status_favorite ? "true" : "false", accent_json,
              model_esc, version_esc, settings_revision, settings_epoch, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
              collection_job_id, collection_job_busy ? "pending" : collection_job_failed ? "error" : collection_job_id ? "done" : "idle", job_error);
     pthread_mutex_unlock(&status_mutex);

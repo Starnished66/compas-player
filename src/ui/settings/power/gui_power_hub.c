@@ -257,6 +257,7 @@ static void power_action_clicked_cb(lv_event_t * e) {
             return;
         }
         power_action_hide();
+        (void) gui_shell_bt_dac_shutdown(false);
         if (action == 0) idle_shutdown_now();
         else idle_shutdown_reboot_now();
         return;

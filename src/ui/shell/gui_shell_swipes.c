@@ -105,14 +105,13 @@ bool gui_shell_back_swipe_owns_press(void) {
     return back_swipe_owns_press;
 }
 
-/* Screens that own their own exit (lock, text entry/view, busy, both DAC
- * overlays): no swipe-back and no navigation prefetch from them. */
+/* Screens that own their own exit (lock, text entry/view, busy, USB DAC
+ * overlay): no swipe-back and no navigation prefetch from them. */
 bool shell_screen_blocks_swipe(lv_obj_t * screen) {
     return screen == gui_lock_screen_get_screen() || screen == gui_text_input_get_screen() ||
            screen == gui_text_view_get_screen() ||
            (screen == gui_busy_get_screen() && !gui_busy_is_cancellable()) ||
-           screen == gui_network_get_usb_dac_overlay() ||
-           screen == gui_network_get_bt_dac_overlay();
+           screen == gui_network_get_usb_dac_overlay();
 }
 
 /* Arms a swipe for a new press at p; it stays provisional until the
@@ -139,7 +138,6 @@ static void swipe_begin_tracking(swipe_state_t * s) {
 static void home_swipe_fill_config(gesture_home_config_t * home_cfg, int32_t h) {
     home_cfg->swipe_up_home_enabled = current_settings.swipe_up_home_enabled;
     home_cfg->quick_drawer_open = quick_drawer_open;
-    home_cfg->is_bt_dac_overlay = (lv_screen_active() == gui_network_get_bt_dac_overlay());
     home_cfg->is_usb_dac_overlay = (lv_screen_active() == gui_network_get_usb_dac_overlay());
     home_cfg->is_lyrics_screen = (lv_screen_active() == gui_lyrics_get_screen());
     home_cfg->is_lock_screen = (lv_screen_active() == gui_lock_screen_get_screen());
@@ -190,14 +188,13 @@ static bool player_swipe_candidate_at(lv_point_t p) {
            lv_screen_active() != gui_lock_screen_get_screen() &&
            lv_screen_active() != gui_text_view_get_screen() &&
            lv_screen_active() != gui_network_get_usb_dac_overlay() &&
-           lv_screen_active() != gui_network_get_bt_dac_overlay() &&
            !gui_library_navigation_blocked() &&
            !player_swipe_press_excluded(p);
 }
 
 /* Back candidate: depth > 1 is the stack-pop precondition. Lyrics owns its
  * own right-swipe (lyrics_gesture_event_cb -> close_lyrics_screen). Lock,
- * text-entry, both DAC overlays, and the busy overlay skip
+ * text-entry, USB DAC overlay, and the busy overlay skip
  * finalize_screen_navigation() -- a live pop here would bypass their
  * leave-confirmation, teardown, or modal-ownership. Same drawer/dead-zone/
  * drag-adjust exclusions as player-swipe: a slider drag must never become a

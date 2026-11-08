@@ -24,6 +24,15 @@ static void quick_drawer_airplay_event_cb(lv_event_t * e) {
     gui_network_toggle_airplay();
     gui_shell_refresh_quick_drawer_expansion_toggles();
 }
+static void quick_drawer_bt_dac_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
+    gui_network_toggle_bt_dac();
+}
+static void quick_drawer_bt_dac_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_dismiss_for_navigation();
+    gui_network_open_bt_dac();
+}
 static void quick_drawer_dlna_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     gui_network_toggle_dlna();
@@ -395,7 +404,7 @@ static lv_obj_t * quick_drawer_create_expansion_icon(int32_t x, int32_t row_y) {
 }
 
 /* Expanded rows 2 and 3 live inside the clipping box. Row 2 is AirPlay /
- * DLNA / Gapless / RC, in the QD_TOGGLE_AIRPLAY.. slot order. "RC", not
+ * BT DAC / DLNA / Gapless / RC, in the QD_TOGGLE_AIRPLAY.. slot order. "RC", not
  * "HiBy Link": the stock asset is hibylink.png but what it actually drives
  * here is remote_control.h's own phone web UI, and the full name does not fit
  * an 84px slot at any font tier. */
@@ -407,6 +416,8 @@ static const struct {
 } quick_drawer_row2[] = {
     { N_("AirPlay"), &quick_drawer_airplay_icon, quick_drawer_airplay_event_cb,
       quick_drawer_airplay_long_press_cb },
+    { N_("BT DAC"), &quick_drawer_bt_dac_icon, quick_drawer_bt_dac_event_cb,
+      quick_drawer_bt_dac_long_press_cb },
     { N_("DLNA"), &quick_drawer_dlna_icon, quick_drawer_dlna_event_cb,
       quick_drawer_dlna_long_press_cb },
     { N_("Gapless"), &quick_drawer_gapless_icon, quick_drawer_gapless_event_cb,
@@ -415,8 +426,8 @@ static const struct {
 };
 
 static void quick_drawer_build_expansion_row2(void) {
-    for (int i = 0; i < 4; i++) {
-        int32_t x = quick_drawer_toggle_column_x(i, 4);
+    for (unsigned i = 0; i < sizeof(quick_drawer_row2) / sizeof(quick_drawer_row2[0]); i++) {
+        int32_t x = quick_drawer_toggle_column_x(i % 4, 4); /* reflow places them */
         lv_obj_t * icon = quick_drawer_create_expansion_icon(x, 0);
 
         int slot = QD_TOGGLE_AIRPLAY + i;
@@ -474,7 +485,7 @@ static void quick_drawer_build_plugin_toggle(int plugin_index, int32_t x, int32_
     lv_obj_add_event_cb(icon, quick_drawer_plugin_toggle_long_press_cb, LV_EVENT_LONG_PRESSED,
                         (void *) (intptr_t) plugin_index);
     quick_drawer_plugin_icon[plugin_index] = icon;
-    quick_drawer_toggle_icon[9 + plugin_index] = icon;
+    quick_drawer_toggle_icon[QD_TOGGLE_COUNT + plugin_index] = icon;
     int slot = QD_TOGGLE_COUNT + plugin_index;
     quick_drawer_make_toggle_labels(slot, x, row_y, plugin_manager_get_quick_toggle_label(plugin_index));
     quick_drawer_set_toggle_state_text(slot, on, plugin_manager_get_quick_toggle_state_text(plugin_index, on));
@@ -953,8 +964,7 @@ void build_quick_drawer(void) {
 
     gui_shell_apply_customization();
 
-    /* Render the complex live control tree once while still under the boot
-     * splash. Drag/snap motion uses this one opaque RGB565 image; controls
-     * become live again the instant the motion settles. */
-    quick_drawer_rebuild_snapshot();
+    /* Font loading dirties this cache and queues its final capture at boot.
+     * UI reloads already have final fonts, so keep their eager capture. */
+    if (fallback_font_is_loaded()) quick_drawer_rebuild_snapshot();
 }

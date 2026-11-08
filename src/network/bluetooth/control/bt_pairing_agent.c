@@ -40,27 +40,21 @@
 static DBusConnection * conn;
 static pthread_t dispatch_thread;
 static pthread_once_t threads_once = PTHREAD_ONCE_INIT;
-static pthread_mutex_t agent_mutex = PTHREAD_MUTEX_INITIALIZER; /* serialises activate and yield callers */
+static pthread_mutex_t agent_mutex = PTHREAD_MUTEX_INITIALIZER; /* serialises activate callers */
 static atomic_bool thread_alive = false;
 /* Request hand-off to the dispatch thread. Lock order: agent_mutex, then request_mutex; the
  * dispatch thread takes only request_mutex. */
-typedef enum { AGENT_ACTION_ACTIVATE, AGENT_ACTION_YIELD } agent_action_t;
 static pthread_mutex_t request_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t request_done; /* CLOCK_MONOTONIC, initialised once in init_threads */
 static bool request_cond_ready;
 static uint64_t request_seq;      /* last request posted */
 static uint64_t request_done_seq; /* last request the thread finished (or dropped on exit) */
-/* Last request its caller stopped waiting for. Its remaining calls are never sent, so a
- * timed-out yield cannot take the default role back after the caller moved on. */
+/* Last request its caller stopped waiting for; its remaining calls are never sent. */
 static uint64_t request_abandoned_seq;
-static agent_action_t request_action;
 static bool request_result;
 /* Registered with bluetoothd (whether or not it is the default agent). Cleared by Release, by a
  * bluetoothd owner change, and by the connection dropping. */
 static atomic_bool registered = false;
-/* Source mode wants this agent: set by activate, cleared by yield. With it set, the dispatch
- * thread registers again after bluetoothd restarts, without waiting for an activate() call. */
-static atomic_bool wanted = false;
 static atomic_bool reregister_pending = false;
 
 static void init_threads(void) {
@@ -376,11 +370,8 @@ static DBusHandlerResult name_owner_filter(DBusConnection * c, DBusMessage * msg
 
 static bool register_as_default(uint64_t seq);
 static bool agent_manager_call(uint64_t seq, const char * method, bool with_capability);
-#define AGENT_CALL_ALWAYS UINT64_MAX /* seq for a call that is sent whatever the request state */
 
-/* Runs a posted activate or yield on the dispatch thread and publishes the result. The callers
- * set (or cleared) wanted before posting, and re-registration runs on this same thread, so a
- * yield can never be followed by a re-claim of the default role. */
+/* Runs activation on the dispatch thread and publishes its result. */
 static void service_request(void) {
     pthread_mutex_lock(&request_mutex);
     if (request_done_seq == request_seq) {
@@ -388,27 +379,16 @@ static void service_request(void) {
         return;
     }
     uint64_t seq = request_seq;
-    agent_action_t action = request_action;
     pthread_mutex_unlock(&request_mutex);
 
     bool ok = register_as_default(seq);
-    if (ok && action == AGENT_ACTION_ACTIVATE) atomic_store(&reregister_pending, false);
+    if (ok) atomic_store(&reregister_pending, false);
 
     pthread_mutex_lock(&request_mutex);
     request_result = ok;
     request_done_seq = seq;
-    /* A yield that failed, or whose caller gave up, may have left RequestDefaultAgent queued
-     * for delivery after that caller started the DAC agent. Unregistering on this connection
-     * lands after it, so the DAC agent keeps the default role; ours only stops being its
-     * fallback. */
-    bool unregister = !atomic_load(&wanted) && (!ok || request_abandoned_seq >= seq);
     pthread_cond_broadcast(&request_done);
     pthread_mutex_unlock(&request_mutex);
-    if (unregister && atomic_load(&registered)) {
-        DBG_LOG("bt_pairing_agent: yield gave up, unregistering\n");
-        (void) agent_manager_call(AGENT_CALL_ALWAYS, "UnregisterAgent", false);
-        atomic_store(&registered, false);
-    }
 }
 
 /* Makes the adapter discoverable again while pairing is being allowed, at most once a minute.
@@ -450,8 +430,6 @@ static void * dispatch_thread_func(void * arg) {
         discoverable_service();
         bt_agent_ui_service(conn);
         if (!atomic_load(&reregister_pending)) continue;
-        /* Yielded, a re-claim could take the default role from the DAC agent. */
-        if (!atomic_load(&wanted)) { atomic_store(&reregister_pending, false); continue; }
         /* A restarted bluetoothd may take its name before AgentManager1 is up: retry about
          * once a second. */
         if (retry_ticks-- > 0) continue;
@@ -530,10 +508,9 @@ static bool ensure_connection(void) {
 }
 
 /* Request seq is still wanted: the newest one and not given up by its caller. Seq 0 is the
- * re-registration path, wanted while source mode wants this agent. Caller holds request_mutex. */
+ * re-registration path after bluetoothd restarts. Caller holds request_mutex. */
 static bool request_still_wanted(uint64_t seq) {
-    if (seq == AGENT_CALL_ALWAYS) return true;
-    return seq ? seq == request_seq && seq > request_abandoned_seq : atomic_load(&wanted);
+    return seq == 0 || (seq == request_seq && seq > request_abandoned_seq);
 }
 
 /* Dispatch thread only. Calls an org.bluez.AgentManager1 method taking the agent path (plus the
@@ -583,7 +560,7 @@ static bool register_as_default(uint64_t seq) {
 
 /* Caller holds agent_mutex. Has the dispatch thread run register_as_default() and waits for the
  * result, bounded. The wait only ends early if the thread exits (bus lost), reported as failure. */
-static bool agent_request(agent_action_t action) {
+static bool agent_request(void) {
     if (!ensure_connection()) return false;
     struct timespec deadline;
     clock_gettime(CLOCK_MONOTONIC, &deadline);
@@ -598,7 +575,6 @@ static bool agent_request(agent_action_t action) {
         return false;
     }
     uint64_t seq = ++request_seq;
-    request_action = action;
     bool timed_out = false;
     while (request_done_seq != seq && atomic_load(&thread_alive) && !timed_out)
         timed_out = pthread_cond_timedwait(&request_done, &request_mutex, &deadline) == ETIMEDOUT;
@@ -612,28 +588,11 @@ static bool agent_request(agent_action_t action) {
 bool bt_pairing_agent_activate(void) {
     pthread_once(&threads_once, init_threads);
     pthread_mutex_lock(&agent_mutex);
-    atomic_store(&wanted, true);
     /* With a live connection this is one round trip: a bt-agent started since (bt_resume spawns
      * one when none is running) may hold the default role, and bluetoothd only hands it back if
      * we are next in line when that agent is killed. */
-    bool ok = agent_request(AGENT_ACTION_ACTIVATE);
+    bool ok = agent_request();
     if (!ok) DBG_LOG("bt_pairing_agent: activate failed\n");
-    pthread_mutex_unlock(&agent_mutex);
-    return ok;
-}
-
-bool bt_pairing_agent_yield(void) {
-    pthread_once(&threads_once, init_threads);
-    /* wanted is cleared before the request is posted, and re-registration runs on the same
-     * thread that services it: one already under way finishes first, none starts after, so it
-     * cannot take the default role back from the agent that follows. */
-    pthread_mutex_lock(&agent_mutex);
-    atomic_store(&wanted, false);
-    atomic_store(&reregister_pending, false);
-    /* BlueZ only falls back to agents that asked for the default role (a queue, newest first),
-     * so ours asks once more now; the DAC agent spawned next goes ahead of it. This also
-     * re-registers ours if a bluetoothd restart dropped it. */
-    bool ok = agent_request(AGENT_ACTION_YIELD);
     pthread_mutex_unlock(&agent_mutex);
     return ok;
 }

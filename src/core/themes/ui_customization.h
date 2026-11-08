@@ -6,7 +6,7 @@
 
 /* Native ids come first in each namespace; plugin entries follow. */
 enum { UI_ORDER_MAX = 16, UI_MUSIC_COUNT = 8, UI_MUSIC_COVER_FLOW = 7, UI_MUSIC_TOOLBAR_COUNT = 3,
-       UI_DRAWER_COUNT = 10, UI_ORDER_KEY_MAX = 80, UI_ORDER_UNLOADED_MAX = 16,
+       UI_DRAWER_COUNT = 11, UI_DRAWER_MAX_TILES = 12, UI_ORDER_KEY_MAX = 80, UI_ORDER_UNLOADED_MAX = 16,
        /* Every loaded entry plus the remembered unloaded ones, each a full
         * key with its "!" and separator. */
        UI_ORDER_TEXT_MAX = (UI_ORDER_MAX + UI_ORDER_UNLOADED_MAX) * (UI_ORDER_KEY_MAX + 2) };

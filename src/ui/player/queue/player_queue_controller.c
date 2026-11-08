@@ -182,6 +182,11 @@ void on_file_selected(char ** new_playlist, int count, int selected_index) {
  * mean anything once the array itself has been replaced. Matches every other
  * music app: starting something new clears "Up Next". */
 void on_file_selected_at(char ** new_playlist, int count, int selected_index, double start_seconds) {
+    if (!gui_player_local_playback_allowed()) {
+        for (int i = 0; i < count; i++) free(new_playlist[i]);
+        free(new_playlist);
+        return;
+    }
     free_playlist();
     player_queue_model_install_take(player_queue_install_new(new_playlist, count));
     queue_pin_sd_dir_if_needed();
@@ -250,6 +255,11 @@ void set_player_source_file_browser(const char * dir, int row) {
  * only valid synchronously within file_browser.c's own select_cb() call,
  * which is exactly where this reads them. */
 void on_file_browser_selected(char ** new_playlist, int count, int selected_index) {
+    if (!gui_player_local_playback_allowed()) {
+        for (int i = 0; i < count; i++) free(new_playlist[i]);
+        free(new_playlist);
+        return;
+    }
     set_player_source_file_browser(file_browser_get_last_selected_dir(), file_browser_get_last_selected_row());
     on_file_selected(new_playlist, count, selected_index);
 }
@@ -259,6 +269,10 @@ void on_file_browser_selected(char ** new_playlist, int count, int selected_inde
  * False when nothing changed (bad arguments or no memory). */
 static bool play_file_browser_index(file_browser_index_t *index, unsigned playable_count,
                                     unsigned selected_playable, const char *source_dir, int source_row) {
+    if (!gui_player_local_playback_allowed()) {
+        if (index) file_browser_index_close(index);
+        return false;
+    }
     if (!index || !playable_count || selected_playable >= playable_count || playable_count > (unsigned) INT_MAX) {
         if (index) file_browser_index_close(index);
         return false;
@@ -299,6 +313,10 @@ bool gui_player_play_folder_track(const char * track_path) {
 
 bool gui_player_play_folder_index(file_browser_index_t *index, unsigned playable_count,
                                   int play_mode) {
+    if (!gui_player_local_playback_allowed()) {
+        if (index) file_browser_index_close(index);
+        return false;
+    }
     if (play_mode != PLAY_MODE_SEQUENTIAL && play_mode != PLAY_MODE_SHUFFLE &&
         play_mode != PLAY_MODE_SHUFFLE_ONCE) {
         if (index) file_browser_index_close(index);
@@ -316,6 +334,7 @@ bool gui_player_play_folder_index(file_browser_index_t *index, unsigned playable
  * recency (Recently Added). Recently Added is pinned to the SD queue
  * directory, All Songs follows its snapshot. */
 static void play_lazy_songs(int selected_index, bool recency) {
+    if (!gui_player_local_playback_allowed()) return;
     int64_t count64 = metadata_db_get_song_count();
     int count = count64 > 0 ? (int) count64 : 0;
     if (count <= 0 || selected_index < 0 || selected_index >= count) return;
@@ -364,6 +383,7 @@ static void begin_collection_playback(int play_mode) {
 
 bool gui_player_play_lazy_collection(metadata_db_snapshot_t *snapshot,
                                      int *title_ranks, int count, int play_mode) {
+    if (!gui_player_local_playback_allowed()) return false;
     if (!snapshot || !title_ranks || count <= 0 || count > INT_MAX ||
         play_mode < PLAY_MODE_SEQUENTIAL || play_mode > PLAY_MODE_SHUFFLE_ONCE)
         return false;
@@ -408,6 +428,7 @@ bool gui_player_play_lazy_collection(metadata_db_snapshot_t *snapshot,
 }
 
 bool gui_player_play_collection_paths(char **paths, int count, int play_mode) {
+    if (!gui_player_local_playback_allowed()) return false;
     if (!paths || count <= 0 || count > INT_MAX ||
         play_mode < PLAY_MODE_SEQUENTIAL || play_mode > PLAY_MODE_SHUFFLE_ONCE)
         return false;

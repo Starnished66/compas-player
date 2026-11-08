@@ -14,7 +14,6 @@ extern "C" {
 typedef struct {
     bool swipe_up_home_enabled;
     bool quick_drawer_open;
-    bool is_bt_dac_overlay;
     bool is_usb_dac_overlay;
     bool is_lyrics_screen;
     bool is_lock_screen;

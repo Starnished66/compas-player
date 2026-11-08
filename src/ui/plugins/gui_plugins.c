@@ -847,6 +847,7 @@ void gui_plugin_play_paths(const char * const * paths, int count, int start_inde
  * never-published) remote_track_meta_t table. */
 void gui_plugin_play_remote_tracks(const remote_track_meta_t * tracks, int count, int start_index) {
     if (count <= 0) return;
+    if (!gui_player_local_playback_allowed()) return;
     if (start_index < 0) start_index = 0;
     if (start_index >= count) start_index = count - 1;
 

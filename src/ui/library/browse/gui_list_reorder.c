@@ -44,12 +44,16 @@ static bool gui_list_reorder_rows(gui_list_reorder_state_t * state, int id, int3
     if (from < 0) return false;
     lv_obj_update_layout(state->list);
     int32_t visual_y[GUI_LIST_REORDER_MAX_ROWS];
+    int child_indices[GUI_LIST_REORDER_MAX_ROWS];
+    lv_obj_t * slot_rows[GUI_LIST_REORDER_MAX_ROWS];
     for (int i = 0; i < count; ++i) {
         int row_id = order[i];
         if (row_id < 0 || row_id >= state->row_capacity || row_id >= GUI_LIST_REORDER_MAX_ROWS ||
             seen[row_id] || !state->rows[row_id] ||
             lv_obj_get_parent(state->rows[row_id]) != state->list) return false;
         seen[row_id] = true;
+        child_indices[i] = (int) lv_obj_get_index(state->rows[row_id]);
+        slot_rows[i] = state->rows[row_id];
         lv_area_t row_area;
         lv_obj_get_coords(state->rows[row_id], &row_area);
         /* Flex layout includes translate_y in the current rendered coordinates. */
@@ -79,8 +83,17 @@ static bool gui_list_reorder_rows(gui_list_reorder_state_t * state, int id, int3
     if (to > from) memmove(&order[from], &order[from + 1], (size_t)(to - from) * sizeof(int));
     else memmove(&order[to + 1], &order[to], (size_t)(from - to) * sizeof(int));
     order[to] = moved_id;
-    for (int i = 0; i < count; ++i)
-        lv_obj_move_to_index(state->rows[order[i]], state->row_base_index + i);
+    /* Keep section headings and other fixed children in their original slots. */
+    for (int i = 0; i < count; ++i) {
+        lv_obj_t * wanted = state->rows[order[i]];
+        if (slot_rows[i] == wanted) continue;
+        int j = i + 1;
+        while (j < count && slot_rows[j] != wanted) ++j;
+        lv_obj_move_to_index(wanted, child_indices[i]);
+        lv_obj_move_to_index(slot_rows[i], child_indices[j]);
+        slot_rows[j] = slot_rows[i];
+        slot_rows[i] = wanted;
+    }
     lv_obj_update_layout(state->list);
     for (int i = 0; i < count; ++i) {
         int row_id = order[i];

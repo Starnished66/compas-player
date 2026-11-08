@@ -471,7 +471,7 @@ void quick_drawer_rebuild_snapshot(void) {
         quick_drawer_expansion_cache_warming = false;
         /* The warm-up and the drawer snapshot are each tens of ms: take the
          * snapshot in a later pass rather than both in one. */
-        if (quick_drawer_snapshot_dirty && quick_drawer_motion_buf && !quick_drawer_expansion_art_dirty) {
+        if (quick_drawer_snapshot_dirty && !quick_drawer_expansion_art_dirty) {
             UI_TRACE_SPAN_END(UI_TRACE_SPAN_DRAWER_SNAPSHOT, perf_span);
             quick_drawer_schedule_snapshot_retry();
             return;
