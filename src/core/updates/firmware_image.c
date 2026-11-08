@@ -499,6 +499,8 @@ bool firmware_image_validate(const char *path, char *error, size_t error_size) {
         fail(error, error_size, "missing or invalid ota_v0 manifest/marker"); goto done;
     }
     manifest->used = true; ok_marker->used = true;
+    iso_entry_t *compatibility = entry_find(inner, inner_count, "ota_compatibility.in");
+    if (compatibility && !compatibility->directory) compatibility->used = true;
     image_spec_t specs[2] = {{{0}, 0, {0}}, {{0}, 0, {0}}};
     if (!parse_manifest(buf, n, specs)) { fail(error, error_size, "malformed or unsupported ota_update.in"); goto done; }
     if (!validate_payload(fd, image_size, inner, inner_count, &specs[0], error, error_size) ||
