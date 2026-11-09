@@ -485,7 +485,7 @@ void gui_shell_refresh_quick_drawer_expansion_toggles(void) {
         bool on;
     } toggles[] = {
         { QD_TOGGLE_AIRPLAY, quick_drawer_airplay_icon, current_settings.wifi_dac_mode_enabled },
-        { QD_TOGGLE_BT_DAC, quick_drawer_bt_dac_icon, current_settings.bt_dac_mode_enabled },
+        { QD_TOGGLE_BT_DAC, quick_drawer_bt_dac_icon, gui_network_bt_dac_active() },
         { QD_TOGGLE_DLNA, quick_drawer_dlna_icon, current_settings.dlna_renderer_enabled },
         { QD_TOGGLE_GAPLESS, quick_drawer_gapless_icon, current_settings.gapless_enabled },
         { QD_TOGGLE_RC, quick_drawer_rc_icon, current_settings.remote_control_enabled },

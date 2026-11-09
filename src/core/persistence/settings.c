@@ -106,6 +106,7 @@ static const pfield_t plain_fields[] = {
     PF("subsonic_password", PF_STR, subsonic_password),
     PF("subsonic_verify_tls", PF_BOOL, subsonic_verify_tls),
     PF("bt_volume_sync", PF_BOOL, bt_volume_sync_enabled),
+    PF("bt_dac_mode", PF_BOOL, bt_dac_mode_enabled),
     PF("dac_nos", PF_BOOL, dac_nos),
     PF("bt_speexrate", PF_BOOL, bt_speexrate_enabled),
     PF("bt_codec", PF_STR, bt_codec),

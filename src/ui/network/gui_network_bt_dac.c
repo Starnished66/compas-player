@@ -38,7 +38,7 @@ void disable_bt_dac_mode(void) {
     populate_bt_dac_screen();
 }
 
-static void enable_bt_dac_mode(void) {
+void enable_bt_dac_mode(void) {
     gui_shell_bt_dac_remember(false);
     if (!bt_is_powered_cached) {
         show_error_toast(TR("Enable Bluetooth in Wireless or the Quick Drawer to use BT DAC mode"));
@@ -59,11 +59,16 @@ static void enable_bt_dac_mode(void) {
     gui_network_extend_bt_pairing_window();
 }
 
+/* On and not paused by a Bluetooth power-off or the sleep timer. */
+bool gui_network_bt_dac_active(void) {
+    return current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended();
+}
+
 bool gui_network_toggle_bt_dac(void) {
-    if (current_settings.bt_dac_mode_enabled) disable_bt_dac_mode();
+    if (gui_network_bt_dac_active()) disable_bt_dac_mode();
     else enable_bt_dac_mode();
     gui_shell_refresh_quick_drawer_expansion_toggles();
-    return current_settings.bt_dac_mode_enabled;
+    return gui_network_bt_dac_active();
 }
 
 static void enable_cb(lv_event_t * e) {
@@ -116,7 +121,7 @@ static lv_obj_t * transport_button(lv_obj_t * row, const char * asset, int direc
 
 void gui_network_bt_dac_refresh(void) {
     if (!bt_dac_content) return;
-    if (showing_enabled != current_settings.bt_dac_mode_enabled) populate_bt_dac_screen();
+    if (showing_enabled != gui_network_bt_dac_active()) populate_bt_dac_screen();
     if (!stream_label) return;
     if (!showing_enabled) {
         lv_obj_set_flag(stream_chip, LV_OBJ_FLAG_HIDDEN, !gui_shell_bt_dac_failed());
@@ -245,7 +250,7 @@ void populate_bt_dac_screen(void) {
     if (!bt_dac_content) return;
     lv_obj_clean(bt_dac_content);
     stream_label = stream_chip = phone_label = play_button = transport_row = NULL;
-    showing_enabled = current_settings.bt_dac_mode_enabled;
+    showing_enabled = gui_network_bt_dac_active();
     showing_stream_state = showing_controls = -1;
     showing_phone[0] = '\0';
     lv_obj_t * hero = plain_column(bt_dac_content);

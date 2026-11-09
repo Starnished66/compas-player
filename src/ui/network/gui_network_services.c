@@ -74,6 +74,8 @@ static atomic_bool network_service_done = false;
 static atomic_bool network_service_cancelling = false;
 
 static void poll_network_service_ops(void);
+static bool set_remote_control_enabled(bool enabled);
+static bool remote_startup_pending = true;
 
 /* Removes the oldest queued job; the caller holds network_service_mutex. */
 static bool network_service_pop_locked(network_service_job_t * out) {
@@ -223,6 +225,11 @@ static void poll_network_service_ops(void) {
 
 void poll_remote_import(void) {
     poll_network_service_ops();
+    if (remote_startup_pending && current_settings.remote_control_enabled &&
+        !remote_radio_sleep_prepared && !remote_radio_sleep_stop_queued &&
+        (bt_is_powered_cached || gui_shell_wifi_effective_enabled()) &&
+        !network_service_is_busy(NETWORK_SERVICE_REMOTE))
+        set_remote_control_enabled(true);
     if (!network_service_is_busy(NETWORK_SERVICE_IMPORT)) {
         unsigned worker_events = atomic_exchange_explicit(&remote_import_worker_events, 0, memory_order_acquire);
         if (worker_events & REMOTE_IMPORT_WORKER_START_FAILED) remote_import_active = false;
@@ -366,6 +373,7 @@ void gui_network_resume_radio_services(void) {
         remote_import_active || remote_import_stop_pending) return;
 
     if (network_service_enqueue(NETWORK_SERVICE_REMOTE, true, false)) {
+        remote_startup_pending = false;
         remote_radio_sleep_prepared = false;
         remote_radio_sleep_stop_queued = false;
     }
@@ -548,14 +556,14 @@ static void refresh_remote_control_screen_if_built(void) {
 /* gui_network_toggle_airplay()'s twin for the phone remote-control server --
  * shown as "RC" on the quick drawer's own tile, where there is no room for
  * the full name. */
-bool gui_network_toggle_remote_control(void) {
-    bool turning_on = !current_settings.remote_control_enabled;
+static bool set_remote_control_enabled(bool turning_on) {
     if (network_service_is_busy(NETWORK_SERVICE_REMOTE) ||
         !network_service_enqueue(NETWORK_SERVICE_REMOTE, turning_on, false)) {
         show_info_toast(TR("Service is busy"));
         refresh_remote_control_screen_if_built();
         return current_settings.remote_control_enabled;
     }
+    remote_startup_pending = false;
     current_settings.remote_control_enabled = turning_on;
     settings_save_async(&current_settings);
 
@@ -568,6 +576,10 @@ bool gui_network_toggle_remote_control(void) {
     refresh_remote_control_screen_if_built();
     if (turning_on) gui_network_extend_bt_pairing_window();
     return current_settings.remote_control_enabled;
+}
+
+bool gui_network_toggle_remote_control(void) {
+    return set_remote_control_enabled(!current_settings.remote_control_enabled);
 }
 
 static void remote_control_toggle_cb(lv_event_t * e) {

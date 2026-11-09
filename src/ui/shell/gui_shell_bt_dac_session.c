@@ -13,17 +13,20 @@ static bt_dac_stream_info_t owner;
 static bool restore_on_power;
 static bool restore_saw_off;
 
+bool gui_shell_bt_dac_suspended(void) { return restore_on_power; }
+
 void gui_shell_bt_dac_remember(bool restore) { restore_on_power = restore; restore_saw_off = false; }
+void gui_shell_bt_dac_powered_off(void) { restore_saw_off = true; }
 
 /* Only after Bluetooth has really gone off and come back, and only if no other receiver took over. */
 static void restore_after_power_on(void) {
     if (!restore_on_power) return;
     if (!bt_is_powered_cached) { restore_saw_off = true; return; }
-    if (!restore_saw_off || bt_workers_active() || gui_shell_bt_dac_busy()) return;
+    if (!restore_saw_off || bt_workers_active() || gui_shell_bt_dac_owns_output()) return;
     restore_on_power = false;
     if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending() ||
         current_settings.usb_mode == USB_MODE_DAC || gui_network_usb_dac_pending()) return;
-    if (!current_settings.bt_dac_mode_enabled) gui_network_toggle_bt_dac();
+    if (current_settings.bt_dac_mode_enabled) enable_bt_dac_mode();
 }
 
 bool gui_shell_bt_dac_owns_output(void) { return owns_output; }
@@ -110,7 +113,7 @@ void poll_bt_dac_session(void) {
 
 bool gui_shell_bt_dac_shutdown(bool restore_source) {
     if (!current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_busy()) return true;
-    current_settings.bt_dac_mode_enabled = false;
+    gui_shell_bt_dac_remember(current_settings.bt_dac_mode_enabled);
     gui_shell_bt_dac_release();
     shell_job_cancel(&session_job);
     if (bt_control_dac_route_stop()) { owns_output = false; bt_control_dac_set_reserved(false); }

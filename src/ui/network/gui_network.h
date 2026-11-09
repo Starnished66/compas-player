@@ -106,6 +106,7 @@ void gui_network_handle_wifi_disabled(void);
  * screen has ever been built. */
 bool gui_network_toggle_airplay(void);
 bool gui_network_toggle_bt_dac(void);
+bool gui_network_bt_dac_active(void);
 void gui_network_open_bt_dac(void);
 bool gui_network_toggle_dlna(void);
 bool gui_network_toggle_remote_control(void);
@@ -113,4 +114,5 @@ bool gui_network_toggle_remote_control(void);
 bool gui_network_airplay_enable_pending(void);
 bool gui_network_usb_dac_pending(void);
 
+void enable_bt_dac_mode(void);
 void disable_bt_dac_mode(void);

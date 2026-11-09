@@ -362,16 +362,11 @@ static void apply_boot_audio_and_power(void) {
 
 /* Clears the receiver and server modes that never survive a restart. */
 static void reset_session_only_network_modes(void) {
-    /* Receiver/server modes are session-only:
-     * Never restore AirPlay, DLNA, or Remote Control automatically after a
-     * process start to avoid unintentional listener exposure and resource usage.
-     * Remote Control can use either Wi-Fi or Bluetooth after explicit activation. */
+    /* AirPlay and DLNA remain session-only. */
     bool network_modes_changed = current_settings.wifi_dac_mode_enabled ||
-                                 current_settings.dlna_renderer_enabled ||
-                                 current_settings.remote_control_enabled;
+                                 current_settings.dlna_renderer_enabled;
     current_settings.wifi_dac_mode_enabled = false;
     current_settings.dlna_renderer_enabled = false;
-    current_settings.remote_control_enabled = false;
     if (network_modes_changed) settings_save_async(&current_settings);
     gui_remote_settings_init(); /* after the session-only fields above are final */
 }

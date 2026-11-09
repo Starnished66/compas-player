@@ -155,6 +155,8 @@ bool gui_shell_bt_dac_busy(void);
 bool gui_shell_bt_dac_profile_ready(void);
 void gui_shell_bt_dac_release(void);
 /* Leave Bluetooth DAC; restore_source also brings back the source profile (false when powering off). */
+bool gui_shell_bt_dac_suspended(void);
+void gui_shell_bt_dac_powered_off(void);
 bool gui_shell_bt_dac_shutdown(bool restore_source);
 /* Turn Bluetooth DAC back on once Bluetooth has gone off and come back on. */
 void gui_shell_bt_dac_remember(bool restore);

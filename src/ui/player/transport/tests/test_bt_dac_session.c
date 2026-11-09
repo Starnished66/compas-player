@@ -14,6 +14,8 @@ static struct { bool bt_dac_mode_enabled, wifi_dac_mode_enabled; int usb_mode; }
 static bool bt_is_powered_cached, idle, start_ok, stop_ok;
 static bt_dac_stream_info_t snapshot;
 static int starts, stops, checkpoints, waits;
+static int enables;
+static bool allow_unowned_stop;
 static bool cancel_wait, cancel_spawn, stop_timeout;
 static void *(*pending)(void *);
 static void *pending_arg;
@@ -29,11 +31,12 @@ static void shell_job_cancel(shell_job_t *job) { (void)job; }
 void bt_control_get_dac_stream_info(bt_dac_stream_info_t *out) { *out=snapshot; }
 static bool audio_is_idle(void) { return idle; }
 static bool gui_shell_bt_dac_busy(void);
+bool gui_shell_bt_dac_owns_output(void);
 static bool gui_shell_bt_dac_profile_failed(void) { return false; }
 static bool gui_shell_bt_dac_profile_ready(void) { return current_settings.bt_dac_mode_enabled && bt_is_powered_cached; }
 static void gui_shell_bt_dac_finish_profiles(void) { }
 static bool bt_workers_active(void) { return false; }
-static bool gui_network_toggle_bt_dac(void) { return current_settings.bt_dac_mode_enabled = true; }
+static void enable_bt_dac_mode(void) { enables++; current_settings.bt_dac_mode_enabled = true; }
 static bool gui_network_airplay_enable_pending(void) { return false; }
 static bool gui_network_usb_dac_pending(void) { return false; }
 static void gui_player_stop_for_external_session(void) { checkpoints++; }
@@ -55,13 +58,15 @@ static void fake_sleep(unsigned int delay) {
     else gui_shell_bt_dac_release();
 }
 bool bt_control_dac_route_stop(void) {
-    assert(gui_shell_bt_dac_owns_output()); stops++; return stop_ok;
+    assert(gui_shell_bt_dac_owns_output() || allow_unowned_stop); stops++; return stop_ok;
 }
 static void reset(void) {
     memset(&session_job,0,sizeof(session_job)); owns_output=false; session_error=false;
     consumed_generation=0; atomic_store(&request_generation,0); atomic_store(&receiving,false);
-    current_settings.bt_dac_mode_enabled=true; bt_is_powered_cached=true;
+    current_settings.bt_dac_mode_enabled=true; current_settings.wifi_dac_mode_enabled=false;
+    current_settings.usb_mode=0; bt_is_powered_cached=true;
     idle=false; start_ok=stop_ok=true; cancel_wait=cancel_spawn=stop_timeout=false; starts=stops=checkpoints=waits=0;
+    enables=0; allow_unowned_stop=false; restore_on_power=false; restore_saw_off=false;
     snapshot=(bt_dac_stream_info_t){.available=true,.running=true,.generation=1,
         .mac="AA:BB:CC:DD:EE:FF",.pcm_path="/owner"};
 }
@@ -94,13 +99,29 @@ int main(void) {
     poll_bt_dac_session(); assert(starts==1 && checkpoints==1);
     reset(); stop_ok=false; poll_bt_dac_session(); pending(pending_arg);
     poll_bt_dac_session(); assert(owns_output && session_error); /* Unsafe closure keeps lock. */
-    reset(); current_settings.bt_dac_mode_enabled = false; snapshot.running = false; gui_shell_bt_dac_remember(true);
-    poll_bt_dac_session(); assert(!current_settings.bt_dac_mode_enabled); /* Still on: power-off pending. */
-    bt_is_powered_cached = false; poll_bt_dac_session(); assert(!current_settings.bt_dac_mode_enabled);
-    bt_is_powered_cached = true; poll_bt_dac_session(); assert(current_settings.bt_dac_mode_enabled && !restore_on_power);
-    reset(); current_settings.bt_dac_mode_enabled = false; snapshot.running = false; gui_shell_bt_dac_remember(true);
+    reset(); snapshot.running = false; gui_shell_bt_dac_remember(true);
+    poll_bt_dac_session(); assert(current_settings.bt_dac_mode_enabled); /* Still on: intent remains enabled. */
+    bt_is_powered_cached = false; poll_bt_dac_session(); assert(current_settings.bt_dac_mode_enabled);
+    bt_is_powered_cached = true; poll_bt_dac_session();
+    assert(current_settings.bt_dac_mode_enabled && !restore_on_power && enables==1);
+    reset(); snapshot.running = false; gui_shell_bt_dac_remember(true);
+    bt_is_powered_cached = false; poll_bt_dac_session();
+    current_settings.bt_dac_mode_enabled = false; gui_shell_bt_dac_remember(false); /* Explicit off cancels pending restore. */
+    bt_is_powered_cached = true; poll_bt_dac_session();
+    assert(!current_settings.bt_dac_mode_enabled && !restore_on_power && enables==0);
+    reset(); snapshot.running = false; gui_shell_bt_dac_remember(true);
     bt_is_powered_cached = false; poll_bt_dac_session(); current_settings.wifi_dac_mode_enabled = true;
     bt_is_powered_cached = true; poll_bt_dac_session(); /* AirPlay chosen meanwhile wins. */
-    assert(!current_settings.bt_dac_mode_enabled && !restore_on_power);
+    assert(current_settings.bt_dac_mode_enabled && !restore_on_power && enables==0);
+    reset(); snapshot.running = false; gui_shell_bt_dac_remember(true);
+    gui_shell_bt_dac_powered_off(); /* The cached radio state missed the brief OFF edge. */
+    poll_bt_dac_session();
+    assert(current_settings.bt_dac_mode_enabled && !restore_on_power && enables==1);
+    reset(); snapshot.running = false; allow_unowned_stop=true;
+    assert(gui_shell_bt_dac_shutdown(false));
+    assert(current_settings.bt_dac_mode_enabled && restore_on_power);
+    bt_is_powered_cached = false; poll_bt_dac_session();
+    bt_is_powered_cached = true; poll_bt_dac_session();
+    assert(current_settings.bt_dac_mode_enabled && !restore_on_power && enables==1);
     puts("Bluetooth DAC session ordering tests passed");
 }

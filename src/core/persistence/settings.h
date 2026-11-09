@@ -202,7 +202,7 @@ typedef struct {
     /* Bluetooth output settings -- see bluetooth_control.h for the BlueALSA
      * 5 service behavior. */
     bool bt_volume_sync_enabled; /* Mirror hardware volume changes to the paired device. */
-    /* Runtime armed intent; incoming streams reserve output separately. */
+    /* Remembered armed intent across restarts; incoming streams reserve output separately. */
     bool bt_dac_mode_enabled;
     char bt_codec[16];           /* "auto"/"ldac_hq"/"ldac_sq"/"ssc"/"aptx"/"aac"/"sbc"/"sbc_xq" */
     /* Resample Bluetooth output with the speex converter instead of
@@ -266,9 +266,9 @@ typedef struct {
     bool dlna_renderer_enabled;
 
     /* Phone remote-control over Wi-Fi HTTP and paired Bluetooth RFCOMM -- see
-     * remote_control.h. Session-only: startup clears a previously saved true
-     * value. Default false; users explicitly choose when either transport
-     * can control playback and browse the library. A shared PIN protects the API. */
+     * remote_control.h. Remembered across restarts; default false, so users
+     * explicitly choose when either transport can control playback and browse
+     * the library. A shared PIN protects the API. */
     bool remote_control_enabled;
     /* Shared PIN required by phone clients after Remote Control is enabled.
      * Empty means the service should generate and persist one on first use.

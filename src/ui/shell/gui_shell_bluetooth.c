@@ -372,6 +372,8 @@ void poll_refresh_bt_icon(void) {
     quick_drawer_set_toggle_state(1, display_powered);
 
     if (!display_powered) {
+        if (current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended())
+            gui_shell_bt_dac_remember(true);
         clear_bt_audio_route_now();
         lv_obj_add_flag(bt_status_icon, LV_OBJ_FLAG_HIDDEN);
         topbar_hide_bt_audio_icons();
@@ -471,11 +473,6 @@ static pthread_t bt_toggle_thread;
 static atomic_bool bt_toggle_done_flag = false;
 
 
-/* Set by bt_toggle_thread_func() when disabling Bluetooth while DAC mode
- * was on -- consumed by poll_bt_toggle() to turn the setting off and close
- * the DAC overlay screen if it's the one currently showing. */
-static bool bt_toggle_forced_dac_off = false;
-
 /* Encoded pointer values avoid allocating a one-bool thread argument. NULL
  * remains available for legacy/inferred callers, though all current launch
  * sites pass an explicit target so the worker never needs a potentially
@@ -486,7 +483,6 @@ static void * bt_toggle_target_arg(bool enabled) {
     return enabled ? BT_TOGGLE_TARGET_ON : BT_TOGGLE_TARGET_OFF;
 }
 static void * bt_toggle_thread_func(void * arg) {
-    bt_toggle_forced_dac_off = false;
     bool turning_on;
     if (arg == BT_TOGGLE_TARGET_ON) turning_on = true;
     else if (arg == BT_TOGGLE_TARGET_OFF) turning_on = false;
@@ -498,7 +494,6 @@ static void * bt_toggle_thread_func(void * arg) {
          * the source profile while keeping the shared pairing agent. */
         if (current_settings.bt_dac_mode_enabled) {
             bt_control_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
-            bt_toggle_forced_dac_off = true;
         }
         bt_control_disable();
     } else {
@@ -595,12 +590,16 @@ void quick_drawer_bt_event_cb(lv_event_t * e) {
     gui_shell_bt_request_power(!bt_is_powered_cached);
 }
 
-void gui_shell_bt_request_power(bool bt_will_be_powered) {
-    if (bt_will_be_powered) bt_dac_power_off_pending = false;
-    if (!bt_will_be_powered && (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())) {
+static void bt_request_power(bool bt_will_be_powered, bool dac_stopped) {
+    if (bt_will_be_powered && bt_dac_power_off_pending) {
+        bt_dac_power_off_pending = false;
+        gui_shell_bt_dac_powered_off(); /* Cancelled before OFF: restore after the stop worker. */
+    }
+    if (!bt_will_be_powered && !dac_stopped &&
+        (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())) {
+        if (bt_dac_power_off_pending) return;
         bt_dac_power_off_pending = true;
-        gui_shell_bt_dac_remember(true);
-        current_settings.bt_dac_mode_enabled = false;
+        gui_shell_bt_dac_remember(current_settings.bt_dac_mode_enabled);
         gui_shell_bt_dac_release();
         start_bt_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
         return;
@@ -611,7 +610,6 @@ void gui_shell_bt_request_power(bool bt_will_be_powered) {
     }
 
     if (!bt_will_be_powered) {
-        current_settings.bt_dac_mode_enabled = false;
         gui_shell_bt_dac_release();
         /* Explicit OFF is user intent immediately, before the slow toggle
          * worker has produced its next authoritative snapshot. */
@@ -661,17 +659,14 @@ void gui_shell_bt_request_power(bool bt_will_be_powered) {
         show_info_toast(TR("Failed to toggle Bluetooth"));
     }
 }
+void gui_shell_bt_request_power(bool powered) { bt_request_power(powered, false); }
+
 void poll_bt_toggle(void) {
     if (!bt_toggle_active || !atomic_load_explicit(&bt_toggle_done_flag, memory_order_acquire)) return;
     bt_toggle_active = false;
     pthread_join(bt_toggle_thread, NULL);
     bt_toggle_epoch++;
-
-    if (bt_toggle_forced_dac_off) {
-        current_settings.bt_dac_mode_enabled = false;
-        settings_save(&current_settings);
-
-    }
+    if (!bt_toggle_target_enabled) gui_shell_bt_dac_powered_off();
 
     if (bt_toggle_followup_pending) {
         bool target = bt_toggle_followup_target_enabled;
@@ -697,35 +692,18 @@ void poll_bt_toggle(void) {
     start_refresh_bt_icon(); /* re-reads the real state -- updates the status bar/drawer icons and (once done) the Bluetooth screen's toggle row */
 }
 
-/* Applies bt_dac_mode_enabled configuration asynchronously during the
- * startup window, launching the necessary bluealsa and bt-agent processes
- * without blocking the UI thread. */
-static shell_job_t bt_dac_startup_reapply_job;
-static bool bt_dac_startup_reapply_started = false;
-static void * bt_dac_startup_reapply_thread_func(void * arg) {
-    (void) arg;
-    bt_control_init_chip();
-    bt_control_enable();
-    mark_bt_media_player_enable_pending();
-    bt_control_apply_output_settings(true, current_settings.bt_volume_sync_enabled);
-    atomic_store_explicit(&bt_dac_startup_reapply_job.done, true, memory_order_release); /* written last -- poll_bt_dac_startup_reapply only checks this flag */
-    return NULL;
-}
-
-/* Runs at most once, and only if DAC mode was switched on before the
- * Bluetooth startup gate opened. bt_dac_mode_enabled is not persisted, so
- * this never fires on a normal boot; a toggle-on tap after that gate goes
- * through the Bluetooth DAC toggle directly and doesn't need this. */
+/* Restore remembered intent through the manual enable path once Bluetooth is ready.
+ * Like a manual enable, this never powers Bluetooth on itself. */
+static bool bt_dac_startup_reapply_started;
 void start_bt_dac_startup_reapply_if_needed(void) {
-    if (!current_settings.bt_dac_mode_enabled || bt_dac_startup_reapply_started ||
-        !refresh_bt_startup_readiness()) return;
+    if (bt_dac_startup_reapply_started || !current_settings.bt_dac_mode_enabled ||
+        !refresh_bt_startup_readiness() || !bt_is_powered_cached || bt_workers_active() ||
+        gui_shell_bt_dac_suspended()) return;
     bt_dac_startup_reapply_started = true;
-    if (!shell_job_start(&bt_dac_startup_reapply_job, bt_dac_startup_reapply_thread_func, NULL))
-        bt_dac_startup_reapply_started = false;
+    if (!gui_shell_bt_dac_profile_ready()) enable_bt_dac_mode();
 }
 void poll_bt_dac_startup_reapply(void) {
-    if (!shell_job_reap(&bt_dac_startup_reapply_job)) return;
-    start_refresh_bt_icon();
+    start_bt_dac_startup_reapply_if_needed();
 }
 
 /* Asynchronously executes bt_control_apply_output_settings() on a background
@@ -788,7 +766,7 @@ void poll_bt_reconnect(void) {
          * screen is on, and the recovery must behave the same with it off. */
         bool blocked = current_settings.bt_dac_mode_enabled ||
                        bt_toggle_active || bt_source_codec_reconcile_job.active ||
-                       bt_dac_startup_reapply_job.active || bt_apply_output_settings_job.active ||
+                       bt_apply_output_settings_job.active ||
                        bt_reconnect_busy() || gui_network_bt_user_operation_active();
         if (blocked) return;
         if (bt_ssc_policy_recovery_verdict(current_settings.bt_codec, bt_connected_mac_cached,
@@ -803,7 +781,7 @@ void poll_bt_reconnect(void) {
     if (bt_control_ssc_rate_correction_peek(correction_mac, sizeof(correction_mac), &correction_rate)) {
         bool blocked = !bt_reconnect_observed_powered || current_settings.bt_dac_mode_enabled ||
                        bt_toggle_active || bt_source_codec_reconcile_job.active ||
-                       bt_dac_startup_reapply_job.active || bt_apply_output_settings_job.active ||
+                       bt_apply_output_settings_job.active ||
                        bt_reconnect_busy() || gui_network_bt_user_operation_active();
         if (blocked) return;
         if (bt_connected_mac_cached[0] &&
@@ -821,7 +799,7 @@ void poll_bt_reconnect(void) {
         bt_reconnect_busy() || !bt_reconnect_observed_powered ||
         current_settings.bt_dac_mode_enabled || bt_toggle_active ||
         bt_source_codec_reconcile_job.active ||
-        bt_dac_startup_reapply_job.active || bt_apply_output_settings_job.active)
+        bt_apply_output_settings_job.active)
         return;
 
     /* Consume the arm before starting. A failed start or exhausted worker is
@@ -863,6 +841,7 @@ static bool bt_apply_inflight_dac_mode;
 static bool bt_apply_inflight_volume_sync;
 
 void start_bt_apply_output_settings(bool dac_mode_enabled, bool volume_sync_enabled) {
+    dac_mode_enabled = dac_mode_enabled && !gui_shell_bt_dac_suspended();
     if (!dac_mode_enabled) gui_shell_bt_dac_release();
     if (gui_shell_bt_dac_owns_output()) { bt_apply_output_settings_rerun = true; return; }
 #ifndef HOST_BUILD
@@ -898,10 +877,11 @@ void poll_bt_apply_output_settings(void) {
         if (bt_apply_succeeded) bt_profile_applied = bt_apply_inflight_dac_mode;
     }
     if (bt_apply_output_settings_rerun && !bt_apply_output_settings_job.active)
-        start_bt_apply_output_settings(current_settings.bt_dac_mode_enabled, current_settings.bt_volume_sync_enabled);
+        start_bt_apply_output_settings(current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended(),
+                                       current_settings.bt_volume_sync_enabled);
     if (bt_dac_power_off_pending && !gui_shell_bt_dac_busy()) {
+        bt_request_power(false, true);
         bt_dac_power_off_pending = false;
-        gui_shell_bt_request_power(false);
     }
     if (reaped) populate_bt_dac_screen(); /* the DAC screen's own toggle rows need the post-apply state */
 }
@@ -940,7 +920,7 @@ void bt_suspend_launch(bool bt_was_on) {
  * public functions below call them in the same order as the original
  * single expressions/sequences. */
 bool bt_workers_active(void) {
-    return bt_toggle_active || bt_dac_startup_reapply_job.active || bt_apply_output_settings_job.active ||
+    return bt_toggle_active || bt_apply_output_settings_job.active ||
            bt_source_codec_reconcile_job.active || refresh_bt_icon_job.active;
 }
 bool bt_monitor_or_reconnect_active(void) {
@@ -965,7 +945,6 @@ void bt_background_cancel_toggle(void) {
     }
 }
 void bt_background_cancel_workers(void) {
-    shell_job_cancel(&bt_dac_startup_reapply_job);
     shell_job_cancel(&bt_apply_output_settings_job);
     bt_apply_output_settings_rerun = false;
     shell_job_cancel(&bt_source_codec_reconcile_job);
@@ -977,7 +956,8 @@ bool gui_shell_bt_dac_busy(void) {
            bt_apply_output_settings_rerun || bt_profile_applied || bt_profile_failed;
 }
 bool gui_shell_bt_dac_profile_ready(void) {
-    return current_settings.bt_dac_mode_enabled && bt_is_powered_cached && bt_profile_applied &&
+    return current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended() &&
+           bt_is_powered_cached && bt_profile_applied &&
            !bt_profile_failed && !bt_apply_output_settings_job.active && !bt_apply_output_settings_rerun;
 }
 void gui_shell_bt_dac_finish_profiles(void) {

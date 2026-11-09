@@ -85,7 +85,8 @@ static bool idle_shutdown_attempted = false;
 
 /* Receiver modes that need their radio or gadget up to keep receiving. */
 static bool dac_receive_mode_active(void) {
-    return current_settings.wifi_dac_mode_enabled || current_settings.bt_dac_mode_enabled ||
+    return current_settings.wifi_dac_mode_enabled ||
+           (current_settings.bt_dac_mode_enabled && bt_is_powered_cached && !gui_shell_bt_dac_suspended()) ||
            gui_shell_bt_dac_busy() || gui_network_airplay_enable_pending() ||
            gui_network_usb_dac_pending() || current_settings.usb_mode == (int) USB_MODE_DAC;
 }
@@ -474,7 +475,11 @@ static void request_screen_power(bool on) {
 }
 
 void gui_sleep_timer_expired(void) {
-    if (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy()) disable_bt_dac_mode();
+    if (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy()) {
+        gui_shell_bt_dac_remember(current_settings.bt_dac_mode_enabled);
+        gui_shell_bt_dac_release();
+        start_bt_apply_output_settings(false, current_settings.bt_volume_sync_enabled);
+    }
     /* A deliberate sleep timer must still finish the session when pausing
      * alone no longer releases the visible-lyrics keep-awake hold. */
     if (current_settings.lyrics_keep_screen_on && gui_lyrics_is_visible())
