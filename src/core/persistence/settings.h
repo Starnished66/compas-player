@@ -107,6 +107,8 @@ typedef struct {
 
     uint32_t accent_color;     /* packed 0xRRGGBB, applied to sliders/switches app-wide */
     bool accent_dynamic;       /* "Match album art": the playing cover's color replaces accent_color while shown */
+    uint32_t accent_dynamic_color; /* Last effective album-art accent, separate from the manual pick. */
+    bool accent_dynamic_color_valid; /* Allows black (#000000) and distinguishes old settings without a cache. */
     bool startup_splash_tint;  /* Tint the built-in startup splash with the accent color. */
     bool titlebar_icon_tint;   /* Breeze title-bar icons take the accent instead of the text color. */
     bool crossfade_enabled;    /* if true, fade into the next queued track near the current one's end */

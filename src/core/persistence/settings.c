@@ -376,6 +376,8 @@ static void set_defaults(player_settings_t * out) {
     out->hw_seek_step_seconds = 3;
     out->accent_color = DEFAULT_ACCENT_COLOR;
     out->accent_dynamic = false;
+    out->accent_dynamic_color = 0;
+    out->accent_dynamic_color_valid = false;
     out->startup_splash_tint = false;
     out->titlebar_icon_tint = false;
     out->crossfade_enabled = false;
@@ -626,6 +628,11 @@ bool settings_load(player_settings_t * out) {
             out->last_position = atof(value);
         } else if (strcmp(key, "accent_color") == 0) {
             out->accent_color = (uint32_t) strtoul(value, NULL, 16);
+        } else if (strcmp(key, "accent_dynamic_color") == 0) {
+            if (strlen(value) == 6 && strspn(value, "0123456789abcdefABCDEF") == 6) {
+                out->accent_dynamic_color = (uint32_t) strtoul(value, NULL, 16) & 0xFFFFFF;
+                out->accent_dynamic_color_valid = true;
+            }
         } else if (strcmp(key, "replaygain_enabled") == 0) {
             /* Legacy on/off key, from before the Off/Per Track/Per Album
              * mode selector -- settings_save() only ever writes the new
@@ -891,6 +898,8 @@ static void settings_write_file(const player_settings_t * settings) {
         }
     }
     fprintf(f, "accent_color=%06X\n", (unsigned int) (settings->accent_color & 0xFFFFFF));
+    if (settings->accent_dynamic_color_valid)
+        fprintf(f, "accent_dynamic_color=%06X\n", (unsigned int) (settings->accent_dynamic_color & 0xFFFFFF));
     fprintf(f, "subsonic_stream_quality=%d\n", settings->subsonic_stream_quality);
     fprintf(f, "subsonic_download_subfolder=%s\n", subsonic_download_subfolder);
     fprintf(f, "subsonic_download_layout=%d\n", settings->subsonic_download_layout == 1 ? 1 : 0);
@@ -1094,6 +1103,9 @@ void settings_save_drain(void) {
 }
 
 void settings_shutdown_flush(void) {
+    /* The dynamic accent cache changes when covers arrive, without saving on
+     * each track. Queue one final current snapshot before latching shutdown. */
+    settings_save_async(&current_settings);
     pthread_mutex_lock(&settings_queue_mutex);
     settings_shutdown_started = true;
     pthread_cond_broadcast(&settings_queue_cond);

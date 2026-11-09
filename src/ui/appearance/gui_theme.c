@@ -103,6 +103,8 @@ uint32_t gui_anim_ms(uint32_t base_ms) {
 
 static uint32_t resolve_accent(void) {
     if (current_settings.accent_dynamic && cover_accent_valid) return cover_accent;
+    if (current_settings.accent_dynamic && current_settings.accent_dynamic_color_valid)
+        return current_settings.accent_dynamic_color & 0xFFFFFF;
     return current_settings.accent_color & 0xFFFFFF;
 }
 
@@ -218,6 +220,10 @@ void gui_theme_apply_accent(uint32_t rgb) {
 
 void gui_theme_set_accent_dynamic(bool on) {
     current_settings.accent_dynamic = on;
+    if (on && cover_accent_valid) {
+        current_settings.accent_dynamic_color = cover_accent;
+        current_settings.accent_dynamic_color_valid = true;
+    }
     settings_save_async(&current_settings);
     refresh_accent();
 }
@@ -226,6 +232,10 @@ void gui_theme_set_cover_accent(bool valid, uint32_t rgb) {
     if (valid == cover_accent_valid && (!valid || rgb == cover_accent)) return;
     cover_accent_valid = valid;
     cover_accent = valid ? (rgb & 0xFFFFFF) : 0;
+    if (current_settings.accent_dynamic && valid) {
+        current_settings.accent_dynamic_color = cover_accent;
+        current_settings.accent_dynamic_color_valid = true;
+    }
     if (current_settings.accent_dynamic) refresh_accent();
 }
 

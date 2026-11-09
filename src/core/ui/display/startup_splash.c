@@ -210,6 +210,9 @@ void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
     close(fd);
 
     bool tint = false;
+    bool dynamic_accent = false;
+    bool dynamic_accent_valid = false;
+    uint32_t dynamic_color = 0;
     /* Settings predating setup belong to existing users, as in settings_load(). */
     bool setup_complete = true;
     uint32_t color = 0xB0142B; /* DEFAULT_ACCENT_COLOR */
@@ -224,15 +227,19 @@ void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
         const char *line = snapshot + start;
         if (line_size >= 15 && !memcmp(line, "setup_complete=", 15)) {
             setup_complete = line_size == 16 && line[15] == '1';
+        } else if (line_size >= 15 && !memcmp(line, "accent_dynamic=", 15)) {
+            dynamic_accent = line_size == 16 && line[15] == '1';
         } else if (line_size >= 20 && !memcmp(line, "startup_splash_tint=", 20)) {
             const char *value = line + 20;
             size_t value_size = line_size - 20;
             tint = (value_size == 1 && value[0] == '1') ||
                    (value_size == 4 && memcmp(value, "true", 4) == 0);
-        } else if (line_size == 19 && !memcmp(line, "accent_color=", 13)) {
+        } else if ((line_size == 19 && !memcmp(line, "accent_color=", 13)) ||
+                   (line_size == 27 && !memcmp(line, "accent_dynamic_color=", 21))) {
+            size_t value_start = line_size == 19 ? 13 : 21;
             uint32_t parsed = 0;
             bool valid = true;
-            for (size_t i = 13; i < line_size; i++) {
+            for (size_t i = value_start; i < line_size; i++) {
                 unsigned char c = (unsigned char)line[i];
                 unsigned digit;
                 if (c >= '0' && c <= '9') digit = c - '0';
@@ -241,10 +248,14 @@ void startup_splash_get_tint(bool *enabled, uint32_t *accent) {
                 else { valid = false; break; }
                 parsed = (parsed << 4) | digit;
             }
-            if (valid) color = parsed;
+            if (valid) {
+                if (value_start == 13) color = parsed;
+                else { dynamic_color = parsed; dynamic_accent_valid = true; }
+            }
         }
         start = end < used ? end + 1 : used;
     }
+    if (dynamic_accent && dynamic_accent_valid) color = dynamic_color;
     if (enabled) *enabled = tint && setup_complete;
     if (accent) *accent = color;
 }
