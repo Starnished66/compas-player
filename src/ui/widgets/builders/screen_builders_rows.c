@@ -4,6 +4,8 @@
 #include "../../plugins/gui_plugins.h"
 #include "../../shell/gui_shell.h"
 
+#include "lvgl/src/widgets/switch/lv_switch_private.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -161,6 +163,8 @@ static lv_obj_t * native_text_row(lv_obj_t * parent, const char * text, const lv
     lv_obj_set_size(row, ui_list_row_width(), ui_list_row_height());
     lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_add_style(row, &pill_row_bg_style, 0);
+    lv_obj_set_style_opa(row, LV_OPA_40, LV_STATE_DISABLED);
+    lv_obj_set_style_border_opa(row, LV_OPA_30, LV_STATE_DISABLED);
     lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
@@ -214,6 +218,51 @@ lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool 
     lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -20, 0);
 
     return pill_row_clickable(row, on_click, NULL);
+}
+
+/* Read LVGL's knob progress so lettering follows the actual animation, including
+ * reversals. Keep the knob geometry in sync with lv_switch.c. No second animator. */
+static void switch_knob_letter_draw(lv_event_t * e) {
+    lv_obj_t * sw = lv_event_get_current_target(e);
+    const char * letters = lv_event_get_user_data(e);
+    bool high = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    int32_t progress = ((lv_switch_t *)sw)->anim_state;
+    if (progress < 0) progress = high ? 256 : 0;
+    lv_area_t area;
+    lv_obj_get_coords(sw, &area);
+    int32_t size = lv_area_get_height(&area);
+    int32_t offset = (lv_area_get_width(&area) - size) * progress / 256;
+    area.x1 += offset;
+    area.x2 = area.x1 + size - 1;
+    area.x1 -= lv_obj_get_style_pad_left(sw, LV_PART_KNOB);
+    area.x2 += lv_obj_get_style_pad_right(sw, LV_PART_KNOB);
+    area.y1 -= lv_obj_get_style_pad_top(sw, LV_PART_KNOB);
+    area.y2 += lv_obj_get_style_pad_bottom(sw, LV_PART_KNOB);
+    char text[] = { letters[high ? 1 : 0], '\0' };
+    lv_draw_label_dsc_t dsc;
+    lv_draw_label_dsc_init(&dsc);
+    dsc.font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+    dsc.color = lv_obj_get_style_bg_color(sw, high ? LV_PART_INDICATOR : LV_PART_MAIN);
+    dsc.opa = lv_obj_get_style_opa_recursive(sw, LV_PART_MAIN);
+    dsc.text = text;
+    dsc.text_local = 1;
+    dsc.align = LV_TEXT_ALIGN_CENTER;
+    int32_t height = lv_font_get_line_height(dsc.font);
+    area.y1 += (lv_area_get_height(&area) - height) / 2;
+    area.y2 = area.y1 + height - 1;
+    lv_draw_label(lv_event_get_layer(e), &dsc, &area);
+}
+
+/* letters is a persistent two-character string: off, on. Returns the row.
+ * The non-interactive switch passes pointer taps through to the row handler. */
+lv_obj_t * add_pill_letter_toggle_row(lv_obj_t * parent, const char * label_text,
+                                     bool checked, const char * letters, lv_event_cb_t on_click) {
+    lv_obj_t * row = add_pill_toggle_row(parent, label_text, checked, on_click);
+    lv_obj_t * sw = lv_obj_get_child(row, -1);
+    lv_switch_set_orientation(sw, LV_SWITCH_ORIENTATION_HORIZONTAL);
+    lv_obj_set_style_base_dir(sw, LV_BASE_DIR_LTR, 0);
+    lv_obj_add_event_cb(sw, switch_knob_letter_draw, LV_EVENT_DRAW_MAIN_END, (void *)letters);
+    return row;
 }
 
 lv_obj_t * add_pill_chevron_row(lv_obj_t * parent, const char * label_text, lv_event_cb_t on_click) {

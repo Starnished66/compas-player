@@ -63,8 +63,8 @@
  *     plugin rows every time.
  * 10. Rebuild every screen, same order gui_init() builds them in.
  * 11. gui_navigation_init() -- re-registers the snapshot screens and
- *     restores nav_stack/nav_depth to Home, loading it. No separate
- *     "restore navigation" step is needed; this already does it.
+ *     restores Home, then a captured Settings or plugin-manager path.
+ *     Screens without a semantic reload ID fall back to Home.
  *
  * Never touches: audio_init(), settings_load(), volume/backlight/LED/
  * charge-limiter/timezone reapply, hostname_apply(), usb_mode detection,
@@ -159,6 +159,8 @@ static int32_t reload_display_height(void) {
 
 static void gui_soft_reload_with_artwork(bool preserve_artwork,
                                          const gui_nav_reload_state_t * restore_state) {
+    gui_nav_reload_state_t settings_path;
+    if (!restore_state && gui_navigation_capture_settings_path(&settings_path)) restore_state = &settings_path;
     reload_diag("gui_soft_reload: begin");
     assets_invalidate_path_cache(); /* the rebuilt screens resolve their assets afresh */
     int32_t screen_width = reload_display_width();

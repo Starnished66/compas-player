@@ -336,6 +336,9 @@ static void pill_row_size(const pill_list_item_t * item, int32_t * out_width, in
         height = item->row_height;
         if (height < PILL_ROW_HEIGHT_MIN) height = PILL_ROW_HEIGHT_MIN;
         if (height > PILL_ROW_HEIGHT_MAX) height = PILL_ROW_HEIGHT_MAX;
+        /* Plugin dimensions may enlarge a standard pill, never shrink its
+         * touch target or the space required by the current font. */
+        height = LV_MAX(height, LV_MAX(ui_list_row_height(), font_min));
     }
     if (item->row_width > 0) {
         width = item->row_width;
@@ -432,9 +435,11 @@ static int32_t pill_list_add_row(lv_obj_t * list, const pill_list_item_t * item,
     lv_obj_t * row = lv_obj_create(list);
     if (item->out_row) *item->out_row = row;
     lv_obj_set_size(row, width, height);
-    if (item->row_height <= 0) lv_obj_add_style(row, &native_row_min_style, 0);
+    lv_obj_add_style(row, &native_row_min_style, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_add_style(row, &pill_row_bg_style, 0);
+    lv_obj_set_style_opa(row, LV_OPA_40, LV_STATE_DISABLED);
+    lv_obj_set_style_border_opa(row, LV_OPA_30, LV_STATE_DISABLED);
     if (item->has_radius) lv_obj_set_style_radius(row, item->radius, 0);
     if (item->has_bg_color) lv_obj_set_style_bg_color(row, lv_color_hex(item->bg_color), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);

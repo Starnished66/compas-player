@@ -321,7 +321,7 @@ typedef struct {
     const char * icon_asset;
 
     /* 0 = native font-aware density. A non-zero value is clamped to
-     * PILL_ROW_HEIGHT_MIN..MAX and preserves explicit plugin sizing. */
+     * PILL_ROW_HEIGHT_MIN..MAX, then raised to the native/font minimum. */
     int32_t row_height;
 
     /* 0 = the native display width minus gutters. Non-zero values use the
@@ -470,7 +470,7 @@ void decorate_category_row_plugin_icon(lv_obj_t * row, const char * plugin_icon)
 lv_obj_t * decorate_play_all_row(lv_obj_t * row);
 
 /* Builds a Settings-style vertical category menu with the shared font-aware
- * native row height. Explicit item/layout overrides remain authoritative.
+ * native row height. Explicit item/layout heights cannot shrink that minimum.
  * icon_asset paths are theme-relative. */
 lv_obj_t * build_category_menu_screen(const char * title, lv_event_cb_t back_btn_cb,
                                       const icon_grid_item_t * items, int item_count,
@@ -634,5 +634,17 @@ lv_obj_t * build_wide_list_row(lv_obj_t * parent, const char * label_text, bool 
  * flag. A long press whose release scrolled or slid off never sends CLICKED,
  * so without this the stale flag would swallow the next tap. */
 void ui_clear_flag_on_press_cb(lv_event_t * e);
+
+/* Persistent off/on letters drawn inside the standard switch knob. */
+lv_obj_t * add_pill_letter_toggle_row(lv_obj_t * parent, const char * label_text,
+                                     bool checked, const char * letters, lv_event_cb_t on_click);
+
+
+/* Options are copied; selection callbacks may rebuild/delete the owning row. */
+typedef void (*gui_option_selected_cb_t)(unsigned selected);
+lv_obj_t * add_pill_option_menu_row(lv_obj_t * parent, const char * title,
+    const char * options, unsigned selected, gui_option_selected_cb_t callback);
+void gui_option_menu_set_selected(lv_obj_t * row, unsigned selected);
+bool gui_option_menu_close(void);
 
 #endif /* SCREEN_BUILDERS_H */

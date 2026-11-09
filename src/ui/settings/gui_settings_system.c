@@ -270,7 +270,7 @@ static lv_obj_t * build_advanced_screen(void) {
     items[2] = (pill_list_item_t){ screenshot_row_label(), PILL_ACCESSORY_TOGGLE,
                                     current_settings.screenshot_combo_enabled, NULL,
                                     screenshot_combo_switch_event_cb, NULL };
-    items[3] = (pill_list_item_t){ TR("Reboot to bootloader"), PILL_ACCESSORY_NONE, false,
+    items[3] = (pill_list_item_t){ TR("Reboot to bootloader"), PILL_ACCESSORY_CHEVRON, false,
                                     reboot_to_boot_selector_row_cb, NULL, NULL };
     lv_obj_t * title, * list;
     lv_obj_t * scr = build_subsonic_list_screen(TR("Advanced"), &title, &list);
@@ -344,11 +344,10 @@ static lv_obj_t * build_settings_system_screen(void) {
     pill_list_item_t items[8 + PLUGIN_MAX_SYSTEM_LIST_ITEMS];
     items[0] = (pill_list_item_t){ TR("Language"), PILL_ACCESSORY_CHEVRON, false, language_settings_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Clock"), PILL_ACCESSORY_CHEVRON, false, gui_time_settings_clock_row_cb, NULL, NULL };
-    items[2] = (pill_list_item_t){ TR("USB Mode"), PILL_ACCESSORY_CHEVRON, false, usb_mode_settings_row_cb, NULL, NULL };
+    items[2] = (pill_list_item_t){ TR("USB mode"), PILL_ACCESSORY_CHEVRON, false, usb_mode_settings_row_cb, NULL, NULL };
     items[3] = (pill_list_item_t){ TR("Plugins"), PILL_ACCESSORY_CHEVRON, false, gui_plugin_manage_row_cb, NULL, NULL };
-    items[4] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &about_screen };
-    items[5] = (pill_list_item_t){ TR("Advanced"), PILL_ACCESSORY_CHEVRON, false, dev_options_row_cb, NULL, NULL };
-    int count = 6;
+    items[4] = (pill_list_item_t){ TR("Advanced"), PILL_ACCESSORY_CHEVRON, false, dev_options_row_cb, NULL, NULL };
+    int count = 5;
     if (plugin_manager_get_settings_list_item_count() > 0) {
         items[count++] = (pill_list_item_t){ TR("Additional Tools"), PILL_ACCESSORY_CHEVRON, false,
                                              push_screen_slot_cb, NULL, &settings_tools_screen };

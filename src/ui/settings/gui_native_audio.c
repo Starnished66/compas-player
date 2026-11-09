@@ -1,5 +1,6 @@
 #include "gui_native_audio.h"
 #include "gui_settings.h"
+#include "../shell/gui_shell.h"
 #include "../application/gui.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../text/rendering/gui_text_input.h"
@@ -21,7 +22,7 @@ static lv_obj_t * screens[PAGE_COUNT], * lists[PAGE_COUNT], * titles[PAGE_COUNT]
 static setting_slider_t tone_sliders[11], stage_sliders[10];
 static int selected_preset, pending_action;
 static bool selected_damaged, pending_enable_mseb;
-static lv_obj_t * gain_dropdown;
+static lv_obj_t * gain_switches[2]; /* Sound and Car mode; cleared on deletion. */
 static const char * const tone_labels[] = {
     N_("Overall Temperature"), N_("Bass Extension"), N_("Bass Texture"), N_("Note Thickness"),
     N_("Vocals"), N_("Female Overtones"), N_("Sibilance LF"), N_("Sibilance HF"),
@@ -68,19 +69,6 @@ static bool clicked(lv_event_t * e) { return lv_event_get_code(e) == LV_EVENT_CL
 static void failure(const char * text) { show_error_toast(TR(text)); }
 static void integer_format(char * out, size_t size, int value) { snprintf(out, size, "%d", value); }
 
-static lv_obj_t * dropdown(lv_obj_t * list, const char * label, const char * options,
-                          int selected, lv_event_cb_t callback) {
-    lv_obj_t * row;
-    build_setting_label_card(list, label, &row);
-    lv_obj_t * obj = lv_dropdown_create(row);
-    lv_dropdown_set_options(obj, options);
-    lv_dropdown_set_selected(obj, selected);
-    gui_style_settings_dropdown(obj);
-    lv_obj_set_width(obj, BOARD_SCALE_PX(170));
-    lv_obj_add_event_cb(obj, callback, LV_EVENT_VALUE_CHANGED, NULL);
-    return obj;
-}
-
 static setting_slider_t slider(lv_obj_t * list, const char * label, int min, int max,
                                int value, lv_event_cb_t callback, int index) {
     setting_slider_t ui = build_setting_slider(list, &(setting_slider_cfg_t){
@@ -91,20 +79,34 @@ static setting_slider_t slider(lv_obj_t * list, const char * label, int min, int
     return ui;
 }
 
-/* Until Low or High is chosen the player's own taper applies, so neither is shown. */
-void gui_native_audio_show_gain(lv_obj_t * dropdown) {
-    int gain = native_audio_gain_mode();
-    lv_dropdown_set_selected(dropdown, gain == 1);
-    lv_dropdown_set_text(dropdown, gain < 0 ? TR("Default") : NULL);
-}
-
 void gui_native_audio_refresh_gain(void) {
-    if (gain_dropdown) gui_native_audio_show_gain(gain_dropdown);
+    for (int i = 0; i < 2; ++i)
+        if (gain_switches[i]) {
+            if (native_audio_gain_mode() == 1) lv_obj_add_state(gain_switches[i], LV_STATE_CHECKED);
+            else lv_obj_remove_state(gain_switches[i], LV_STATE_CHECKED);
+        }
 }
 
-static void gain_changed(lv_event_t * e) {
-    native_audio_set_gain_mode((int)lv_dropdown_get_selected(lv_event_get_target(e)));
-    gui_native_audio_refresh_gain();
+static void gain_switch_deleted(lv_event_t * e) {
+    for (int i = 0; i < 2; ++i)
+        if (gain_switches[i] == lv_event_get_target(e)) gain_switches[i] = NULL;
+}
+
+static void gain_clicked(lv_event_t * e) {
+    if (!clicked(e)) return;
+    gui_native_audio_quick_toggle_set(0, !gui_native_audio_quick_toggle_value(0));
+    gui_shell_refresh_quick_drawer_expansion_toggles();
+}
+
+lv_obj_t * gui_native_audio_add_gain_row(lv_obj_t * list) {
+    lv_obj_t * row = add_pill_letter_toggle_row(list, TR("Gain"),
+                                               native_audio_gain_mode() == 1, "LH", gain_clicked);
+    lv_obj_t * sw = lv_obj_get_child(row, -1);
+    lv_obj_add_event_cb(sw, gain_switch_deleted, LV_EVENT_DELETE, NULL);
+    for (int i = 0; i < 2; ++i) {
+        if (!gain_switches[i]) { gain_switches[i] = sw; break; }
+    }
+    return sw;
 }
 
 static void mseb_failure(bool enabling) {
@@ -128,10 +130,10 @@ static void stage_enabled(lv_event_t * e) {
     populate_stage();
 }
 
-static void range_changed(lv_event_t * e) {
+static void range_changed(unsigned selected) {
     static const int ranges[] = {20,40,100};
     native_mseb_state_t state; native_audio_get_mseb(&state);
-    state.range = ranges[lv_dropdown_get_selected(lv_event_get_target(e))];
+    state.range = ranges[selected];
     if (!native_audio_set_mseb(&state)) failure(N_("Could not save range. Try again."));
     populate_mseb();
 }
@@ -161,12 +163,12 @@ static void stage_changed(lv_event_t * e) {
     populate_stage();
 }
 
-static void preset_changed(lv_event_t * e) {
-    int chosen = (int)lv_dropdown_get_selected(lv_event_get_target(e));
-    if (!chosen) return;
+static void preset_changed(unsigned selected) {
+    int chosen = (int)selected;
     soundstage_config_t c; int previous; native_audio_get_soundstage(&c, &previous);
     bool enabled = c.enabled;
-    native_audio_soundstage_preset(&c, chosen); c.enabled = enabled;
+    if (chosen) native_audio_soundstage_preset(&c, chosen);
+    c.enabled = enabled;
     if (!native_audio_set_soundstage(&c, chosen)) failure(N_("Could not apply Soundstage. Try again."));
     populate_stage();
 }
@@ -344,11 +346,11 @@ static void confirm_action(int action, const char * title) {
 }
 
 static void populate_mseb(void) {
-    lv_obj_t * list = page(PAGE_MSEB, TR("Sound Tuning"));
+    lv_obj_t * list = page(PAGE_MSEB, TR("MSEB"));
     native_mseb_state_t state; native_audio_get_mseb(&state);
     if (state.legacy) { add_pill_chevron_row(list, TR("Switch to stock MSEB"), convert_legacy); return; }
     add_pill_toggle_row(list, TR("Enabled"), state.config.enabled, mseb_enabled);
-    dropdown(list, TR("Adjustment Range"), "±20\n±40\n±100", state.range == 20 ? 0 : state.range == 40 ? 1 : 2, range_changed);
+    add_pill_option_menu_row(list, TR("Adjustment Range"), "±20\n±40\n±100", state.range == 20 ? 0 : state.range == 40 ? 1 : 2, range_changed);
     for (int i = 0; i <= MSEB_CONTROL_COUNT; i++) {
         if (i == MSEB_CONTROL_COUNT) {
             add_section_header(list, TR("Sound Stage"));
@@ -382,7 +384,7 @@ static void populate_stage(void) {
         size_t used = strlen(options);
         snprintf(options + used, sizeof(options) - used, "%s%s", i ? "\n" : "", TR(stage_presets[i]));
     }
-    dropdown(list, TR("Preset"), options, preset, preset_changed);
+    add_pill_option_menu_row(list, TR("Preset"), options, preset, preset_changed);
     for (int i = 0; i < 10; i++) {
         if (i == 0) add_section_header(list, TR("Virtual speakers"));
         if (i == 2) add_section_header(list, TR("Side EQ"));
@@ -397,11 +399,12 @@ static void populate_stage(void) {
 static void open_mseb(lv_event_t * e) { if (clicked(e)) { populate_mseb(); show_page(PAGE_MSEB); } }
 static void open_stage(lv_event_t * e) { if (clicked(e)) { populate_stage(); show_page(PAGE_STAGE); } }
 
-void gui_native_audio_add_sound_rows(lv_obj_t * list) {
-    add_pill_chevron_row(list, TR("Sound Tuning"), open_mseb);
-    add_pill_chevron_row(list, TR("Soundstage"), open_stage);
-    gain_dropdown = dropdown(list, TR("Gain"), TR("Low\nHigh"), native_audio_gain_mode() == 1, gain_changed);
-    gui_native_audio_refresh_gain();
+void gui_native_audio_add_effect_rows(lv_obj_t * list, lv_obj_t ** mseb_row,
+                                     lv_obj_t ** soundstage_row) {
+    lv_obj_t * mseb = add_pill_chevron_row(list, TR("MSEB"), open_mseb);
+    lv_obj_t * soundstage = add_pill_chevron_row(list, TR("Soundstage"), open_stage);
+    if (mseb_row) *mseb_row = mseb;
+    if (soundstage_row) *soundstage_row = soundstage;
 }
 bool gui_native_audio_quick_toggle_value(int kind) {
     if (kind == 0) return native_audio_gain_mode() == 1;
@@ -436,7 +439,6 @@ void gui_native_audio_quick_toggle_open(int kind) {
 }
 
 void gui_native_audio_deinit(void) {
-    gain_dropdown = NULL;
     for (int i = 0; i < PAGE_COUNT; i++) {
         clear_sliders(i);
         if (screens[i]) lv_obj_delete(screens[i]);

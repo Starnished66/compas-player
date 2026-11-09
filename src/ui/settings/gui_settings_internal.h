@@ -70,3 +70,4 @@ void settings_system_teardown_screens(void);
 void settings_power_teardown_screens(void);
 void settings_music_teardown_screens(void);
 void settings_display_teardown_screens(void);
+void wrap_row_label(lv_obj_t * row);

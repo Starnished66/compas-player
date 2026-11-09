@@ -13,6 +13,15 @@ typedef enum {
     GUI_NAV_PAGE_SETTINGS,
     GUI_NAV_PAGE_SETTINGS_SYSTEM,
     GUI_NAV_PAGE_PLUGIN_MANAGER,
+    GUI_NAV_PAGE_SETTINGS_SOUND,
+    GUI_NAV_PAGE_SETTINGS_PLAYBACK,
+    GUI_NAV_PAGE_SETTINGS_DISPLAY,
+    GUI_NAV_PAGE_SETTINGS_PERSONALIZE,
+    GUI_NAV_PAGE_SETTINGS_ADVANCED_SOUND,
+    GUI_NAV_PAGE_SETTINGS_BUTTONS,
+    GUI_NAV_PAGE_SETTINGS_LYRICS,
+    GUI_NAV_PAGE_SETTINGS_ABOUT,
+    GUI_NAV_PAGE_COUNT,
 } gui_nav_page_id_t;
 
 /* Reload-safe navigation snapshot: semantic page IDs and scalar scroll state
@@ -80,6 +89,7 @@ bool player_transition_cache_is_dirty(void);
 
 void gui_navigation_init(void);
 bool gui_navigation_capture_plugin_manager_path(gui_nav_reload_state_t * state);
+bool gui_navigation_capture_settings_path(gui_nav_reload_state_t * state);
 bool gui_navigation_restore_path(const gui_nav_reload_state_t * state);
 /* Called by gui_reload.c's in-process UI reload before and after rebuilding screens. */
 void gui_navigation_teardown(void);

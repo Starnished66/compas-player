@@ -376,3 +376,108 @@ lv_obj_t * build_font_change_mask(int target) {
     lv_obj_invalidate(mask);
     return mask;
 }
+
+/* One transient option menu, owned by its setting row. */
+typedef struct {
+    lv_obj_t * row, * summary;
+    char * options;
+    unsigned selected;
+    gui_option_selected_cb_t callback;
+} option_menu_row_t;
+static gui_popup_t option_popup;
+static option_menu_row_t * option_owner;
+
+bool gui_option_menu_close(void) {
+    if (!option_owner) return false;
+    option_owner = NULL;
+    gui_popup_teardown(&option_popup);
+    return true;
+}
+static void option_backdrop(lv_event_t * e) {
+    (void)e;
+    gui_option_menu_close();
+}
+static const char * option_text(option_menu_row_t * ctx, unsigned index, size_t * len) {
+    const char * start = ctx->options;
+    while (index-- && *start) {
+        const char * next = strchr(start, '\n');
+        if (!next) break;
+        start = next + 1;
+    }
+    const char * end = strchr(start, '\n');
+    *len = end ? (size_t)(end - start) : strlen(start);
+    return start;
+}
+void gui_option_menu_set_selected(lv_obj_t * row, unsigned selected) {
+    option_menu_row_t * ctx = lv_obj_get_user_data(row);
+    ctx->selected = selected;
+    size_t len;
+    const char * text = option_text(ctx, selected, &len);
+    lv_label_set_text_fmt(ctx->summary, "%.*s", (int)len, text);
+}
+static void option_selected(lv_event_t * e) {
+    unsigned selected = (unsigned)(uintptr_t)lv_event_get_user_data(e);
+    gui_option_selected_cb_t callback = option_owner->callback;
+    /* Close before the setter: native pages rebuild their rows on change. */
+    gui_option_menu_close();
+    if (callback) callback(selected);
+}
+static void option_label_resized(lv_event_t * e) {
+    lv_obj_t * label = lv_event_get_target(e);
+    lv_obj_set_height(lv_obj_get_parent(label),
+        LV_MAX(ui_list_row_height(), lv_obj_get_height(label) + BOARD_SCALE_PX(32)));
+}
+static void option_open(lv_event_t * e) {
+    option_menu_row_t * ctx = lv_event_get_user_data(e);
+    if (lv_obj_has_state(ctx->row, LV_STATE_DISABLED)) return;
+    gui_option_menu_close();
+    option_owner = ctx;
+    lv_obj_t * title;
+    build_titled_popup(&option_popup, option_backdrop, &title, NULL);
+    lv_label_set_text(title, lv_label_get_text(lv_obj_get_child(ctx->row, 0)));
+    unsigned count = 1;
+    for (const char * p = ctx->options; *p; ++p) if (*p == '\n') ++count;
+    lv_obj_t * checked = NULL;
+    for (unsigned i = 0; i < count; ++i) {
+        size_t len;
+        const char * text = option_text(ctx, i, &len);
+        char * label = lv_malloc(len + 1);
+        memcpy(label, text, len); label[len] = 0;
+        lv_obj_t * row = add_pill_option_row(option_popup.popup, label, i == ctx->selected,
+                                            option_selected, (void *)(uintptr_t)i);
+        lv_obj_set_width(row, lv_pct(100));
+        /* Popup rows are narrower than full-screen lists; wrap long choices. */
+        lv_obj_t * option_label = lv_obj_get_child(row, 0);
+        lv_label_set_long_mode(option_label, LV_LABEL_LONG_WRAP);
+        lv_obj_remove_flag(option_label, LV_OBJ_FLAG_USER_3);
+        lv_obj_set_width(option_label, lv_pct(78));
+        lv_obj_set_height(option_label, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_top(option_label, 0, 0);
+        lv_obj_add_event_cb(option_label, option_label_resized, LV_EVENT_SIZE_CHANGED, NULL);
+        lv_free(label);
+        if (i == ctx->selected) checked = row;
+    }
+    gui_popup_show(&option_popup);
+    lv_obj_update_layout(option_popup.popup);
+    if (checked) lv_obj_scroll_to_view(checked, LV_ANIM_OFF);
+}
+static void option_row_deleted(lv_event_t * e) {
+    option_menu_row_t * ctx = lv_event_get_user_data(e);
+    if (option_owner == ctx) gui_option_menu_close();
+    lv_free(ctx->options);
+    lv_free(ctx);
+}
+lv_obj_t * add_pill_option_menu_row(lv_obj_t * parent, const char * title,
+    const char * options, unsigned selected, gui_option_selected_cb_t callback) {
+    option_menu_row_t * ctx = lv_malloc(sizeof(*ctx));
+    ctx->options = lv_malloc(strlen(options) + 1);
+    strcpy(ctx->options, options);
+    ctx->callback = callback;
+    ctx->row = add_pill_chevron_row(parent, title, NULL);
+    ctx->summary = add_pill_summary_label(ctx->row);
+    lv_obj_set_user_data(ctx->row, ctx);
+    gui_option_menu_set_selected(ctx->row, selected);
+    lv_obj_add_event_cb(ctx->row, option_open, LV_EVENT_CLICKED, ctx);
+    lv_obj_add_event_cb(ctx->row, option_row_deleted, LV_EVENT_DELETE, ctx);
+    return ctx->row;
+}

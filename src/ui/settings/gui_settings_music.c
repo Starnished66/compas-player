@@ -17,6 +17,8 @@
 #include "gui_settings_internal.h"
 #include "gui_native_audio.h"
 #include "gui_play_through.h"
+#include "../../core/persistence/native_audio_settings.h"
+#include "../../audio/effects/peq.h"
 
 static lv_obj_t * settings_crossfade_toggle_img = NULL;
 static lv_obj_t * settings_gapless_toggle_img = NULL;
@@ -48,11 +50,31 @@ static lv_obj_t * dac_settings_screen;
 static lv_obj_t * dac_settings_list;
 static lv_obj_t * usb_dsd_settings_screen;
 static lv_obj_t * usb_dsd_settings_list;
-static lv_obj_t * dsd_gain_settings_screen;
-static lv_obj_t * dsd_gain_settings_list;
+static lv_obj_t * dsd_gain_menu;
 static lv_obj_t * settings_eq_profiles_menu_screen;
 static lv_obj_t * music_playback_screen;
 static lv_obj_t * music_audio_screen;
+static lv_obj_t * advanced_sound_screen;
+static lv_obj_t * buttons_screen;
+static lv_obj_t * audio_summaries[7];
+static const char * dac_filter_summary(void);
+
+static void refresh_audio_summaries(lv_event_t * e) {
+    (void)e;
+    if (audio_summaries[0]) lv_label_set_text_fmt(audio_summaries[0], TR("Max %d%%"), current_settings.max_volume_percent);
+    if (audio_summaries[1]) lv_label_set_text(audio_summaries[1], dac_filter_summary());
+    native_mseb_state_t mseb; native_audio_get_mseb(&mseb);
+    soundstage_config_t stage; int preset; native_audio_get_soundstage(&stage, &preset);
+    if (audio_summaries[2]) lv_label_set_text(audio_summaries[2], mseb.config.enabled ? TR("On") : TR("Off"));
+    if (audio_summaries[3]) lv_label_set_text(audio_summaries[3], stage.enabled ? TR("On") : TR("Off"));
+    if (audio_summaries[4]) lv_label_set_text(audio_summaries[4], peq_get_crossfeed() > 0 ? TR("On") : TR("Off"));
+    static const char * const rg[] = { N_("Off"), N_("Per track"), N_("Per album") };
+    int mode = current_settings.replaygain_mode;
+    if (audio_summaries[5]) lv_label_set_text(audio_summaries[5], TR(rg[mode >= 0 && mode <= 2 ? mode : 0]));
+    static const char * const usb[] = { N_("PCM"), N_("Native DSD"), N_("DoP") };
+    mode = current_settings.usb_dsd_output;
+    if (audio_summaries[6]) lv_label_set_text(audio_summaries[6], TR(usb[mode >= 0 && mode <= 2 ? mode : 0]));
+}
 
 static lv_obj_t * build_library_category_screen(void);
 
@@ -80,6 +102,13 @@ PLUGIN_ROW_CLICK_CB(plugin_music_audio_list_item_click_cb, plugin_manager_music_
 PLUGIN_ROW_CLICK_CB(plugin_music_controls_list_item_click_cb, plugin_manager_music_controls_list_item_clicked)
 
 PLUGIN_ROW_CLICK_CB(plugin_music_library_list_item_click_cb, plugin_manager_music_library_list_item_clicked)
+
+static void open_advanced_sound(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED && advanced_sound_screen) nav_push(advanced_sound_screen);
+}
+static void open_buttons(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED && buttons_screen) nav_push(buttons_screen);
+}
 
 /* Submenu listing the plugin rows registered under `group` of the Sound list. */
 static lv_obj_t * build_music_audio_group_screen(const char * title, const char * group) {
@@ -111,7 +140,7 @@ static lv_obj_t * build_music_playback_screen(void) {
     lv_obj_t * car_row = NULL;
     lv_obj_t * sleep_row = NULL;
     pill_list_item_t items[6 + PLUGIN_MAX_PLAYBACK_LIST_ITEMS] = {
-        { TR("Resume Last Track"), PILL_ACCESSORY_CHEVRON, false, resume_mode_settings_row_cb },
+        { TR("Resume last track"), PILL_ACCESSORY_CHEVRON, false, resume_mode_settings_row_cb },
         { TR("Crossfade"), PILL_ACCESSORY_TOGGLE, current_settings.crossfade_enabled,
           NULL, crossfade_switch_event_cb, NULL, &settings_crossfade_toggle_img },
         { TR("Gapless"), PILL_ACCESSORY_TOGGLE, current_settings.gapless_enabled,
@@ -119,28 +148,41 @@ static lv_obj_t * build_music_playback_screen(void) {
     };
     add_pill_list_rows(list, items, 3);
     gui_native_audio_add_play_through_rows(list);
-    items[0] = (pill_list_item_t){ TR("Sleep Timer"), PILL_ACCESSORY_CHEVRON, false, gui_settings_sleep_timer_row_cb };
+    items[0] = (pill_list_item_t){ TR("Sleep timer"), PILL_ACCESSORY_CHEVRON, false, gui_settings_sleep_timer_row_cb };
     items[0].out_row = &sleep_row;
-    items[1] = (pill_list_item_t){ TR("Car Mode"), PILL_ACCESSORY_CHEVRON, false, gui_volume_settings_car_mode_row_cb };
-    items[1].out_row = &car_row;
-    int count = append_plugin_list_rows(items, 2, PLUGIN_MAX_PLAYBACK_LIST_ITEMS,
+    add_pill_list_rows(list, items, 1);
+    add_pill_chevron_row(list, TR("Buttons"), open_buttons);
+    items[0] = (pill_list_item_t){ TR("Car mode"), PILL_ACCESSORY_CHEVRON, false, gui_volume_settings_car_mode_row_cb };
+    items[0].out_row = &car_row;
+    int count = append_plugin_list_rows(items, 1, PLUGIN_MAX_PLAYBACK_LIST_ITEMS,
         plugin_manager_get_playback_list_item_count, plugin_manager_get_playback_list_item_label,
         plugin_manager_get_playback_list_item_options, plugin_playback_list_item_click_cb);
     add_pill_list_rows(list, items, count);
     settings_sleep_summary = add_pill_summary_label(sleep_row);
     settings_car_summary = add_pill_summary_label(car_row);
-    add_section_header(list, TR("Controls"));
+    settings_summary_loaded_cb(NULL);
+    lv_obj_add_event_cb(scr, settings_summary_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    finalize_screen_navigation(scr);
+    return scr;
+}
+
+static lv_obj_t * build_buttons_screen(void) {
+    lv_obj_t * list;
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Buttons"), NULL, &list);
     lv_obj_t * button_row = NULL;
+    lv_obj_t * volume_lock_row = NULL;
     pill_list_item_t controls[3 + PLUGIN_MAX_MUSIC_CONTROLS_LIST_ITEMS] = {
-        { TR("Button Mapping"), PILL_ACCESSORY_CHEVRON, false, gui_button_mapping_row_cb },
-        { TR("Volume Lock (Screen Off)"), PILL_ACCESSORY_TOGGLE, current_settings.volume_lock_screen_off, NULL, volume_lock_switch_event_cb },
-        { TR("In-line Remote"), PILL_ACCESSORY_TOGGLE, current_settings.inline_remote_enabled, NULL, inline_remote_switch_event_cb },
+        { TR("Button mapping"), PILL_ACCESSORY_CHEVRON, false, gui_button_mapping_row_cb },
+        { TR("Volume lock (screen off)"), PILL_ACCESSORY_TOGGLE, current_settings.volume_lock_screen_off, NULL, volume_lock_switch_event_cb },
+        { TR("In-line remote"), PILL_ACCESSORY_TOGGLE, current_settings.inline_remote_enabled, NULL, inline_remote_switch_event_cb },
     };
     controls[0].out_row = &button_row;
-    count = append_plugin_list_rows(controls, 3, PLUGIN_MAX_MUSIC_CONTROLS_LIST_ITEMS,
+    controls[1].out_row = &volume_lock_row;
+    int count = append_plugin_list_rows(controls, 3, PLUGIN_MAX_MUSIC_CONTROLS_LIST_ITEMS,
         plugin_manager_get_music_controls_list_item_count, plugin_manager_get_music_controls_list_item_label,
         plugin_manager_get_music_controls_list_item_options, plugin_music_controls_list_item_click_cb);
     add_pill_list_rows(list, controls, count);
+    wrap_row_label(volume_lock_row);
     gui_button_mapping_set_category_summary(add_pill_summary_label(button_row));
     settings_summary_loaded_cb(NULL);
     lv_obj_add_event_cb(scr, settings_summary_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
@@ -181,12 +223,24 @@ static void apply_dac_preferences(void) {
 
 static void populate_dac_settings_screen(void);
 
+static void wrapped_label_size_changed(lv_event_t * e) {
+    lv_obj_t * label = lv_event_get_target(e);
+    lv_obj_t * row = lv_obj_get_parent(label);
+    lv_obj_set_height(row, LV_MAX(ui_list_row_height(), lv_obj_get_height(label) + BOARD_SCALE_PX(32)));
+}
+
 /* Wraps the first-child label of a pill row at 78% width so a long option
  * never runs under the row's accessory. */
-static void wrap_row_label(lv_obj_t * row) {
+void wrap_row_label(lv_obj_t * row) {
     lv_obj_t * label = lv_obj_get_child(row, 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label, lv_pct(78));
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_USER_3);
+    lv_obj_set_height(label, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_top(label, 0, 0);
+    lv_obj_add_event_cb(label, wrapped_label_size_changed, LV_EVENT_SIZE_CHANGED, NULL);
+    lv_obj_update_layout(row);
+    lv_obj_set_height(row, LV_MAX(ui_list_row_height(), lv_obj_get_height(label) + BOARD_SCALE_PX(32)));
 }
 
 static bool native_dac_nos_supported(void) {
@@ -202,16 +256,13 @@ static int dac_filter_count(void) {
     return native_dac_nos_supported() ? 4 : 2;
 }
 
-static void dac_filter_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int filter = (int) (intptr_t) lv_event_get_user_data(e);
-    if (filter < 0 || filter >= dac_filter_count()) return;
-    current_settings.dac_filter = filter;
+static void dac_filter_selected(unsigned filter) {
+    if (native_dac_nos_supported() && current_settings.dac_nos) return;
+    if (filter >= (unsigned)dac_filter_count()) return;
+    current_settings.dac_filter = (int)filter;
     apply_dac_preferences();
     settings_save_async(&current_settings);
-    if (dac_settings_list) {
-        populate_dac_settings_screen();
-    }
+    if (dac_settings_list) populate_dac_settings_screen();
 }
 
 static void dac_nos_event_cb(lv_event_t * e) {
@@ -241,13 +292,28 @@ static const char * const dac_filter_labels_no_nos[2] = {
     N_("Linear phase fast roll-off")
 };
 
+static const char * dac_filter_summary(void) {
+    if (native_dac_nos_supported() && current_settings.dac_nos) return TR("Bypassed by NOS");
+    int index = current_settings.dac_filter;
+    if (index < 0 || index >= dac_filter_count()) index = 0;
+    const char * const * labels = native_dac_nos_supported() ? dac_filter_labels : dac_filter_labels_no_nos;
+    return TR(labels[index]);
+}
+
 static void populate_dac_settings_screen(void) {
     if (!dac_settings_list) return;
     lv_obj_clean(dac_settings_list);
     const char * const * labels = native_dac_nos_supported() ? dac_filter_labels : dac_filter_labels_no_nos;
+    char options[512] = "";
     for (int i = 0; i < dac_filter_count(); ++i) {
-        wrap_row_label(add_pill_option_row(dac_settings_list, TR(labels[i]),
-            current_settings.dac_filter == i, dac_filter_event_cb, (void *) (intptr_t) i));
+        size_t used = strlen(options);
+        snprintf(options + used, sizeof(options) - used, "%s%s", i ? "\n" : "", TR(labels[i]));
+    }
+    lv_obj_t * filter = add_pill_option_menu_row(dac_settings_list, TR("Filter"), options,
+        (unsigned)current_settings.dac_filter, dac_filter_selected);
+    if (native_dac_nos_supported() && current_settings.dac_nos) {
+        lv_obj_add_state(filter, LV_STATE_DISABLED);
+        add_wrapped_section_header(dac_settings_list, TR("Turn off NOS to choose a filter"));
     }
     if (native_dac_nos_supported())
         wrap_row_label(add_pill_toggle_row(dac_settings_list, TR("NOS Mode"),
@@ -306,54 +372,44 @@ static void usb_dsd_settings_row_cb(lv_event_t * e) {
     nav_push(usb_dsd_settings_screen);
 }
 
-static void dsd_gain_event_cb(lv_event_t * e);
-
-static void populate_dsd_gain_settings_screen(void) {
-    if (!dsd_gain_settings_list) return;
-    lv_obj_clean(dsd_gain_settings_list);
-    for (int db = 0; db <= 6; ++db) {
-        char label[24];
-        if (db == 0) snprintf(label, sizeof(label), "%s", TR("Off"));
-        else snprintf(label, sizeof(label), TR("+%d dB"), db);
-        wrap_row_label(add_pill_option_row(dsd_gain_settings_list, label,
-            current_settings.dsd_gain_db == db, dsd_gain_event_cb, (void *) (intptr_t) db));
-    }
-    add_wrapped_section_header(dsd_gain_settings_list,
-        TR("Raises native DSD on this player's headphone outputs. It cannot go past the loudest volume step."));
-}
-
-static void dsd_gain_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int db = (int) (intptr_t) lv_event_get_user_data(e);
+static void set_dsd_gain(int db) {
     if (db < 0 || db > 6) return;
     current_settings.dsd_gain_db = db;
 #ifndef HOST_BUILD
     audio_output_set_dsd_gain_db(db);
 #endif
     settings_save_async(&current_settings);
-    populate_dsd_gain_settings_screen();
 }
 
-static lv_obj_t * build_dsd_gain_settings_screen(void) {
-    lv_obj_t * title = NULL;
-    lv_obj_t * scr = build_subsonic_list_screen(TR("DSD Gain"), &title, &dsd_gain_settings_list);
-    (void) title;
-    populate_dsd_gain_settings_screen();
-    finalize_screen_navigation(scr);
-    return scr;
+static void dsd_gain_selected(unsigned selected) {
+    set_dsd_gain((int)selected);
+    gui_option_menu_set_selected(dsd_gain_menu, (unsigned)current_settings.dsd_gain_db);
 }
 
-static void dsd_gain_settings_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !dsd_gain_settings_screen) return;
-    populate_dsd_gain_settings_screen();
-    nav_push(dsd_gain_settings_screen);
+static void dsd_gain_refresh(lv_event_t * e) {
+    (void)e;
+    if (dsd_gain_menu) gui_option_menu_set_selected(dsd_gain_menu, (unsigned)current_settings.dsd_gain_db);
 }
 
 /* Filters, NOS and DRE sit in their own list so a refresh keeps the DSD Gain row above them. */
 static lv_obj_t * build_dac_settings_screen(void) {
     lv_obj_t * list;
     lv_obj_t * scr = build_subsonic_list_screen(TR("DAC"), NULL, &list);
-    if (native_dop_supported()) add_pill_chevron_row(list, TR("DSD Gain"), dsd_gain_settings_row_cb);
+    if (native_dop_supported()) {
+        char options[256];
+        snprintf(options, sizeof(options), "%s", TR("Off"));
+        for (int db = 1; db <= 6; ++db) {
+            size_t used = strlen(options);
+            snprintf(options + used, sizeof(options) - used, "\n");
+            used = strlen(options);
+            snprintf(options + used, sizeof(options) - used, TR("+%d dB"), db);
+        }
+        dsd_gain_menu = add_pill_option_menu_row(list, TR("DSD Gain"), options,
+            (unsigned)current_settings.dsd_gain_db, dsd_gain_selected);
+        add_wrapped_section_header(list,
+            TR("Raises native DSD on this player's headphone outputs. It cannot go past the loudest volume step."));
+        lv_obj_add_event_cb(scr, dsd_gain_refresh, LV_EVENT_SCREEN_LOADED, NULL);
+    }
     if (native_dac_controls_supported()) {
         dac_settings_list = lv_obj_create(list);
         lv_obj_set_size(dac_settings_list, lv_pct(100), LV_SIZE_CONTENT);
@@ -388,27 +444,47 @@ static void add_audio_plugin_rows(lv_obj_t * list, const char * group) {
 static lv_obj_t * build_music_audio_screen(void) {
     lv_obj_t * list;
     lv_obj_t * scr = build_subsonic_list_screen(TR("Sound"), NULL, &list);
+    lv_obj_t * volume = add_pill_chevron_row(list, TR("Volume limits"), gui_volume_settings_volume_row_cb);
+    audio_summaries[0] = add_pill_summary_label(volume);
     lv_obj_t * eq_row = NULL;
     pill_list_item_t eq = { TR("Equalizer"), PILL_ACCESSORY_CHEVRON, false, gui_equalizer_eq_row_event_cb };
     eq.out_row = &eq_row;
     add_pill_list_rows(list, &eq, 1);
-    gui_native_audio_add_sound_rows(list);
-    pill_list_item_t items[] = {
-        { TR("Crossfeed"), PILL_ACCESSORY_CHEVRON, false, gui_equalizer_crossfeed_row_event_cb },
-        { TR("ReplayGain"), PILL_ACCESSORY_CHEVRON, false, replaygain_mode_settings_row_cb },
-        { TR("Volume"), PILL_ACCESSORY_CHEVRON, false, gui_volume_settings_volume_row_cb },
-    };
-    add_pill_list_rows(list, items, 3);
-    if (dac_settings_screen) add_pill_chevron_row(list, TR("DAC"), dac_settings_row_cb);
-    add_pill_chevron_row(list, TR("USB Output"), usb_dsd_settings_row_cb);
+    gui_native_audio_add_gain_row(list);
+    add_pill_chevron_row(list, TR("Advanced sound"), open_advanced_sound);
+    settings_eq_summary = add_pill_summary_label(eq_row);
+    settings_summary_loaded_cb(NULL);
+    lv_obj_add_event_cb(scr, settings_summary_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    lv_obj_add_event_cb(scr, refresh_audio_summaries, LV_EVENT_SCREEN_LOADED, NULL);
+    finalize_screen_navigation(scr);
+    return scr;
+}
+
+static lv_obj_t * build_advanced_sound_screen(void) {
+    lv_obj_t * list;
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Advanced sound"), NULL, &list);
+    lv_obj_t * row;
+    if (dac_settings_screen) {
+        row = add_pill_chevron_row(list, TR("DAC"), dac_settings_row_cb);
+        audio_summaries[1] = add_pill_summary_label(row);
+    }
+    lv_obj_t * mseb = NULL, * stage = NULL;
+    gui_native_audio_add_effect_rows(list, &mseb, &stage);
+    if (mseb) audio_summaries[2] = add_pill_summary_label(mseb);
+    if (stage) audio_summaries[3] = add_pill_summary_label(stage);
+    row = add_pill_chevron_row(list, TR("Crossfeed"), gui_equalizer_crossfeed_row_event_cb);
+    audio_summaries[4] = add_pill_summary_label(row);
+    row = add_pill_chevron_row(list, TR("ReplayGain"), replaygain_mode_settings_row_cb);
+    audio_summaries[5] = add_pill_summary_label(row);
+    row = add_pill_chevron_row(list, TR("USB output"), usb_dsd_settings_row_cb);
+    audio_summaries[6] = add_pill_summary_label(row);
     add_audio_plugin_rows(list, NULL);
     if (count_plugin_rows_in_group("music_audio", plugin_manager_get_music_audio_list_item_count(), "effects") > 0) {
         add_section_header(list, TR("Effects"));
         add_audio_plugin_rows(list, "effects");
     }
-    settings_eq_summary = add_pill_summary_label(eq_row);
-    settings_summary_loaded_cb(NULL);
-    lv_obj_add_event_cb(scr, settings_summary_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    refresh_audio_summaries(NULL);
+    lv_obj_add_event_cb(scr, refresh_audio_summaries, LV_EVENT_SCREEN_LOADED, NULL);
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -544,13 +620,13 @@ static lv_obj_t * build_library_category_screen(void) {
     pill_list_item_t items[5 + PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS];
     lv_obj_t * native_rows[4] = { NULL };
     items[0] = (pill_list_item_t){ .label = TR("Update Music Database"),
-        .accessory = PILL_ACCESSORY_NONE, .on_click = update_music_database_row_cb,
+        .accessory = PILL_ACCESSORY_CHEVRON, .on_click = update_music_database_row_cb,
         .out_row = &native_rows[0] };
     items[1] = (pill_list_item_t){ .label = TR("Refresh All Metadata"),
-        .accessory = PILL_ACCESSORY_NONE, .on_click = refresh_all_metadata_row_cb,
+        .accessory = PILL_ACCESSORY_CHEVRON, .on_click = refresh_all_metadata_row_cb,
         .out_row = &native_rows[1] };
     items[2] = (pill_list_item_t){ .label = TR("Refresh All Covers"),
-        .accessory = PILL_ACCESSORY_NONE, .on_click = refresh_all_covers_row_cb,
+        .accessory = PILL_ACCESSORY_CHEVRON, .on_click = refresh_all_covers_row_cb,
         .out_row = &native_rows[2] };
     items[3] = (pill_list_item_t){ .label = TR("Sorting"), .accessory = PILL_ACCESSORY_CHEVRON,
         .on_click = sorting_row_cb, .out_row = &native_rows[3] };
@@ -581,10 +657,11 @@ bool gui_settings_profiles_download_available(void) {
 
 void settings_music_build_screens(void) {
     music_playback_screen = build_music_playback_screen();
+    buttons_screen = build_buttons_screen();
     usb_dsd_settings_screen = build_usb_dsd_settings_screen();
-    if (native_dop_supported()) dsd_gain_settings_screen = build_dsd_gain_settings_screen();
     if (native_dop_supported() || native_dac_controls_supported()) dac_settings_screen = build_dac_settings_screen();
     music_audio_screen = build_music_audio_screen();
+    advanced_sound_screen = build_advanced_sound_screen();
 }
 
 void settings_music_teardown_screens(void) {
@@ -594,15 +671,22 @@ void settings_music_teardown_screens(void) {
     memset(settings_sorting_options, 0, sizeof(settings_sorting_options));
     delete_screen(&settings_eq_profiles_menu_screen);
     delete_screen(&music_playback_screen);
+    delete_screen(&buttons_screen);
     settings_crossfade_toggle_img = settings_gapless_toggle_img = NULL;
     delete_screen(&music_audio_screen);
+    delete_screen(&advanced_sound_screen);
     delete_screen(&usb_dsd_settings_screen);
-    delete_screen(&dsd_gain_settings_screen);
     delete_screen(&dac_settings_screen);
     dac_settings_list = NULL;
     usb_dsd_settings_list = NULL;
-    dsd_gain_settings_list = NULL;
+    dsd_gain_menu = NULL;
+    memset(audio_summaries, 0, sizeof(audio_summaries));
 }
+
+lv_obj_t * gui_settings_get_advanced_sound_screen(void) { return advanced_sound_screen; }
+lv_obj_t * gui_settings_get_buttons_screen(void) { return buttons_screen; }
+lv_obj_t * gui_settings_get_sound_screen(void) { return music_audio_screen; }
+lv_obj_t * gui_settings_get_playback_screen(void) { return music_playback_screen; }
 
 void gui_settings_sync_gapless_toggle(void) {
     if (!settings_gapless_toggle_img) return;

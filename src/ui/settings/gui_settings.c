@@ -119,10 +119,16 @@ static void settings_category_library_cb(lv_event_t * e) {
     gui_settings_open_library();
 }
 
+static void settings_about_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    lv_obj_t * screen = gui_settings_get_about_screen();
+    if (screen) nav_push(screen);
+}
+
 
 static lv_obj_t * build_settings_screen(void) {
-    pill_list_item_t items[8];
-    lv_obj_t * category_rows[8] = { NULL };
+    pill_list_item_t items[9];
+    lv_obj_t * category_rows[9] = { NULL };
     items[0] = (pill_list_item_t){ TR("Sound"), PILL_ACCESSORY_CHEVRON, false, settings_category_music_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Playback"), PILL_ACCESSORY_CHEVRON, false, settings_category_playback_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Display"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_display_screen };
@@ -131,17 +137,18 @@ static lv_obj_t * build_settings_screen(void) {
     items[5] = (pill_list_item_t){ TR("Library"), PILL_ACCESSORY_CHEVRON, false, settings_category_library_cb, NULL, NULL };
     items[6] = (pill_list_item_t){ TR("System"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_system_screen };
     items[7] = (pill_list_item_t){ TR("Updates"), PILL_ACCESSORY_CHEVRON, false, settings_updates_row_cb, NULL, NULL };
-    for (unsigned i = 0; i < 8; ++i) {
+    items[8] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, settings_about_cb, NULL, NULL };
+    for (unsigned i = 0; i < 9; ++i) {
         items[i].out_row = &category_rows[i];
     }
 
-    lv_obj_t * scr = build_pill_list_screen(TR("Settings"), generic_back_cb, items, 8, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    lv_obj_t * scr = build_pill_list_screen(TR("Settings"), generic_back_cb, items, 9, gui_theme_accent_style(), GUI_ROW_GAP, 100);
     static const char * icons[] = {
         "settings/sound.png", "settings/playback.png", "settings/display.png",
         "submenu/themes.png", "settings/power.png", "settings/library.png", "settings/system.png",
-        "submenu/update_database.png",
+        "submenu/update_database.png", "settings/about.png",
     };
-    for (unsigned i = 0; i < 8; ++i) {
+    for (unsigned i = 0; i < 9; ++i) {
         if (category_rows[i]) decorate_category_row(category_rows[i], icons[i]);
     }
     finalize_screen_navigation(scr);

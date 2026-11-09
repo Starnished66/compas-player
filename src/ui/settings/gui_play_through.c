@@ -232,7 +232,7 @@ static void play_through_row_cb(lv_event_t * e) {
 }
 
 void gui_native_audio_add_play_through_rows(lv_obj_t * list) {
-    add_pill_chevron_row(list, TR("Play Through"), play_through_row_cb);
+    add_pill_chevron_row(list, TR("Play through"), play_through_row_cb);
     if (!continuation_timer) continuation_timer = lv_timer_create(continuation_tick, 1000, NULL);
 }
 

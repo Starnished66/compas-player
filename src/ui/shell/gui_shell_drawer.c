@@ -660,6 +660,10 @@ void quick_drawer_brightness_changed_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * slider = (lv_obj_t *) lv_event_get_target(e);
     int32_t percent = lv_slider_get_value(slider);
+    if (code == LV_EVENT_VALUE_CHANGED || code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST)
+        gui_settings_sync_brightness((int)percent);
+    if (quick_drawer_brightness_track && slider != quick_drawer_brightness_track)
+        lv_slider_set_value(quick_drawer_brightness_track, percent, LV_ANIM_OFF);
 
     if (code == LV_EVENT_PRESSED) {
         brightness_drag_active = true;

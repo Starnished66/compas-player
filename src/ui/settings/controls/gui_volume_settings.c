@@ -20,8 +20,7 @@ static setting_slider_t max_volume_ui;
 static setting_slider_t car_mode_volume_ui;
 static lv_obj_t * car_mode_screen;
 static lv_obj_t * car_mode_autoresume_switch;
-static lv_obj_t * car_mode_gain_row;
-static lv_obj_t * car_mode_gain_dropdown;
+static lv_obj_t * car_mode_gain_switch;
 
 static void format_percent(char * buf, size_t buf_size, int percent) {
     snprintf(buf, buf_size, "%d%%", percent);
@@ -83,7 +82,7 @@ static void max_volume_slider_event_cb(lv_event_t * e) {
 static lv_obj_t * build_volume_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
-    build_screen_header(scr, TR("Volume"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Volume limits"), generic_back_cb, NULL, NULL);
     lv_obj_t * content = build_settings_body(scr);
     add_section_header(content, TR("Startup Volume"));
     startup_volume_ui = build_setting_slider(content, &(setting_slider_cfg_t) {
@@ -139,14 +138,6 @@ static void car_mode_autoresume_switch_event_cb(lv_event_t * e) {
     settings_save_async(&current_settings);
 }
 
-static void car_mode_gain_dropdown_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-    native_audio_set_gain_mode(lv_dropdown_get_selected(lv_event_get_target(e)) == 1);
-    gui_native_audio_show_gain(lv_event_get_target(e));
-    gui_native_audio_refresh_gain();
-    gui_shell_refresh_quick_drawer_expansion_toggles();
-}
-
 static void car_mode_screen_loaded_cb(lv_event_t * e) {
     (void) e;
     gui_settings_sync_car_mode();
@@ -161,13 +152,7 @@ static void build_car_mode_autoresume(lv_obj_t * body) {
 
 /* Share the native Low/High gain control with Sound. */
 static void build_car_mode_gain_row(lv_obj_t * body) {
-    lv_obj_t * row;
-    car_mode_gain_row = build_setting_label_card(body, TR("Gain"), &row);
-    car_mode_gain_dropdown = lv_dropdown_create(row);
-    lv_dropdown_set_options(car_mode_gain_dropdown, TR("Low\nHigh"));
-    gui_style_settings_dropdown(car_mode_gain_dropdown);
-    lv_obj_set_width(car_mode_gain_dropdown, BOARD_SCALE_PX(170));
-    lv_obj_add_event_cb(car_mode_gain_dropdown, car_mode_gain_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    car_mode_gain_switch = gui_native_audio_add_gain_row(body);
 }
 
 static lv_obj_t * build_car_mode_screen(void) {
@@ -223,8 +208,7 @@ void gui_settings_sync_car_mode(void) {
         if (current_settings.car_mode_autoresume_enabled) lv_obj_add_state(car_mode_autoresume_switch, LV_STATE_CHECKED);
         else lv_obj_clear_state(car_mode_autoresume_switch, LV_STATE_CHECKED);
     }
-    if (car_mode_gain_row && car_mode_gain_dropdown)
-        gui_native_audio_show_gain(car_mode_gain_dropdown);
+    if (car_mode_gain_switch) gui_native_audio_refresh_gain();
 }
 
 void gui_volume_settings_build_startup_max_screens(void) {
@@ -244,7 +228,6 @@ void gui_volume_settings_teardown_startup_max_screens(void) {
 void gui_volume_settings_teardown_car_mode_screen(void) {
     if (car_mode_screen) { lv_obj_delete(car_mode_screen); car_mode_screen = NULL; }
     car_mode_autoresume_switch = NULL;
-    car_mode_gain_row = NULL;
-    car_mode_gain_dropdown = NULL;
+    car_mode_gain_switch = NULL;
     car_mode_volume_ui = (setting_slider_t) { 0 };
 }
