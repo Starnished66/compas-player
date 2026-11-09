@@ -272,8 +272,9 @@ static void apply_dac_preferences(bool dop) {
 }
 
 /* The codec's DoP switch. It must be set while no stream is running: on for
- * a DoP stream before its first write, off again before any PCM stream is
- * prepared, or the DAC reads PCM as DSD (noise). The control reads back 0
+ * a DoP stream before its first write (before hw_params on R3 II 2025), off
+ * again before any PCM stream opens, or the DAC reads PCM as DSD (noise).
+ * The control reads back 0
  * whatever was written, so the last value written is tracked here instead;
  * -1 forces the first write, which also clears a switch left on by a
  * crashed process. Written only by the output owner thread; atomic because
@@ -458,6 +459,15 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         config.start_threshold = config.period_size * config.period_count;
         config.stop_threshold = config.period_size * config.period_count;
 
+        /* The stock R3 II 2025 card consumes DOP_EN during hw_params, so
+         * arm DoP before pcm_open() negotiates the stream. Other boards keep
+         * the existing post-open path. */
+#if defined(BOARD_R3II_2025) && !defined(HOST_BUILD)
+        if (dop && !set_dop_switch(true)) {
+            dop_refused_rate = sample_rate;
+            return false;
+        }
+#endif
         alsa_pcm = pcm_open(ALSA_CARD, ALSA_DEVICE, PCM_OUT, &config);
         if (!alsa_pcm || !pcm_is_ready(alsa_pcm)) {
             DBG_LOG("audio_output: pcm_open failed (format=%d): %s\n", (int) config.format,
@@ -466,7 +476,14 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
             alsa_pcm = NULL;
             /* DoP has no narrower fallback: 16 bits cannot hold a marker
              * and 16 DSD bits. The caller falls back to PCM conversion. */
-            if (dop) dop_refused_rate = sample_rate;
+            if (dop) {
+                dop_refused_rate = sample_rate;
+#if defined(BOARD_R3II_2025) && !defined(HOST_BUILD)
+                /* Clear the mode flag for the next PCM hw_params. A failed
+                 * clear is retried before the next PCM open. */
+                (void) set_dop_switch(false);
+#endif
+            }
             if (!want_s24 || dop) return false;
             /* Fall back to S16_LE if S24_LE hw_params negotiation fails, and record
              * the unsupported format so subsequent chunks do not re-probe. */
@@ -489,8 +506,9 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
                 return false;
             }
         }
-        /* The stream is open but not yet prepared (that happens on the first
-         * write), so the codec picks up the switch before any DoP word. */
+        /* On other boards the stream is open but not yet prepared (that
+         * happens on the first write), so the codec picks up the switch here.
+         * The R3 II 2025 write above already armed it before hw_params. */
         if (dop && !set_dop_switch(true)) {
             dop_refused_rate = sample_rate;
             pcm_close(alsa_pcm);
