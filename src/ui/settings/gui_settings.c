@@ -1,5 +1,6 @@
 #include "../application/gui.h"
 #include "gui_settings.h"
+#include "gui_native_audio.h"
 #include "input/gui_button_mapping.h"
 #include "../player/settings/gui_equalizer.h"
 #include "../home/gui_home.h"
@@ -120,26 +121,27 @@ static void settings_category_library_cb(lv_event_t * e) {
 
 
 static lv_obj_t * build_settings_screen(void) {
-    pill_list_item_t items[7];
-    lv_obj_t * category_rows[7] = { NULL };
+    pill_list_item_t items[8];
+    lv_obj_t * category_rows[8] = { NULL };
     items[0] = (pill_list_item_t){ TR("Sound"), PILL_ACCESSORY_CHEVRON, false, settings_category_music_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ TR("Playback & Controls"), PILL_ACCESSORY_CHEVRON, false, settings_category_playback_cb, NULL, NULL };
+    items[1] = (pill_list_item_t){ TR("Playback"), PILL_ACCESSORY_CHEVRON, false, settings_category_playback_cb, NULL, NULL };
     items[2] = (pill_list_item_t){ TR("Display"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_display_screen };
-    items[3] = (pill_list_item_t){ TR("Power"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_power_screen };
-    items[4] = (pill_list_item_t){ TR("Library"), PILL_ACCESSORY_CHEVRON, false, settings_category_library_cb, NULL, NULL };
-    items[5] = (pill_list_item_t){ TR("System"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_system_screen };
-    items[6] = (pill_list_item_t){ TR("Updates"), PILL_ACCESSORY_CHEVRON, false, settings_updates_row_cb, NULL, NULL };
-    for (unsigned i = 0; i < 7; ++i) {
+    items[3] = (pill_list_item_t){ TR("Personalize"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_personalize_screen };
+    items[4] = (pill_list_item_t){ TR("Power"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_power_screen };
+    items[5] = (pill_list_item_t){ TR("Library"), PILL_ACCESSORY_CHEVRON, false, settings_category_library_cb, NULL, NULL };
+    items[6] = (pill_list_item_t){ TR("System"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &settings_system_screen };
+    items[7] = (pill_list_item_t){ TR("Updates"), PILL_ACCESSORY_CHEVRON, false, settings_updates_row_cb, NULL, NULL };
+    for (unsigned i = 0; i < 8; ++i) {
         items[i].out_row = &category_rows[i];
     }
 
-    lv_obj_t * scr = build_pill_list_screen(TR("Settings"), generic_back_cb, items, 7, gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    lv_obj_t * scr = build_pill_list_screen(TR("Settings"), generic_back_cb, items, 8, gui_theme_accent_style(), GUI_ROW_GAP, 100);
     static const char * icons[] = {
         "settings/sound.png", "settings/playback.png", "settings/display.png",
-        "settings/power.png", "settings/library.png", "settings/system.png",
+        "submenu/themes.png", "settings/power.png", "settings/library.png", "settings/system.png",
         "submenu/update_database.png",
     };
-    for (unsigned i = 0; i < 7; ++i) {
+    for (unsigned i = 0; i < 8; ++i) {
         if (category_rows[i]) decorate_category_row(category_rows[i], icons[i]);
     }
     finalize_screen_navigation(scr);
@@ -176,7 +178,7 @@ static void dac_home_usb_row_cb(lv_event_t * e) {
     }
     /* Require explicit disable of ADB mode before switching to USB DAC. */
     if (have_detected && detected == USB_MODE_ADB) {
-        show_info_toast(TR("Turn off ADB first (Settings > System > USB Mode), then enable USB DAC from here."));
+        show_info_toast(TR("Turn off ADB first (Settings > System > Advanced), then enable USB DAC from here."));
         return;
     }
     start_usb_mode_switch(USB_MODE_DAC);
@@ -297,11 +299,12 @@ void gui_settings_teardown(void) {
     gui_plugin_order_editor_teardown();
     gui_shell_settings_teardown_after_plugin_order();
     /* The summary labels live on screens deleted below; drop them first. The
-     * Buttons & Remote label is dropped by gui_button_mapping_teardown_screens(),
-     * which must run before that screen is deleted. */
+     * Button Mapping label is dropped by gui_button_mapping_teardown_screens(),
+     * which must run before the Playback screen is deleted. */
     settings_eq_summary = settings_car_summary = settings_sleep_summary = NULL;
     gui_button_mapping_teardown_screens();
     gui_volume_settings_teardown_car_mode_screen();
+    gui_native_audio_deinit();
     settings_music_teardown_screens();
     settings_display_teardown_screens();
     settings_power_teardown_screens();

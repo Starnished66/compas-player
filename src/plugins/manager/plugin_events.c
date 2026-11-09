@@ -1,5 +1,6 @@
 /* plugin.on() events, intervals, remote stream resolver polling and the notify_* entry points. */
 #include "../../ui/text/i18n/i18n.h"
+#include "../../ui/settings/gui_play_through.h"
 #include "../../ui/application/gui.h"
 #include "../../audio/output/audio_output.h"
 #include "../../hardware/device/headphone_status.h"
@@ -469,6 +470,7 @@ void discard_failed_plugin_intervals(lua_State * L, bool aborted) {
 
 void plugin_manager_notify_track_started(const char * title, const char * artist, const char * album,
                                           double duration_seconds, const char * provider, const char * track_id) {
+    gui_play_through_track_started(artist, album);
     lua_State * sl;
     for (int i = 0; (sl = plugin_event_next(PLUGIN_EVENT_TRACK_STARTED, &i)); ) {
         lua_pushstring(sl, title ? title : "");
@@ -495,10 +497,12 @@ void plugin_manager_notify_paused(void) {
 }
 
 void plugin_manager_notify_resumed(void) {
+    gui_play_through_resumed();
     notify_event_no_args(PLUGIN_EVENT_RESUMED, "resumed");
 }
 
 void plugin_manager_notify_stopped(void) {
+    gui_play_through_stopped();
     notify_event_no_args(PLUGIN_EVENT_STOPPED, "stopped");
 }
 
@@ -515,6 +519,7 @@ void plugin_manager_notify_button_lock_changed(bool locked) {
 }
 
 void plugin_manager_notify_queue_exhausted(int direction) {
+    gui_play_through_queue_exhausted(direction);
     lua_State * sl;
     for (int i = 0; (sl = plugin_event_next(PLUGIN_EVENT_QUEUE_EXHAUSTED, &i)); ) {
         lua_pushnumber(sl, direction);

@@ -72,6 +72,12 @@ typedef struct {
 #define PF_PF_INT(k, f) { k, PF_INT, PF_AT(f, int), PF_SIZE(f) }
 #define PF_PF_STR(k, f) { k, PF_STR, PF_AT(f, char *), PF_SIZE(f) }
 static const pfield_t plain_fields[] = {
+    PF("native_play_through_folders", PF_BOOL, native_play_through_folders),
+    PF("native_play_through_albums", PF_BOOL, native_play_through_albums),
+    PF("native_audio_migrated", PF_BOOL, native_audio_migrated),
+    PF("native_gain_mode", PF_INT, native_gain_mode),
+    PF("native_mseb", PF_STR, native_mseb),
+    PF("native_soundstage", PF_STR, native_soundstage),
     PF("setup_complete", PF_BOOL, setup_complete),
     PF("setup_intro_played", PF_BOOL, setup_intro_played),
     PF("setup_step", PF_INT, setup_step),
@@ -354,6 +360,12 @@ static bool valid_setup_plugin_id(const char * value) {
 }
 
 static void set_defaults(player_settings_t * out) {
+    out->native_audio_migrated = false;
+    out->native_gain_mode = -1;
+    out->native_mseb[0] = 0;
+    out->native_soundstage[0] = 0;
+    out->native_play_through_folders = false;
+    out->native_play_through_albums = false;
     out->setup_complete = false;
     out->setup_intro_played = false;
     out->setup_step = 0;

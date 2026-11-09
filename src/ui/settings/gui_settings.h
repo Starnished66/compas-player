@@ -39,3 +39,5 @@ void gui_settings_open_car_mode(void);
 void gui_settings_sync_adb_toggle(void);
 void gui_settings_sync_usb_dac_charging_toggle(void);
 void gui_display_apply_rotation(bool upside_down);
+
+void gui_settings_sleep_timer_row_cb(lv_event_t * e);

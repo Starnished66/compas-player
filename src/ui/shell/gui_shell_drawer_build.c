@@ -391,8 +391,8 @@ static void quick_drawer_build_expansion_box(void) {
     lv_obj_set_style_bg_opa(quick_drawer_expansion_box, 0, 0);
 
     quick_drawer_plugin_toggle_count = plugin_manager_get_quick_toggle_count();
-    if (quick_drawer_plugin_toggle_count > PLUGIN_MAX_QUICK_TOGGLES)
-        quick_drawer_plugin_toggle_count = PLUGIN_MAX_QUICK_TOGGLES;
+    if (quick_drawer_plugin_toggle_count > PLUGIN_QUICK_TOGGLE_CAPACITY)
+        quick_drawer_plugin_toggle_count = PLUGIN_QUICK_TOGGLE_CAPACITY;
 }
 
 /* Clickable toggle icon inside the expansion box at (x, row_y). */

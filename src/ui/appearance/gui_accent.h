@@ -1,7 +1,7 @@
 #pragma once
 #include <lvgl/lvgl.h>
 
-/* UI-thread lifecycle for the Accent Color and Accent Options screens.
+/* UI-thread lifecycle for the Accent Color screen and its options.
  * Sync is safe before construction and after teardown. */
 void gui_accent_build_screens(void);
 void gui_accent_teardown(void);

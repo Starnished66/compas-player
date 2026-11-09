@@ -434,7 +434,7 @@ static void show_batch_result(void) {
     }
     if (used < sizeof(body))
         snprintf(body + used, sizeof(body) - used,
-                 TR("Manage plugins later in Settings > System > Plugin Manager to search, update, or remove them."));
+                 TR("Manage plugins later in Settings > System > Plugins to search, update, or remove them."));
     if (result_title) lv_label_set_text(result_title, failures ? TR("Plugin setup needs attention") : TR("Plugin setup complete"));
     if (result_body) lv_label_set_text(result_body, body);
     if (result_body) {

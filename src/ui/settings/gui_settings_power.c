@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include "gui_settings_internal.h"
 
-static lv_obj_t * settings_charging_screen;
 static lv_obj_t * settings_usb_dac_charging_switch;
 static lv_obj_t * settings_usb_dac_charging_row;
 #if BOARD_R1_HARDWARE
@@ -307,7 +306,35 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
  * uses. */
 PLUGIN_ROW_CLICK_CB(plugin_power_list_item_click_cb, plugin_manager_power_list_item_clicked)
 
-static lv_obj_t * build_settings_charging_screen(void) {
+#if BOARD_R1_HARDWARE
+static void usb_dac_charging_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    gui_network_set_usb_dac_charging_disabled(
+        lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+}
+#endif
+
+void gui_settings_sync_usb_dac_charging_toggle(void) {
+    if (!settings_usb_dac_charging_switch) return;
+    lv_obj_set_state(settings_usb_dac_charging_switch, LV_STATE_CHECKED,
+                     current_settings.usb_dac_disable_charging);
+}
+
+void gui_settings_sleep_timer_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) gui_settings_open_sleep_timer();
+}
+
+PLUGIN_ROW_CLICK_CB(plugin_music_timers_list_item_click_cb, plugin_manager_music_timers_list_item_clicked)
+
+static void idle_shutdown_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) nav_push(idle_shutdown_screen);
+}
+
+static lv_obj_t * build_settings_power_screen(void) {
+    lv_obj_t * list;
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Power"), NULL, &list);
+    add_pill_chevron_row(list, TR("Idle Shutdown"), idle_shutdown_row_cb);
+    add_section_header(list, TR("Charging"));
     pill_list_item_t items[] = {
         { TR("Charge Limit (85%)"), PILL_ACCESSORY_TOGGLE,
           current_settings.charge_limiter_enabled, NULL, charge_limiter_switch_event_cb, NULL },
@@ -327,9 +354,7 @@ static lv_obj_t * build_settings_charging_screen(void) {
         },
 #endif
     };
-    lv_obj_t * scr = build_pill_list_screen(TR("Charging"), generic_back_cb, items,
-                                            (int) (sizeof(items) / sizeof(items[0])),
-                                            gui_theme_accent_style(), GUI_ROW_GAP, 100);
+    add_pill_list_rows(list, items, (int)(sizeof(items) / sizeof(items[0])));
 #if BOARD_R1_HARDWARE
     if (settings_usb_dac_charging_row && settings_usb_dac_charging_switch) {
         lv_obj_t * label = lv_obj_get_child(settings_usb_dac_charging_row, 0);
@@ -341,58 +366,14 @@ static lv_obj_t * build_settings_charging_screen(void) {
         lv_obj_align(label, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(24), 0);
     }
 #endif
-    finalize_screen_navigation(scr);
-    return scr;
-}
-
-#if BOARD_R1_HARDWARE
-static void usb_dac_charging_switch_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-    gui_network_set_usb_dac_charging_disabled(
-        lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
-}
-#endif
-
-void gui_settings_sync_usb_dac_charging_toggle(void) {
-    if (!settings_usb_dac_charging_switch) return;
-    lv_obj_set_state(settings_usb_dac_charging_switch, LV_STATE_CHECKED,
-                     current_settings.usb_dac_disable_charging);
-}
-
-static void settings_charging_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    push_cached_screen(&settings_charging_screen, build_settings_charging_screen);
-}
-
-static void sleep_timer_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) gui_settings_open_sleep_timer();
-}
-
-PLUGIN_ROW_CLICK_CB(plugin_music_timers_list_item_click_cb, plugin_manager_music_timers_list_item_clicked)
-
-static lv_obj_t * build_settings_power_screen(void) {
-    pill_list_item_t items[3 + PLUGIN_MAX_POWER_LIST_ITEMS + PLUGIN_MAX_MUSIC_TIMERS_LIST_ITEMS];
-    lv_obj_t * sleep_row = NULL;
-    items[0] = (pill_list_item_t){ TR("Sleep Timer"), PILL_ACCESSORY_CHEVRON, false, sleep_timer_row_cb, NULL, NULL };
-    items[0].out_row = &sleep_row;
-    items[1] = (pill_list_item_t){ TR("Idle Shutdown"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &idle_shutdown_screen };
-    items[2] = (pill_list_item_t){ TR("Charging"), PILL_ACCESSORY_CHEVRON, false, settings_charging_row_cb, NULL, NULL };
-    int count = 3;
-    count = append_plugin_list_rows(items, count, PLUGIN_MAX_MUSIC_TIMERS_LIST_ITEMS,
-                                    plugin_manager_get_music_timers_list_item_count,
-                                    plugin_manager_get_music_timers_list_item_label,
-                                    plugin_manager_get_music_timers_list_item_options,
-                                    plugin_music_timers_list_item_click_cb);
-    count = append_plugin_list_rows(items, count, PLUGIN_MAX_POWER_LIST_ITEMS,
-                                    plugin_manager_get_power_list_item_count,
-                                    plugin_manager_get_power_list_item_label,
-                                    plugin_manager_get_power_list_item_options,
-                                    plugin_power_list_item_click_cb);
-    lv_obj_t * scr = build_pill_list_screen(TR("Power"), generic_back_cb, items, count,
-                                            gui_theme_accent_style(), GUI_ROW_GAP, 100);
-    settings_sleep_summary = add_pill_summary_label(sleep_row);
-    settings_summary_loaded_cb(NULL);
-    lv_obj_add_event_cb(scr, settings_summary_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    pill_list_item_t plugins[PLUGIN_MAX_POWER_LIST_ITEMS + PLUGIN_MAX_MUSIC_TIMERS_LIST_ITEMS];
+    int count = append_plugin_list_rows(plugins, 0, PLUGIN_MAX_MUSIC_TIMERS_LIST_ITEMS,
+        plugin_manager_get_music_timers_list_item_count, plugin_manager_get_music_timers_list_item_label,
+        plugin_manager_get_music_timers_list_item_options, plugin_music_timers_list_item_click_cb);
+    count = append_plugin_list_rows(plugins, count, PLUGIN_MAX_POWER_LIST_ITEMS,
+        plugin_manager_get_power_list_item_count, plugin_manager_get_power_list_item_label,
+        plugin_manager_get_power_list_item_options, plugin_power_list_item_click_cb);
+    add_pill_list_rows(list, plugins, count);
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -412,7 +393,6 @@ void settings_power_teardown_screens(void) {
     idle_action_section = NULL;
     idle_action_poweroff_row = idle_action_suspend_row = NULL;
     idle_action_poweroff_check = idle_action_suspend_check = NULL;
-    delete_screen(&settings_charging_screen);
     settings_usb_dac_charging_switch = settings_usb_dac_charging_row = NULL;
     delete_screen(&settings_power_screen);
 }

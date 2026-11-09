@@ -445,6 +445,11 @@ static int32_t pill_list_add_row(lv_obj_t * list, const pill_list_item_t * item,
     return height;
 }
 
+void add_pill_list_rows(lv_obj_t * list, const pill_list_item_t * items, int count) {
+    for (int i = 0; i < count; ++i)
+        pill_list_add_row(list, &items[i], BOARD_SCALE_PX(PILL_ROW_ICON_PX_DEFAULT), gui_theme_accent_style());
+}
+
 lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
                                    const pill_list_item_t * items, int item_count,
                                    lv_style_t * toggle_accent_style, int32_t row_gap,
@@ -769,8 +774,8 @@ lv_obj_t * build_subsonic_list_screen(const char * default_title, lv_obj_t ** ou
     lv_obj_t * list = screen_list_body(scr, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT,
                                        HOME_INDICATOR_CONTENT_INSET, GUI_ROW_GAP);
 
-    *out_title_label = title_label;
-    *out_list = list;
+    if (out_title_label) *out_title_label = title_label;
+    if (out_list) *out_list = list;
     finalize_screen_navigation(scr);
     return scr;
 }

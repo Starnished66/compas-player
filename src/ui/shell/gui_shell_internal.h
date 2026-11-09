@@ -89,7 +89,7 @@
 #define QUICK_DRAWER_TOGGLE_STATE_GAP BOARD_SCALE_PY(24)
 #define QUICK_DRAWER_TOGGLE_CAPTION_GAP BOARD_SCALE_PY(2)
 #endif
-#define QUICK_DRAWER_TOGGLE_SLOTS (QD_TOGGLE_COUNT + PLUGIN_MAX_QUICK_TOGGLES)
+#define QUICK_DRAWER_TOGGLE_SLOTS (QD_TOGGLE_COUNT + PLUGIN_QUICK_TOGGLE_CAPACITY)
 
 /* ---- Expanded area ----------------------------------------------------
  * The handle under the first toggle row drags down to reveal two more rows.
@@ -293,7 +293,7 @@ extern lv_obj_t * quick_drawer_dlna_icon;
 extern lv_obj_t * quick_drawer_gapless_icon;
 extern lv_obj_t * quick_drawer_rc_icon;
 extern lv_obj_t * quick_drawer_car_mode_icon;
-extern lv_obj_t * quick_drawer_plugin_icon[PLUGIN_MAX_QUICK_TOGGLES];
+extern lv_obj_t * quick_drawer_plugin_icon[PLUGIN_QUICK_TOGGLE_CAPACITY];
 extern int quick_drawer_plugin_toggle_count;
 extern int32_t quick_drawer_expansion_full;
 extern int32_t quick_drawer_expansion_y;

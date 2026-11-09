@@ -163,7 +163,7 @@ lv_obj_t * quick_drawer_dlna_icon = NULL;
 lv_obj_t * quick_drawer_gapless_icon = NULL;
 lv_obj_t * quick_drawer_rc_icon = NULL;
 lv_obj_t * quick_drawer_car_mode_icon = NULL;
-lv_obj_t * quick_drawer_plugin_icon[PLUGIN_MAX_QUICK_TOGGLES];
+lv_obj_t * quick_drawer_plugin_icon[PLUGIN_QUICK_TOGGLE_CAPACITY];
 int quick_drawer_plugin_toggle_count = 0;
 void quick_drawer_volume_event_cb(lv_event_t * e) {
     if (!ui_customization_drawer_volume_visible()) return;
@@ -299,8 +299,8 @@ static bool quick_drawer_toggle_force_src;
 /* Row 3's tiles come from plugin.register_quick_toggle() rather than the
  * fixed table above, so their "on" artwork is decoded per registered toggle
  * (same accent recolor, just a runtime icon path). */
-static asset_decoded_image_t qd_plugin_toggle_on_img[PLUGIN_MAX_QUICK_TOGGLES];
-static asset_decoded_image_t qd_plugin_toggle_off_img[PLUGIN_MAX_QUICK_TOGGLES];
+static asset_decoded_image_t qd_plugin_toggle_on_img[PLUGIN_QUICK_TOGGLE_CAPACITY];
+static asset_decoded_image_t qd_plugin_toggle_off_img[PLUGIN_QUICK_TOGGLE_CAPACITY];
 
 /* Every toggle tile is round, but some artwork is drawn on an opaque square:
  * the stock theme1 AirPlay, DLNA, Gapless, HibyLink, MSEB and Gain pairs,
@@ -379,7 +379,7 @@ static void close_quick_drawer_toggle_images(void) {
         asset_decoded_image_close(&qd_toggle_on_img[i]);
         asset_decoded_image_close(&qd_toggle_off_img[i]);
     }
-    for (int i = 0; i < PLUGIN_MAX_QUICK_TOGGLES; i++) {
+    for (int i = 0; i < PLUGIN_QUICK_TOGGLE_CAPACITY; i++) {
         asset_decoded_image_close(&qd_plugin_toggle_on_img[i]);
         asset_decoded_image_close(&qd_plugin_toggle_off_img[i]);
     }
@@ -391,8 +391,8 @@ void load_quick_drawer_toggle_images(void) {
         load_toggle_off_image(&qd_toggle_off_img[i], qd_toggle_off_asset[i]);
     }
     int plugin_count = plugin_manager_get_quick_toggle_count();
-    if (plugin_count > PLUGIN_MAX_QUICK_TOGGLES) plugin_count = PLUGIN_MAX_QUICK_TOGGLES;
-    for (int i = 0; i < PLUGIN_MAX_QUICK_TOGGLES; i++) {
+    if (plugin_count > PLUGIN_QUICK_TOGGLE_CAPACITY) plugin_count = PLUGIN_QUICK_TOGGLE_CAPACITY;
+    for (int i = 0; i < PLUGIN_QUICK_TOGGLE_CAPACITY; i++) {
         if (i >= plugin_count) {
             asset_decoded_image_close(&qd_plugin_toggle_on_img[i]);
             asset_decoded_image_close(&qd_plugin_toggle_off_img[i]);
@@ -416,7 +416,7 @@ const void * quick_drawer_toggle_src(qd_toggle_t t, bool on) {
  * paths come from the registration rather than a compile-time table. */
 const void * quick_drawer_plugin_toggle_src(int index, bool on) {
     const void * src = NULL;
-    if (index >= 0 && index < PLUGIN_MAX_QUICK_TOGGLES)
+    if (index >= 0 && index < PLUGIN_QUICK_TOGGLE_CAPACITY)
         src = asset_decoded_image_source(on ? &qd_plugin_toggle_on_img[index] : &qd_plugin_toggle_off_img[index]);
     if (src) return src;
     return asset_path(on ? plugin_manager_get_quick_toggle_icon_selected(index)
@@ -738,7 +738,7 @@ static void quick_drawer_place_widget(lv_obj_t * obj, lv_obj_t * parent,
 
 /* Repositions existing objects in semantic order. The first row remains
  * visible when the drawer is collapsed; two revealed rows hold four more each. */
-_Static_assert(UI_DRAWER_COUNT + PLUGIN_MAX_QUICK_TOGGLES <= UI_ORDER_MAX,
+_Static_assert(UI_DRAWER_COUNT + PLUGIN_QUICK_TOGGLE_CAPACITY <= UI_ORDER_MAX,
                "Quick Drawer order cannot hold every plugin toggle");
 void quick_drawer_reflow_customization(void) {
     if (!quick_drawer || !quick_drawer_expansion_box) return;
@@ -954,7 +954,7 @@ void quick_drawer_teardown_widgets(void) {
     quick_drawer_gapless_icon = NULL;
     quick_drawer_rc_icon = NULL;
     quick_drawer_car_mode_icon = NULL;
-    for (int i = 0; i < PLUGIN_MAX_QUICK_TOGGLES; i++) quick_drawer_plugin_icon[i] = NULL;
+    for (int i = 0; i < PLUGIN_QUICK_TOGGLE_CAPACITY; i++) quick_drawer_plugin_icon[i] = NULL;
     quick_drawer_plugin_toggle_count = 0;
     quick_drawer_motion_teardown_state();
     gui_shell_gestures_reset_expansion_flags();

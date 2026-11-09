@@ -41,7 +41,7 @@ void disable_bt_dac_mode(void) {
 static void enable_bt_dac_mode(void) {
     gui_shell_bt_dac_remember(false);
     if (!bt_is_powered_cached) {
-        show_error_toast(TR("Enable Bluetooth in settings to use BT DAC mode"));
+        show_error_toast(TR("Enable Bluetooth in Wireless or the Quick Drawer to use BT DAC mode"));
         return;
     }
     if (current_settings.usb_mode == USB_MODE_DAC || gui_network_usb_dac_pending()) {
@@ -263,7 +263,7 @@ void populate_bt_dac_screen(void) {
 void bt_dac_settings_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (!bt_is_powered_cached) {
-        show_error_toast(TR("Enable Bluetooth in settings to use BT DAC mode"));
+        show_error_toast(TR("Enable Bluetooth in Wireless or the Quick Drawer to use BT DAC mode"));
         return;
     }
     gui_network_open_bt_dac();

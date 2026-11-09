@@ -3,7 +3,7 @@
 
 #include <lvgl/lvgl.h>
 
-/* "Plugin Manager" -- a native settings screen listing every *.lua file
+/* "Plugins" -- a native settings screen listing every *.lua file
  * under <SD card>/.plugins/ (plugin_manager_scan_available()) with a
  * per-file enable/disable toggle, plus a "Refresh Plugins" row. Each
  * toggle is persisted immediately; leaving the screen coalesces any
@@ -30,7 +30,7 @@ void gui_plugin_manage_restore_scroll_y(int32_t scroll_y);
  * stack without an unload event. Called from the main poll. */
 void gui_plugin_manage_poll(void);
 
-/* Reached from the "Plugin Manager" row on Settings -> System. */
+/* Reached from the "Plugins" row on Settings -> System. */
 void gui_plugin_manage_row_cb(lv_event_t * e);
 
 #endif /* GUI_PLUGIN_MANAGE_H */

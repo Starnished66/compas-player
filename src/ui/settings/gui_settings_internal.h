@@ -17,6 +17,7 @@ void settings_summary_loaded_cb(lv_event_t * e);
 
 /* Category screens the Settings root opens through push_screen_slot_cb(). */
 extern lv_obj_t * settings_display_screen;
+extern lv_obj_t * settings_personalize_screen;
 extern lv_obj_t * settings_power_screen;
 extern lv_obj_t * settings_system_screen;
 

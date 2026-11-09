@@ -16,9 +16,7 @@
 #include <string.h>
 #include "gui_settings_internal.h"
 
-static lv_obj_t * settings_appearance_screen;
-static lv_obj_t * settings_player_layout_screen;
-static lv_obj_t * settings_gestures_screen;
+lv_obj_t * settings_personalize_screen;
 lv_obj_t * settings_display_screen;
 static lv_obj_t * animation_speed_screen;
 static lv_obj_t * animation_speed_list;
@@ -166,31 +164,6 @@ void themes_row_cb(lv_event_t * e) {
     gui_themes_open_picker();
 }
 
-static lv_obj_t * build_settings_appearance_screen(void) {
-    pill_list_item_t items[9 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
-    items[0] = (pill_list_item_t){ TR("Accent Color"), PILL_ACCESSORY_CHEVRON, false, gui_accent_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ TR("Font"), PILL_ACCESSORY_CHEVRON, false, gui_custom_font_row_cb, NULL, NULL };
-    items[2] = (pill_list_item_t){ TR("Font Size"), PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL };
-    items[3] = (pill_list_item_t){ TR("Keyboard"), PILL_ACCESSORY_CHEVRON, false, keyboard_layout_settings_row_cb, NULL, NULL };
-    items[4] = (pill_list_item_t){ TR("Quick Drawer"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_quick_drawer_row_cb, NULL, NULL };
-    items[5] = (pill_list_item_t){ TR("Music menu"), PILL_ACCESSORY_CHEVRON, false,
-                                    gui_shell_settings_music_order_row_cb, NULL, (void *)(intptr_t)UI_ORDER_MUSIC };
-    items[6] = (pill_list_item_t){ TR("Top Bar"), PILL_ACCESSORY_CHEVRON, false,
-                                    gui_shell_settings_topbar_row_cb, NULL, NULL };
-    items[7] = (pill_list_item_t){ TR("Artist Images"), PILL_ACCESSORY_TOGGLE,
-                                    current_settings.show_artist_images, NULL,
-                                    artist_images_switch_event_cb, NULL };
-    items[8] = (pill_list_item_t){ TR("Themes"), PILL_ACCESSORY_CHEVRON, false, themes_row_cb, NULL, NULL };
-    int count = append_grouped_plugin_rows(items, 9, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
-        "display", "appearance", plugin_manager_get_display_list_item_count,
-        plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
-        plugin_display_list_item_click_cb);
-    lv_obj_t * scr = build_pill_list_screen(TR("Appearance"), generic_back_cb, items, count,
-                                            gui_theme_accent_style(), GUI_ROW_GAP, 100);
-    finalize_screen_navigation(scr);
-    return scr;
-}
-
 /* Player layout choice: the built-in layout plus every registered one (XML
  * files, exported C layouts, a plugin's session layout). Applying a choice
  * replaces the Player in the background without rebuilding this picker. */
@@ -270,73 +243,41 @@ static lv_obj_t * build_player_layout_choice_screen(void) {
     return build_subsonic_list_screen(TR("Layout"), &title_label, &player_layout_choice_list);
 }
 
-static lv_obj_t * build_settings_player_layout_screen(void) {
-    pill_list_item_t items[5 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
-    items[0] = (pill_list_item_t){ TR("Layout"), PILL_ACCESSORY_CHEVRON, false,
-                                    player_layout_choice_settings_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ TR("Lyrics"), PILL_ACCESSORY_TOGGLE,
-                                    current_settings.lyrics_enabled, NULL, lyrics_switch_event_cb, NULL };
-    items[2] = (pill_list_item_t){ TR("Lyrics Text Size"), PILL_ACCESSORY_CHEVRON, false,
-                                    lyrics_font_size_settings_row_cb, NULL, NULL };
-    items[3] = (pill_list_item_t){ TR("Hide Player/Lyrics Top Bar"), PILL_ACCESSORY_TOGGLE,
-                                    current_settings.hide_player_topbar, NULL,
-                                    hide_player_topbar_switch_event_cb, NULL };
-    items[4] = (pill_list_item_t){ TR("Keep Lyrics Screen On"), PILL_ACCESSORY_TOGGLE,
-                                    current_settings.lyrics_keep_screen_on, NULL,
-                                    lyrics_keep_screen_on_switch_event_cb, NULL };
-    int count = append_grouped_plugin_rows(items, 5, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
-        "display", "player_layout", plugin_manager_get_display_list_item_count,
-        plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
-        plugin_display_list_item_click_cb);
-    lv_obj_t * scr = build_pill_list_screen(TR("Player Layout"), generic_back_cb, items, count,
-                                            gui_theme_accent_style(), GUI_ROW_GAP, 100);
-    finalize_screen_navigation(scr);
-    return scr;
-}
-
-static lv_obj_t * build_settings_gestures_screen(void) {
-    pill_list_item_t items[] = {
-        { TR("Swipe Up for Home"), PILL_ACCESSORY_TOGGLE,
-          current_settings.swipe_up_home_enabled, NULL, swipe_up_home_switch_event_cb, NULL },
-        { TR("Animation Speed"), PILL_ACCESSORY_CHEVRON, false,
-          animation_speed_settings_row_cb, NULL, NULL },
-        { TR("Upside Down Screen"), PILL_ACCESSORY_TOGGLE,
-          current_settings.screen_upside_down, NULL, upside_down_screen_switch_event_cb, NULL },
+static lv_obj_t * build_settings_personalize_screen(void) {
+    pill_list_item_t items[12 + PLUGIN_MAX_DISPLAY_LIST_ITEMS] = {
+        { TR("Themes"), PILL_ACCESSORY_CHEVRON, false, themes_row_cb, NULL, NULL },
+        { TR("Accent Color"), PILL_ACCESSORY_CHEVRON, false, gui_accent_row_cb, NULL, NULL },
+        { TR("Font"), PILL_ACCESSORY_CHEVRON, false, gui_custom_font_row_cb, NULL, NULL },
+        { TR("Player Layout"), PILL_ACCESSORY_CHEVRON, false, player_layout_choice_settings_row_cb, NULL, NULL },
+        { TR("Lyrics"), PILL_ACCESSORY_TOGGLE, current_settings.lyrics_enabled, NULL, lyrics_switch_event_cb, NULL },
+        { TR("Lyrics Text Size"), PILL_ACCESSORY_CHEVRON, false, lyrics_font_size_settings_row_cb, NULL, NULL },
+        { TR("Hide Player/Lyrics Top Bar"), PILL_ACCESSORY_TOGGLE, current_settings.hide_player_topbar, NULL, hide_player_topbar_switch_event_cb, NULL },
+        { TR("Keep Lyrics Screen On"), PILL_ACCESSORY_TOGGLE, current_settings.lyrics_keep_screen_on, NULL, lyrics_keep_screen_on_switch_event_cb, NULL },
+        { TR("Top Bar"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_topbar_row_cb, NULL, NULL },
+        { TR("Quick Drawer"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_quick_drawer_row_cb, NULL, NULL },
+        { TR("Music menu"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_music_order_row_cb, NULL, NULL },
+        { TR("Artist Images"), PILL_ACCESSORY_TOGGLE, current_settings.show_artist_images, NULL, artist_images_switch_event_cb, NULL },
     };
-    lv_obj_t * scr = build_pill_list_screen(TR("Gestures & Orientation"), generic_back_cb, items,
-                                            (int) (sizeof(items) / sizeof(items[0])),
+    int count = append_plugin_list_rows(items, 12, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
+        plugin_manager_get_display_list_item_count, plugin_manager_get_display_list_item_label,
+        plugin_manager_get_display_list_item_options, plugin_display_list_item_click_cb);
+    lv_obj_t * scr = build_pill_list_screen(TR("Personalize"), generic_back_cb, items, count,
                                             gui_theme_accent_style(), GUI_ROW_GAP, 100);
     finalize_screen_navigation(scr);
     return scr;
-}
-
-static void settings_appearance_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    push_cached_screen(&settings_appearance_screen, build_settings_appearance_screen);
-}
-
-static void settings_player_layout_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    push_cached_screen(&settings_player_layout_screen, build_settings_player_layout_screen);
-}
-
-static void settings_gestures_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    push_cached_screen(&settings_gestures_screen, build_settings_gestures_screen);
 }
 
 static lv_obj_t * build_settings_display_screen(void) {
-    pill_list_item_t items[5 + PLUGIN_MAX_DISPLAY_LIST_ITEMS];
-    items[0] = (pill_list_item_t){ TR("Screen Timeout"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_timeout_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ TR("Screen Dimming"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_dimming_row_cb, NULL, NULL };
-    items[2] = (pill_list_item_t){ TR("Appearance"), PILL_ACCESSORY_CHEVRON, false, settings_appearance_row_cb, NULL, NULL };
-    items[3] = (pill_list_item_t){ TR("Player Layout"), PILL_ACCESSORY_CHEVRON, false, settings_player_layout_row_cb, NULL, NULL };
-    items[4] = (pill_list_item_t){ TR("Gestures & Orientation"), PILL_ACCESSORY_CHEVRON, false, settings_gestures_row_cb, NULL, NULL };
-    int count = append_grouped_plugin_rows(items, 5, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
-        "display", NULL, plugin_manager_get_display_list_item_count,
-        plugin_manager_get_display_list_item_label, plugin_manager_get_display_list_item_options,
-        plugin_display_list_item_click_cb);
-    lv_obj_t * scr = build_pill_list_screen(TR("Display"), generic_back_cb, items, count,
+    pill_list_item_t items[] = {
+        { TR("Screen Timeout"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_timeout_row_cb, NULL, NULL },
+        { TR("Screen Dimming"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_dimming_row_cb, NULL, NULL },
+        { TR("Font Size"), PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL },
+        { TR("Keyboard"), PILL_ACCESSORY_CHEVRON, false, keyboard_layout_settings_row_cb, NULL, NULL },
+        { TR("Upside Down Screen"), PILL_ACCESSORY_TOGGLE, current_settings.screen_upside_down, NULL, upside_down_screen_switch_event_cb, NULL },
+        { TR("Animation Speed"), PILL_ACCESSORY_CHEVRON, false, animation_speed_settings_row_cb, NULL, NULL },
+        { TR("Swipe Up for Home"), PILL_ACCESSORY_TOGGLE, current_settings.swipe_up_home_enabled, NULL, swipe_up_home_switch_event_cb, NULL },
+    };
+    lv_obj_t * scr = build_pill_list_screen(TR("Display"), generic_back_cb, items, 7,
                                             gui_theme_accent_style(), GUI_ROW_GAP, 100);
     finalize_screen_navigation(scr);
     return scr;
@@ -347,12 +288,11 @@ void settings_display_build_screens(void) {
     keyboard_layout_screen = build_keyboard_layout_screen();
     player_layout_choice_screen = build_player_layout_choice_screen();
     settings_display_screen = build_settings_display_screen();
+    settings_personalize_screen = build_settings_personalize_screen();
 }
 
 void settings_display_teardown_screens(void) {
-    delete_screen(&settings_appearance_screen);
-    delete_screen(&settings_player_layout_screen);
-    delete_screen(&settings_gestures_screen);
+    delete_screen(&settings_personalize_screen);
     delete_screen(&animation_speed_screen);
     animation_speed_list = NULL;
     delete_screen(&keyboard_layout_screen);

@@ -45,7 +45,7 @@ gui_popup_t refresh_all_covers_popup;
 /* Published to the UI by library_rescan_done_flag's release/acquire pair. */
 /* Set when the walk could not read part of the tree, so the toast does not
  * claim a full update. Rows whose file is missing are still removed. */
-static const char library_recovered_message[] = N_("Library recovered. Use Settings > Update Music Database to save");
+static const char library_recovered_message[] = N_("Library recovered. Use Settings > Library > Update Music Database to save");
 static void rescan_playlists(void);
 
 static void library_scan_copy_result(library_scan_result_t *out) {
@@ -238,7 +238,7 @@ static void library_update_prompt_close(bool show_settings_toast) {
     library_prompt_activate_queued_request();
 
     if (!show_settings_toast) return;
-    show_info_toast(TR("Use Settings > Update Music Database"));
+    show_info_toast(TR("Use Settings > Library > Update Music Database"));
 }
 
 /* The settle checks only decide when to show the prompt. Once the user taps
@@ -885,7 +885,7 @@ void poll_library_rescan(void) {
             if (scan_result.operation_outcome == METADATA_DB_LOAD_SUCCESS_RECOVERED)
                 show_info_toast(TR(library_recovered_message));
             else
-                show_error_toast(TR("Library unavailable. Use Settings > Update Music Database to rebuild"));
+                show_error_toast(TR("Library unavailable. Use Settings > Library > Update Music Database to rebuild"));
         } else {
             show_error_toast(TR("Library update failed. Check SD card and retry"));
         }
@@ -935,7 +935,7 @@ void gui_library_cancel_scan(void) {
 
 /* Overall scan progress, polled by update_timer_cb while library_rescan_active
  * is true to drive the "Updating music database..." screen's progress bar
- * (Settings > Update Music Database) -- purely cosmetic, for the user's
+ * (Settings > Library > Update Music Database) -- purely cosmetic, for the user's
  * peace of mind that a rescan is actually moving rather than stuck, since
  * the underlying incremental scan (metadata_db.c's mtime/size cache) is
  * already fast on an unchanged library. _total is set once discovered_count

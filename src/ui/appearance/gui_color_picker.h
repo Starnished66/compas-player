@@ -30,7 +30,7 @@ void gui_color_picker_set_active(lv_obj_t * picker, bool active);
 bool gui_color_parse_hex(const char * text, uint32_t * rgb);
 
 /* Card, label and plain (touch-transparent) object builders shared with the
- * Accent Options screen. */
+ * Accent Color options. */
 lv_obj_t * gui_card_create(lv_obj_t * parent, int32_t width);
 lv_obj_t * gui_card_text(lv_obj_t * parent, const char * text, gui_font_role_t role, bool muted);
 lv_obj_t * gui_plain_obj_create(lv_obj_t * parent);

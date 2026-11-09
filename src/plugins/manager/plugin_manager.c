@@ -1,6 +1,7 @@
 #include "../../ui/application/gui.h"
 #include "../../ui/player/layout/player_layouts.h"
 #include "../../audio/effects/mseb.h"
+#include "../../core/persistence/native_audio_settings.h"
 #include "../../audio/effects/soundstage.h"
 #include "../../hardware/indicators/led_control.h"
 #include "../json/plugin_json.h"
@@ -81,6 +82,10 @@ static int l_plugin_define(lua_State * L) {
     }
     if (gui_themes_is_legacy_theme_loader(id, inst->filename)) {
         return luaL_error(L, "plugin.define: plugin id '%s' is a legacy theme loader and cannot be registered", id);
+    }
+    if (!strcmp(id, "example.gain_mode") || !strcmp(id, "example.mseb") ||
+        !strcmp(id, "compas.soundstage") || !strcmp(id, "example.play_through")) {
+        return luaL_error(L, "plugin.define: plugin id '%s' is built in", id);
     }
     if (plugin_id_collides(id, loading_plugin_slot)) {
         return luaL_error(L, "plugin.define: duplicate plugin id '%s'", id);
@@ -197,11 +202,11 @@ static void discard_failed_plugin_resources(lua_State * L, bool aborted) {
         plugin_order_editor_callback.callback_ref = LUA_NOREF;
     }
     if (failed_load_owner_matches(mseb_owner, L)) {
-        mseb_reset();
+        native_audio_restore_mseb();
         mseb_owner = NULL;
     }
     if (failed_load_owner_matches(soundstage_owner, L)) {
-        soundstage_reset();
+        native_audio_restore_soundstage();
         soundstage_owner = NULL;
     }
     for (int i = 0; i < PLUGIN_MAX_FILES; ++i) {
@@ -405,6 +410,8 @@ void plugin_manager_init(void) {
                         plugin_manager_get_quick_toggle_key, plugin_manager_get_quick_toggle_label);
     plugin_last_volume_percent = current_volume_percent();
     plugin_disabled_list_load();
+    native_audio_init();
+    plugin_register_native_audio_quick_toggles();
 
     char dir_path[600];
     int name_count = 0;
@@ -510,10 +517,9 @@ void plugin_manager_deinit(void) {
     plugin_unref(plugin_order_editor_callback.L, plugin_order_editor_callback.callback_ref);
     plugin_order_editor_callback.L = NULL;
     plugin_order_editor_callback.callback_ref = LUA_NOREF;
-    mseb_reset();
     mseb_owner = NULL;
-    soundstage_reset();
     soundstage_owner = NULL;
+    native_audio_restore();
     button_lock_owner = NULL;
     hw_buttons_set_button_lock_enabled(false);
     ui_customization_set_override(NULL);

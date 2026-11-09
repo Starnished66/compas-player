@@ -325,7 +325,7 @@ static void action(struct selector *s) {
         bool before = adb_active();
         progress("ADB", before ? "Stopping ADB…" : "Starting ADB…");
         if (set_adb(!before)) { s->screen = SCREEN_TOOLS; s->selected = 0; s->dirty = true; }
-        else notice(s, "ADB did not change state. Check Developer Options.");
+        else notice(s, "ADB did not change state. Check Settings > System > Advanced.");
     } else if (pending == 3) {
         progress("Remount SD", "Mounting the SD card…");
         notice(s, remount_card() ? "SD card mounted successfully." : "SD card could not be remounted.");
@@ -358,7 +358,7 @@ bool selector_controller_run(bool rockbox_available) {
     s->rockbox = rockbox_available; s->cancelled = forced; s->dirty = true;
     if (!selector_ui_init(FB_WIDTH, FB_HEIGHT, NULL, NULL) || !fb_open()) goto finished;
     if (forced && !adb_active() && saved_adb_requested()) {
-        progress("ADB", "Restoring Developer Options ADB…");
+        progress("ADB", "Restoring ADB…");
         (void)set_adb(true);
     }
     s->input = selector_input_create(FB_WIDTH, FB_HEIGHT);

@@ -19,7 +19,6 @@
 #include <string.h>
 #include "gui_settings_internal.h"
 
-static lv_obj_t * settings_system_maintenance_screen;
 static lv_obj_t * settings_system_updates_screen;
 static lv_obj_t * settings_tools_screen;
 static lv_obj_t * language_choice_screen;
@@ -226,27 +225,6 @@ static const char * screenshot_row_label(void) {
     return TR("Screenshots (Power + Vol Down)");
 #endif
 }
-static lv_obj_t * build_dev_options_screen(void) {
-    pill_list_item_t items[4];
-    /* ADB lives here rather than on the USB Mode screen: it overrides
-     * Storage/DAC while on and persists across a reboot, so it sits behind
-     * Developer Options as the explicit opt-in that makes re-applying it on
-     * startup reasonable. The USB Mode screen still dims the other modes
-     * while it owns the port. */
-    items[0] = (pill_list_item_t){ TR("ADB"), PILL_ACCESSORY_TOGGLE, gui_network_adb_active(),
-                                    NULL, adb_switch_event_cb, NULL, &adb_switch };
-    items[1] = (pill_list_item_t){ TR("Enable debug logging"), PILL_ACCESSORY_TOGGLE,
-                                    current_settings.db_logging_enabled, NULL, db_logging_switch_event_cb, NULL };
-    items[2] = (pill_list_item_t){ screenshot_row_label(), PILL_ACCESSORY_TOGGLE,
-                                    current_settings.screenshot_combo_enabled, NULL,
-                                    screenshot_combo_switch_event_cb, NULL };
-    items[3] = (pill_list_item_t){ TR("Reboot to bootloader"), PILL_ACCESSORY_NONE, false,
-                                    reboot_to_boot_selector_row_cb, NULL, NULL };
-    lv_obj_t * scr = build_pill_list_screen(TR("Developer Options"), generic_back_cb, items, 4, gui_theme_accent_style(), GUI_ROW_GAP, 100);
-    finalize_screen_navigation(scr);
-    return scr;
-}
-
 /* Defined later, alongside its confirmation popup (build_factory_reset_popup(),
  * a hand-built top-layer overlay). */
 static void factory_reset_btn_cb(lv_event_t * e);
@@ -278,21 +256,31 @@ static lv_obj_t * build_settings_tools_screen(void) {
     return scr;
 }
 
-static lv_obj_t * build_settings_maintenance_screen(void) {
-    pill_list_item_t items[] = {
-        { TR("Hostname"), PILL_ACCESSORY_CHEVRON, false, hostname_row_cb, NULL, NULL },
-        { TR("Factory Reset"), PILL_ACCESSORY_NONE, false, factory_reset_btn_cb, NULL, NULL },
-    };
-    lv_obj_t * scr = build_pill_list_screen(TR("Maintenance"), generic_back_cb, items,
-                                            (int) (sizeof(items) / sizeof(items[0])),
-                                            gui_theme_accent_style(), GUI_ROW_GAP, 100);
+static lv_obj_t * build_advanced_screen(void) {
+    pill_list_item_t items[4];
+    /* ADB lives here rather than on the USB Mode screen: it overrides
+     * Storage/DAC while on and persists across a reboot, so it sits behind
+     * the Advanced page as the explicit opt-in that makes re-applying it on
+     * startup reasonable. The USB Mode screen still dims the other modes
+     * while it owns the port. */
+    items[0] = (pill_list_item_t){ TR("ADB"), PILL_ACCESSORY_TOGGLE, gui_network_adb_active(),
+                                    NULL, adb_switch_event_cb, NULL, &adb_switch };
+    items[1] = (pill_list_item_t){ TR("Enable debug logging"), PILL_ACCESSORY_TOGGLE,
+                                    current_settings.db_logging_enabled, NULL, db_logging_switch_event_cb, NULL };
+    items[2] = (pill_list_item_t){ screenshot_row_label(), PILL_ACCESSORY_TOGGLE,
+                                    current_settings.screenshot_combo_enabled, NULL,
+                                    screenshot_combo_switch_event_cb, NULL };
+    items[3] = (pill_list_item_t){ TR("Reboot to bootloader"), PILL_ACCESSORY_NONE, false,
+                                    reboot_to_boot_selector_row_cb, NULL, NULL };
+    lv_obj_t * title, * list;
+    lv_obj_t * scr = build_subsonic_list_screen(TR("Advanced"), &title, &list);
+    add_section_header(list, TR("Developer"));
+    add_pill_list_rows(list, items, 4);
+    add_section_header(list, TR("Maintenance"));
+    add_pill_chevron_row(list, TR("Hostname"), hostname_row_cb);
+    add_pill_chevron_row(list, TR("Factory Reset"), factory_reset_btn_cb);
     finalize_screen_navigation(scr);
     return scr;
-}
-
-static void settings_maintenance_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    push_cached_screen(&settings_system_maintenance_screen, build_settings_maintenance_screen);
 }
 
 static void settings_plugins_layouts_updates_row_cb(lv_event_t * e) {
@@ -354,15 +342,13 @@ static lv_obj_t * build_language_choice_screen(void) {
 
 static lv_obj_t * build_settings_system_screen(void) {
     pill_list_item_t items[8 + PLUGIN_MAX_SYSTEM_LIST_ITEMS];
-    items[0] = (pill_list_item_t){ TR("USB Mode"), PILL_ACCESSORY_CHEVRON, false, usb_mode_settings_row_cb, NULL, NULL };
+    items[0] = (pill_list_item_t){ TR("Language"), PILL_ACCESSORY_CHEVRON, false, language_settings_row_cb, NULL, NULL };
     items[1] = (pill_list_item_t){ TR("Clock"), PILL_ACCESSORY_CHEVRON, false, gui_time_settings_clock_row_cb, NULL, NULL };
-    items[2] = (pill_list_item_t){ TR("Language"), PILL_ACCESSORY_CHEVRON, false, language_settings_row_cb, NULL, NULL };
-    items[3] = (pill_list_item_t){ TR("Plugin Manager"), PILL_ACCESSORY_CHEVRON, false, gui_plugin_manage_row_cb, NULL, NULL };
-    items[4] = (pill_list_item_t){ TR("Maintenance"), PILL_ACCESSORY_CHEVRON, false, settings_maintenance_row_cb, NULL, NULL };
-    items[5] = (pill_list_item_t){ TR("Developer Options"), PILL_ACCESSORY_CHEVRON, false,
-                                    dev_options_row_cb, NULL, NULL };
-    items[6] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &about_screen };
-    int count = 7;
+    items[2] = (pill_list_item_t){ TR("USB Mode"), PILL_ACCESSORY_CHEVRON, false, usb_mode_settings_row_cb, NULL, NULL };
+    items[3] = (pill_list_item_t){ TR("Plugins"), PILL_ACCESSORY_CHEVRON, false, gui_plugin_manage_row_cb, NULL, NULL };
+    items[4] = (pill_list_item_t){ TR("About"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &about_screen };
+    items[5] = (pill_list_item_t){ TR("Advanced"), PILL_ACCESSORY_CHEVRON, false, dev_options_row_cb, NULL, NULL };
+    int count = 6;
     if (plugin_manager_get_settings_list_item_count() > 0) {
         items[count++] = (pill_list_item_t){ TR("Additional Tools"), PILL_ACCESSORY_CHEVRON, false,
                                              push_screen_slot_cb, NULL, &settings_tools_screen };
@@ -418,7 +404,7 @@ void build_factory_reset_popup(void) {
         factory_reset_cancel_cb, &factory_reset_popup.backdrop);
 }
 
-/* Settings -> System -> Hostname uses the shared confirmation-popup helper;
+/* Settings -> System -> Advanced -> Hostname uses the shared confirmation-popup helper;
  * see hostname_apply()'s own comment for why a reboot is genuinely required
  * here (wifi_on.sh/bt_init each only read their file once, on demand). */
 static gui_popup_t hostname_reboot_popup;
@@ -497,7 +483,6 @@ void settings_system_teardown_screens(void) {
     delete_screen(&buy_me_a_coffee_screen);
     delete_screen(&dev_options_screen);
     adb_switch = NULL; /* owned by the screen just deleted; sync runs off the USB poll, not this screen's lifetime */
-    delete_screen(&settings_system_maintenance_screen);
     delete_screen(&settings_system_updates_screen);
     delete_screen(&settings_tools_screen);
     delete_screen(&language_choice_screen);
@@ -513,7 +498,7 @@ lv_obj_t * gui_settings_get_about_screen(void) { return about_screen; }
 void settings_system_build_screens(void) {
     buy_me_a_coffee_screen = build_buy_me_a_coffee_screen();
     about_screen = build_about_screen();
-    dev_options_screen = build_dev_options_screen();
+    dev_options_screen = build_advanced_screen();
     language_choice_screen = build_language_choice_screen();
     settings_system_screen = build_settings_system_screen();
     if (plugin_manager_get_settings_list_item_count() > 0)

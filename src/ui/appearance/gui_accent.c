@@ -12,11 +12,10 @@
 #include <stdint.h>
 
 static lv_obj_t * accent_color_screen;
-static lv_obj_t * accent_options_screen;
 
 /* ---- Accent Color ----
- * "Match album art" lives on the options screen; this one is the shared color
- * picker. Dragging previews locally; the accent is applied app wide (styles,
+ * The picker and accent switches share one scrollable page. Dragging previews
+ * locally; the accent is applied app wide (styles,
  * decoded play/drawer art, settings file) once, on release. */
 static lv_obj_t * accent_dynamic_switch;
 static lv_obj_t * accent_picker;
@@ -62,30 +61,8 @@ static void accent_titlebar_tint_event_cb(lv_event_t * e) {
     gui_theme_set_titlebar_tint(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
 }
 
-/* The accent's on/off choices, opened from the Accent Color title bar so the
- * color itself keeps the main screen. */
-static lv_obj_t * build_accent_options_screen(void) {
-    lv_obj_t * scr = lv_obj_create(NULL);
-    lv_obj_add_style(scr, &style_theme_screen_bg, 0);
-    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-
-    build_screen_header(scr, TR("Accent Options"), generic_back_cb, NULL, NULL);
-
-    int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
-    int32_t card_w = BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(20);
-
-    lv_obj_t * body = lv_obj_create(scr);
-    lv_obj_remove_style_all(body);
-    lv_obj_set_size(body, BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT - top);
-    lv_obj_set_pos(body, 0, top);
-    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_top(body, BOARD_SCALE_PX(8), 0);
-    lv_obj_set_style_pad_bottom(body, BOARD_SCALE_PX(32), 0);
-    lv_obj_set_style_pad_row(body, BOARD_SCALE_PX(14), 0);
-    lv_obj_set_scroll_dir(body, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
-
+/* Accent switches follow the color picker on the same page. */
+static void add_accent_options(lv_obj_t * body, int32_t card_w) {
     /* Match album art */
     lv_obj_t * dyn = gui_card_create(body, card_w);
     lv_obj_set_flex_flow(dyn, LV_FLEX_FLOW_ROW);
@@ -148,14 +125,6 @@ static lv_obj_t * build_accent_options_screen(void) {
     if (current_settings.titlebar_icon_tint)
         lv_obj_add_state(titlebar_tint_switch, LV_STATE_CHECKED);
 
-    accent_screen_sync();
-    finalize_screen_navigation(scr);
-    return scr;
-}
-
-static void accent_options_open_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !accent_options_screen) return;
-    nav_push(accent_options_screen);
 }
 
 static lv_obj_t * build_accent_color_screen(void) {
@@ -163,8 +132,7 @@ static lv_obj_t * build_accent_color_screen(void) {
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_screen_header(scr, TR("Accent Color"), generic_back_cb, asset_path("settings/playback.png"),
-                        accent_options_open_cb);
+    build_screen_header(scr, TR("Accent Color"), generic_back_cb, NULL, NULL);
 
     int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
     int32_t card_w = BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(20);
@@ -184,6 +152,7 @@ static lv_obj_t * build_accent_color_screen(void) {
     accent_picker = gui_color_picker_create(body, card_w, current_settings.accent_color, accent_palette,
                                             ACCENT_PALETTE_COUNT, accent_picker_change_cb, NULL);
 
+    add_accent_options(body, card_w);
     accent_screen_sync();
     finalize_screen_navigation(scr);
     return scr;
@@ -195,13 +164,11 @@ void gui_accent_row_cb(lv_event_t * e) {
 }
 
 void gui_accent_build_screens(void) {
-    accent_options_screen = build_accent_options_screen();
     accent_color_screen = build_accent_color_screen();
 }
 
 void gui_accent_teardown(void) {
     if (accent_color_screen) { lv_obj_delete(accent_color_screen); accent_color_screen = NULL; }
-    if (accent_options_screen) { lv_obj_delete(accent_options_screen); accent_options_screen = NULL; }
     accent_dynamic_switch = NULL;
     accent_picker = NULL; /* accent_screen_sync() is a no-op until the screen is rebuilt */
 }

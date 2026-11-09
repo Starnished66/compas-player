@@ -86,9 +86,10 @@ static bool setup_started;
 static lv_timer_t * plugin_network_timer;
 static lv_obj_t * plugin_network_notice;
 static lv_obj_t * plugin_catalog_notice;
-static lv_obj_t * plugin_download_rows[3];
-static bool plugin_download_available[3];
-static const char * const suggested_plugin_ids[] = { "example.gain_mode", "compas.autoeq" };
+static const char * const suggested_plugin_ids[] = { "compas.autoeq" };
+enum { SUGGESTED_PLUGIN_COUNT = sizeof(suggested_plugin_ids) / sizeof(suggested_plugin_ids[0]) };
+static lv_obj_t * plugin_download_rows[SUGGESTED_PLUGIN_COUNT + 1];
+static bool plugin_download_available[SUGGESTED_PLUGIN_COUNT];
 static bool plugin_network_connected;
 static bool plugin_catalog_rendered;
 static bool plugin_catalog_request_started;
@@ -1387,24 +1388,24 @@ static void render_async(void * unused) {
         if (!plugin_catalog_rendered && gui_network_setup_wifi_connected())
             plugin_catalog_notice = label(setup_body, TR("Loading plugin catalog..."), GUI_FONT_ROLE_SUBTEXT,
                                           SETUP_MUTED, LV_PCT(100));
-        for (size_t i = 0; i < 2; ++i) {
+        size_t setup_count = sizeof(suggested_plugin_ids) / sizeof(suggested_plugin_ids[0]);
+        for (size_t i = 0; i < setup_count; ++i) {
             const char * id = suggested_plugin_ids[i];
-            bool is_eq = (i == 1);
-            const char * fallback_name = is_eq ? TR("AutoEQ") : TR("Gain Mode");
+            const char * fallback_name = TR("AutoEQ");
             plugin_store_result_t plugin;
             plugin_store_details_t details;
             bool found = gui_plugin_store_setup_get_plugin(id, &plugin, &details);
             const char * name = found && plugin.name[0] ? plugin.name : fallback_name;
             if (!found || plugin.incompatible || plugin.state == PLUGIN_STORE_PLUGIN_INCOMPATIBLE) {
                 plugin_download_rows[i] = suggested_plugin(setup_body, name,
-                    found ? TR("Needs newer firmware") : suggested_plugin_unavailable_state(), id, is_eq);
+                    found ? TR("Needs newer firmware") : suggested_plugin_unavailable_state(), id, true);
                 set_suggested_plugin_available(i, plugin_download_rows[i], false);
                 continue;
             }
-            plugin_download_rows[i] = suggested_plugin(setup_body, name, details.description, id, is_eq);
+            plugin_download_rows[i] = suggested_plugin(setup_body, name, details.description, id, true);
             plugin_download_available[i] = true;
         }
-        plugin_download_rows[2] = button(setup_body, TR("More"), false, open_plugins_cb);
+        plugin_download_rows[setup_count] = button(setup_body, TR("More"), false, open_plugins_cb);
         plugin_network_connected = !gui_network_setup_wifi_connected();
         plugin_network_refresh();
         if (!plugin_network_timer) plugin_network_timer = lv_timer_create(plugin_network_poll, 500, NULL);

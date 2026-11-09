@@ -1,6 +1,8 @@
 /* Registries for plugin list rows, Home/stream tiles and quick toggles, with the accessors the native screens call. */
 #include "../../ui/text/i18n/i18n.h"
 #include "../../ui/application/gui.h"
+#include "../../ui/settings/gui_native_audio.h"
+#include "../../ui/assets/assets.h"
 #include "../lua/plugin_lua_runtime.h"
 #include "plugin_internal.h"
 #include <string.h>
@@ -64,7 +66,7 @@ int plugin_stream_tile_count = 0;
 plugin_tile_t plugin_home_tiles[PLUGIN_MAX_HOME_TILES];
 int plugin_home_tile_count = 0;
 
-plugin_quick_toggle_t plugin_quick_toggles[PLUGIN_MAX_QUICK_TOGGLES];
+plugin_quick_toggle_t plugin_quick_toggles[PLUGIN_QUICK_TOGGLE_CAPACITY];
 int plugin_quick_toggle_count = 0;
 
 /* Copies icon and derives its selected-state sibling the way every real icon
@@ -299,6 +301,51 @@ static int plugin_find_quick_toggle_by_id(const char * id) {
     return -1;
 }
 
+/* Keep the former plugins' IDs and order keys so saved drawer layouts survive. */
+static const struct {
+    const char * id, * owner, * label, * icon, * selected, * legacy, * legacy_selected;
+} native_audio_toggles[] = {
+    { "gain", "example.gain_mode", N_("Gain"), "pull_down/gain_l.png", "pull_down/gain_h.png", NULL, NULL },
+    { "mseb", "example.mseb", N_("MSEB"), "pull_down/mseb.png", "pull_down/mseb_s.png", NULL, NULL },
+    { "soundstage", "compas.soundstage", N_("Stage"), "pull_down/soundstage.png", "pull_down/soundstage_s.png",
+      "Soundstage/soundstage.png", "Soundstage/soundstage_s.png" },
+};
+
+/* A player updated without the new firmware image lacks the bundled icon; the old plugin's copy stands in. */
+static void native_tile_icon(char * out, size_t n, const char * icon, const char * legacy) {
+    snprintf(out, n, "%s", icon);
+    if (!legacy || access(asset_path_plain(icon), F_OK) == 0) return;
+    snprintf(out, n, "%s", legacy);
+    plugin_resolve_icon_path(out, n);
+    if (out[0] != '/') snprintf(out, n, "%s", icon);
+}
+
+void plugin_register_native_audio_quick_toggles(void) {
+    for (size_t i = 0; i < sizeof(native_audio_toggles) / sizeof(native_audio_toggles[0]); ++i) {
+        if (plugin_find_quick_toggle_by_id(native_audio_toggles[i].id) >= 0 ||
+            plugin_quick_toggle_count >= PLUGIN_QUICK_TOGGLE_CAPACITY) continue;
+        plugin_quick_toggle_t * t = &plugin_quick_toggles[plugin_quick_toggle_count++];
+        memset(t, 0, sizeof(*t));
+        t->native_kind = (int)i + 1;
+        t->change_ref = t->on_hold_ref = LUA_NOREF;
+        snprintf(t->id, sizeof(t->id), "%s", native_audio_toggles[i].id);
+        snprintf(t->label, sizeof(t->label), "%s", TR(native_audio_toggles[i].label));
+        native_tile_icon(t->icon, sizeof(t->icon), native_audio_toggles[i].icon, native_audio_toggles[i].legacy);
+        native_tile_icon(t->icon_selected, sizeof(t->icon_selected), native_audio_toggles[i].selected,
+                         native_audio_toggles[i].legacy_selected);
+        snprintf(t->on_text, sizeof(t->on_text), "%s", i == 0 ? TR("High") : TR("On"));
+        snprintf(t->off_text, sizeof(t->off_text), "%s", i == 0 ? TR("Low") : TR("Off"));
+    }
+}
+
+static bool plugin_quick_toggle_has_room(void) {
+    int external_count = 0;
+    for (int i = 0; i < plugin_quick_toggle_count; ++i)
+        if (!plugin_quick_toggles[i].native_kind) ++external_count;
+    return external_count < PLUGIN_MAX_QUICK_TOGGLES &&
+           plugin_quick_toggle_count < PLUGIN_QUICK_TOGGLE_CAPACITY;
+}
+
 /* plugin.register_quick_toggle(id, label, on_change, options) -- adds an
  * on/off tile to the quick drawer's expanded third row. `options` carries
  * icon (required), plus the optional icon_selected / value / on_text /
@@ -317,7 +364,7 @@ static int l_plugin_register_quick_toggle(lua_State * L) {
     if (plugin_find_quick_toggle_by_id(id) >= 0) {
         return luaL_error(L, "plugin.register_quick_toggle: id '%s' is already registered", id);
     }
-    if (plugin_quick_toggle_count >= PLUGIN_MAX_QUICK_TOGGLES) {
+    if (!plugin_quick_toggle_has_room()) {
         return luaL_error(L, "too many quick toggles registered (max %d)", PLUGIN_MAX_QUICK_TOGGLES);
     }
     if (lua_gettop(L) < 4 || !lua_istable(L, 4)) {
@@ -384,6 +431,7 @@ static int l_plugin_register_quick_toggle(lua_State * L) {
     lua_pushvalue(L, 3);
     t->change_ref = luaL_ref(L, LUA_REGISTRYINDEX);
     t->L = plugin_lua_main_state(L);
+    t->native_kind = 0;
     snprintf(t->id, sizeof(t->id), "%s", id);
     plugin_copy_label(t->label, sizeof(t->label), label);
     plugin_quick_toggle_count++;
@@ -516,6 +564,9 @@ bool plugin_manager_get_music_list_item_key(int index, char * out, size_t cap) {
 
 bool plugin_manager_get_quick_toggle_key(int index, char * out, size_t cap) {
     if (index < 0 || index >= plugin_quick_toggle_count) return false;
+    int native_kind = plugin_quick_toggles[index].native_kind;
+    if (native_kind) return snprintf(out, cap, "plugin:%s:0",
+        native_audio_toggles[native_kind - 1].owner) < (int)cap;
     int ordinal = 0;
     for (int i = 0; i < index; i++)
         if (plugin_quick_toggles[i].L == plugin_quick_toggles[index].L) ordinal++;
@@ -656,10 +707,6 @@ int plugin_manager_get_quick_toggle_count(void) {
     return plugin_quick_toggle_count;
 }
 
-int plugin_manager_find_quick_toggle_by_id(const char * id) {
-    return plugin_find_quick_toggle_by_id(id);
-}
-
 const char * plugin_manager_get_quick_toggle_label(int index) {
     if (index < 0 || index >= plugin_quick_toggle_count) return "";
     return plugin_quick_toggles[index].label;
@@ -682,13 +729,14 @@ const char * plugin_manager_get_quick_toggle_state_text(int index, bool on) {
 
 bool plugin_manager_get_quick_toggle_value(int index) {
     if (index < 0 || index >= plugin_quick_toggle_count) return false;
-    return plugin_quick_toggles[index].value;
+    const plugin_quick_toggle_t * t = &plugin_quick_toggles[index];
+    return t->native_kind ? gui_native_audio_quick_toggle_value(t->native_kind - 1) : t->value;
 }
 
 bool plugin_manager_quick_toggle_has_on_hold(int index) {
     if (index < 0 || index >= plugin_quick_toggle_count) return false;
     const plugin_quick_toggle_t * t = &plugin_quick_toggles[index];
-    return t->L != NULL && t->on_hold_ref != LUA_NOREF;
+    return t->native_kind || (t->L != NULL && t->on_hold_ref != LUA_NOREF);
 }
 
 void plugin_manager_quick_toggle_set(int index, bool new_value) {
@@ -698,6 +746,10 @@ void plugin_manager_quick_toggle_set(int index, bool new_value) {
      * inside on_change (or calls plugin.set_quick_toggle() there) sees the
      * new value rather than the one it is replacing. */
     t->value = new_value;
+    if (t->native_kind) {
+        gui_native_audio_quick_toggle_set(t->native_kind - 1, new_value);
+        return;
+    }
     if (!t->L || t->change_ref == LUA_NOREF) return;
     if (!plugin_push_callback(t->L, t->change_ref)) return;
     lua_pushboolean(t->L, new_value);
@@ -707,6 +759,10 @@ void plugin_manager_quick_toggle_set(int index, bool new_value) {
 bool plugin_manager_quick_toggle_open_settings(int index) {
     if (index < 0 || index >= plugin_quick_toggle_count) return false;
     plugin_quick_toggle_t * t = &plugin_quick_toggles[index];
+    if (t->native_kind) {
+        gui_native_audio_quick_toggle_open(t->native_kind - 1);
+        return true;
+    }
     if (!t->L || t->on_hold_ref == LUA_NOREF) return false;
     if (!plugin_push_callback(t->L, t->on_hold_ref)) return false;
     plugin_call_report(t->L, 0, false, "quick toggle '%s' on_hold error", t->label);

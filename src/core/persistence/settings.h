@@ -76,6 +76,12 @@ typedef enum {
 #define KEYBOARD_LAYOUT_UKRAINIAN 8
 
 typedef struct {
+    bool native_play_through_folders;
+    bool native_play_through_albums;
+    bool native_audio_migrated;
+    int native_gain_mode; /* -1 until explicitly chosen; 0 Low, 1 High. */
+    char native_mseb[1024];
+    char native_soundstage[1024];
     float volume;              /* 0.0 - 1.0 */
     char last_track[512];      /* absolute path, empty if none */
     double last_position;      /* seconds into last_track */
@@ -98,7 +104,7 @@ typedef struct {
      * the existing hardware-specific behavior for that gesture. */
     button_mapping_binding_t button_bindings[BUTTON_MAPPING_BUTTON_COUNT];
 
-    /* Settings -> Playback & Controls -> Buttons & Remote. When enabled,
+    /* Settings -> Playback -> Volume Lock (Screen Off). When enabled,
      * volume actions are blocked while the screen is off, including volume
      * assigned to another button. Remapped non-volume actions remain available.
      * Defaults off to preserve existing hardware behavior. */
@@ -305,7 +311,7 @@ typedef struct {
      * device charging overnight in a dark room. */
     bool led_indicator_enabled;
 
-    /* Settings -> System -> Developer Options -> "Enable debug logging" --
+    /* Settings -> System -> Advanced -> "Enable debug logging" --
      * writes a detailed, timestamped log of library database scans and
      * album art cache jobs (including lazy load) to .logs/database_artwork.log
      * on the SD card (see db_log.h), and also gates the USB DAC bridge's own
@@ -461,7 +467,7 @@ typedef struct {
      * via fallback_font_apply_size_tier(). Defaults to 1 (Medium). */
     int font_size_tier;
 
-    /* Settings -> Display -> Appearance -> Keyboard. Persistent layout enum;
+    /* Settings -> Display -> Keyboard. Persistent layout enum;
      * 0 = T9 and 1 = Latin QWERTY retain their original on-disk values.
      * Numeric fields always use the T9 numeric keypad. */
     int keyboard_layout;

@@ -427,6 +427,8 @@ const lv_font_t * pill_row_resolve_text_size(const char * text_size);
  * 100 = PILL_ROW_ICON_PX_DEFAULT (64px), unchanged from before this
  * parameter existed. Callers pass 100 except Books, which passes a smaller
  * percent so plugin row icons match its category art. */
+void add_pill_list_rows(lv_obj_t * list, const pill_list_item_t * items, int count);
+
 lv_obj_t * build_pill_list_screen(const char * title, lv_event_cb_t back_btn_cb,
                                    const pill_list_item_t * items, int item_count,
                                    lv_style_t * toggle_accent_style, int32_t row_gap,

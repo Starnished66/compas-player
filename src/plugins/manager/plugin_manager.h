@@ -29,61 +29,26 @@
 /* Top-level Music submenu rows, appended after the native Music entries. */
 #define PLUGIN_MAX_MUSIC_LIST_ITEMS 8
 
-/* Same shape and same reasoning as PLUGIN_MAX_BOOKS_LIST_ITEMS above, for
- * plugin.register_list_item("settings", ...) -- sizes this target's own
- * slot in plugin_registries.c's shared plugin_list_items[][] storage (one
- * 2D array covering all 10 list targets via a plugin_list_target_desc_t
- * descriptor table, not a separate array per target), and gui.c's
- * build_settings_screen() sizes its own static items[] array off this (5
- * built-in category rows -- "Playback", "Display", "Power", "System",
- * "About" -- plus this many plugin rows). */
+/* Per-target limits in plugin_registries.c's shared list storage.
+ * Settings rows appear under System > Additional Tools. */
 #define PLUGIN_MAX_SETTINGS_LIST_ITEMS 8
 
-/* Same shape and reasoning as PLUGIN_MAX_SETTINGS_LIST_ITEMS above, for
- * plugin.register_list_item("display", ...) -- sizes this target's own
- * slot in plugin_registries.c's plugin_list_items[][] storage, and gui.c's build_settings_
- * display_screen() sizes its own static items[] array off this (4 built-in
- * rows -- "Accent Color", "Font Size", "Screen Timeout", "Swipe Up for
- * Home" -- plus this many plugin rows). Exists as its own list_id (not
- * folded into "settings") so a plugin whose row belongs specifically under
- * Settings -> Display (e.g. a Theme picker) can land there instead of the
- * top-level Settings list. */
+/* Legacy display rows appear on Settings > Personalize. */
 #define PLUGIN_MAX_DISPLAY_LIST_ITEMS 8
 
-/* Same shape and reasoning as PLUGIN_MAX_DISPLAY_LIST_ITEMS above, for
- * plugin.register_list_item("playback", ...) -- sizes this target's own
- * slot in plugin_registries.c's plugin_list_items[][] storage, and gui_settings.c's
- * build_music_playback_screen() (Settings > Music Settings > Playback)
- * appends these after its own built-in rows. One of five list_ids covering
- * Music Settings' submenus -- see PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS below for
- * the other four. */
+/* Settings > Playback, after the native playback rows. */
 #define PLUGIN_MAX_PLAYBACK_LIST_ITEMS 16
 
-/* Same shape and reasoning as PLUGIN_MAX_PLAYBACK_LIST_ITEMS above, for
- * plugin.register_list_item("music_audio", ...) -- gui_settings.c's
- * build_music_audio_screen() (Settings > Music Settings > Audio) appends
- * these after its own built-in rows (Equalizer, Startup Volume). The natural
- * home for a plugin doing EQ/DSP/volume-curve work (e.g. an MSEB-style tone
- * tuner, a sound-profile switcher, a gain-mode toggle). */
+/* Settings > Sound; effects are inline and profiles stay in the EQ editor. */
 #define PLUGIN_MAX_MUSIC_AUDIO_LIST_ITEMS 16
 
-/* Same shape and reasoning as PLUGIN_MAX_PLAYBACK_LIST_ITEMS above, for
- * plugin.register_list_item("music_controls", ...) -- gui_settings.c's
- * build_music_controls_screen() (Settings > Music Settings > Controls &
- * Interface) appends these after its own built-in rows (Play/Pause Button,
- * Car Mode). */
+/* Settings > Playback, in the Controls section. */
 #define PLUGIN_MAX_MUSIC_CONTROLS_LIST_ITEMS 8
 
-/* Same shape and reasoning as PLUGIN_MAX_PLAYBACK_LIST_ITEMS above, for
- * plugin.register_list_item("music_timers", ...) -- gui_settings.c's
- * build_music_timers_screen() (Settings > Music Settings > Timers) appends
- * these after its own built-in row (Sleep Timer). */
+/* Settings > Power, after the native charging rows. */
 #define PLUGIN_MAX_MUSIC_TIMERS_LIST_ITEMS 8
 
-/* Same shape and reasoning as PLUGIN_MAX_PLAYBACK_LIST_ITEMS above, for
- * plugin.register_list_item("music_library", ...) -- gui_settings.c's
- * build_music_library_screen() (Settings > Music Settings > Library) appends
- * these after its own built-in row (Update Music Database). */
+/* Settings > Library, after the native library rows. */
 #define PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS 8
 
 /* Same shape and reasoning as PLUGIN_MAX_DISPLAY_LIST_ITEMS above, for
@@ -303,14 +268,12 @@ bool plugin_manager_get_music_list_item_key(int index, char * out, size_t cap);
 void plugin_manager_get_music_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                  int32_t * out_width, const char ** out_text_size);
 
-/* Same shape as the plugin_manager_*_books_list_item_* family above, for
- * plugin.register_list_item("settings", ...) -- gui.c's build_settings_
- * screen() appends these after its own 5 built-in category rows. */
+/* Settings rows are exposed through System > Additional Tools. */
 int plugin_manager_get_settings_list_item_count(void);
 const char * plugin_manager_get_settings_list_item_label(int index);
 void plugin_manager_settings_list_item_clicked(int index);
 /* True/open the first live row registered by this exact file in any Settings
- * list (Additional Tools first, then Display, Playback, Sound, Buttons & Remote,
+ * list (Additional Tools first, then Personalize, Playback, Sound, Controls,
  * Power timers, Library, Power, System). Books, Music, player and More rows
  * do not count. */
 bool plugin_manager_file_has_settings(const char * filename);
@@ -318,9 +281,7 @@ bool plugin_manager_open_file_settings(const char * filename);
 void plugin_manager_get_settings_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                     int32_t * out_width, const char ** out_text_size);
 
-/* Same shape again, for plugin.register_list_item("display", ...) -- gui.c's
- * build_settings_display_screen() appends these after its own 4 built-in
- * rows. */
+/* Legacy display rows appear on Settings > Personalize. */
 int plugin_manager_get_display_list_item_count(void);
 const char * plugin_manager_get_display_list_item_label(int index);
 void plugin_manager_display_list_item_clicked(int index);
@@ -345,27 +306,21 @@ void plugin_manager_music_audio_list_item_clicked(int index);
 void plugin_manager_get_music_audio_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                        int32_t * out_width, const char ** out_text_size);
 
-/* Same shape again, for plugin.register_list_item("music_controls", ...) --
- * gui_settings.c's build_music_controls_screen() appends these after its own
- * built-in rows. */
+/* Music control rows appear in Settings > Playback's Controls section. */
 int plugin_manager_get_music_controls_list_item_count(void);
 const char * plugin_manager_get_music_controls_list_item_label(int index);
 void plugin_manager_music_controls_list_item_clicked(int index);
 void plugin_manager_get_music_controls_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                           int32_t * out_width, const char ** out_text_size);
 
-/* Same shape again, for plugin.register_list_item("music_timers", ...) --
- * gui_settings.c's build_music_timers_screen() appends these after its own
- * built-in row. */
+/* Music timer rows appear after the native rows on Settings > Power. */
 int plugin_manager_get_music_timers_list_item_count(void);
 const char * plugin_manager_get_music_timers_list_item_label(int index);
 void plugin_manager_music_timers_list_item_clicked(int index);
 void plugin_manager_get_music_timers_list_item_options(int index, const char ** out_icon, int32_t * out_height,
                                                         int32_t * out_width, const char ** out_text_size);
 
-/* Same shape again, for plugin.register_list_item("music_library", ...) --
- * gui_settings.c's build_music_library_screen() appends these after its own
- * built-in row. */
+/* Music library rows appear after the native rows on Settings > Library. */
 int plugin_manager_get_music_library_list_item_count(void);
 const char * plugin_manager_get_music_library_list_item_label(int index);
 void plugin_manager_music_library_list_item_clicked(int index);
@@ -498,13 +453,12 @@ void plugin_manager_notify_button_lock_changed(bool locked);
  * into Settings (an MSEB-style tone tuner, a gain-mode switch). A plugin
  * that wants a full screen instead still uses register_list_item(). ---- */
 
-/* Fills exactly the drawer's third toggle row (the same 4-column grid the
- * native row uses), across every loaded plugin combined. */
+/* Preserve the published Lua quota; built-in audio shortcuts have separate slots. */
 #define PLUGIN_MAX_QUICK_TOGGLES 4
+#define PLUGIN_MAX_NATIVE_AUDIO_TOGGLES 3
+#define PLUGIN_QUICK_TOGGLE_CAPACITY (PLUGIN_MAX_QUICK_TOGGLES + PLUGIN_MAX_NATIVE_AUDIO_TOGGLES)
 
 int plugin_manager_get_quick_toggle_count(void);
-/* Registered toggle index, or -1 when its plugin is absent or disabled. */
-int plugin_manager_find_quick_toggle_by_id(const char * id);
 const char * plugin_manager_get_quick_toggle_label(int index);
 /* Stable key for the Quick Drawer order setting; false when it has no owner. */
 bool plugin_manager_get_quick_toggle_key(int index, char * out, size_t cap);

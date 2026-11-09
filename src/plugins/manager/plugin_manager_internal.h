@@ -157,7 +157,10 @@ typedef struct {
     char on_text[16];
     char off_text[16];
     bool value;
+    int native_kind; /* 1-based native audio shortcut; zero is Lua-owned */
 } plugin_quick_toggle_t;
+
+void plugin_register_native_audio_quick_toggles(void);
 
 /* Each reusable plugin.show_list() screen owns its on_select callback. This
  * matters after Back returns from a nested list: the older screen must route
@@ -314,7 +317,7 @@ extern plugin_tile_t plugin_stream_tiles[PLUGIN_MAX_STREAM_TILES];
 extern int plugin_stream_tile_count;
 extern plugin_tile_t plugin_home_tiles[PLUGIN_MAX_HOME_TILES];
 extern int plugin_home_tile_count;
-extern plugin_quick_toggle_t plugin_quick_toggles[PLUGIN_MAX_QUICK_TOGGLES];
+extern plugin_quick_toggle_t plugin_quick_toggles[PLUGIN_QUICK_TOGGLE_CAPACITY];
 extern int plugin_quick_toggle_count;
 bool is_valid_text_size(const char * text_size);
 extern const luaL_Reg plugin_registries_funcs[];
