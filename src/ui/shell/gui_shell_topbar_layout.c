@@ -537,10 +537,23 @@ static void reflow_topbar_layout_v1(void) {
     }
 }
 #endif
+/* Fixed font handles can acquire new metrics when a custom font is loaded. */
+static void align_clock_baseline(void) {
+    const lv_font_t * digit_font = topbar_digit_font();
+    const lv_font_t * ampm_font = topbar_ampm_font();
+    /* Flex centers in an even-height track; round each half separately. */
+    int32_t offset =
+        lv_font_get_line_height(digit_font) / 2 -
+        lv_font_get_line_height(ampm_font) / 2 +
+        ampm_font->base_line - digit_font->base_line;
+    if (!topbar_local_style_is(clock_topbar_ampm, LV_STYLE_TRANSLATE_Y, offset))
+        lv_obj_set_style_translate_y(clock_topbar_ampm, offset, 0);
+}
 void reflow_topbar_layout(void) {
     if (!status_bar_band || !clock_topbar_group || !volume_topbar_group || !battery_icon_frame ||
         !battery_topbar_group || !wifi_icon || !bt_status_icon) return;
 
+    align_clock_baseline();
     apply_topbar_visibility_preferences();
     lv_obj_update_layout(status_bar_band);
     lv_obj_update_layout(clock_topbar_group);
