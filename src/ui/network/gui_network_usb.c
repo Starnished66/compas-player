@@ -3,6 +3,7 @@
 #include "gui_network.h"
 #include "../shell/gui_shell.h"
 #include "../settings/gui_settings.h"
+#include "../library/browse/gui_library.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../../hardware/power/battery.h"
 #include "../storage/usb_storage_session.h"
@@ -137,6 +138,10 @@ static bool launch_usb_mode_switch(void) {
  * ahead of the hardware needs to know when a tap was dropped, or the control
  * ends up showing a state nothing is working toward. */
 bool start_usb_mode_switch(usb_mode_t target) {
+    if (target == USB_MODE_STORAGE && gui_library_scan_active()) {
+        show_info_toast(TR("Library is busy"));
+        return false;
+    }
     if (firmware_update_busy()) {
         show_error_toast(TR("An update is already in progress"));
         return false;
@@ -356,6 +361,7 @@ void poll_usb_storage_hotplug(void) {
     }
 
     if (!connected || !usb_storage_rebind_pending || usb_mode_switch_active ||
+        gui_library_scan_active() ||
         usb_mode_control_storage_write_active()) return;
 
     usb_mode_t live_mode;
@@ -380,6 +386,10 @@ bool gui_network_usb_storage_session_active(void) {
     return usb_storage_session_blocks_local_work(&usb_storage_session,
                                                   usb_cable_was_connected,
                                                   adb_confirmed);
+}
+
+bool gui_network_usb_storage_switch_pending(void) {
+    return usb_mode_switch_active && usb_mode_switch_target == USB_MODE_STORAGE;
 }
 
 static void usb_mode_option_row_cb(lv_event_t * e) {

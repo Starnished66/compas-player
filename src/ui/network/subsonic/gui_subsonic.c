@@ -9,6 +9,27 @@
 #include "../../../network/services/subsonic_client.h"
 #include "../../../library/remote/subsonic/subsonic_cache.h"
 #include <stdio.h>
+#include <string.h>
+
+static bool subsonic_session_active;
+static char subsonic_session_server_key[SUBSONIC_CACHE_KEY_SIZE];
+
+bool gui_subsonic_session_active(void) {
+    if (!subsonic_session_active || !subsonic_session_server_key[0]) return false;
+    char current_key[SUBSONIC_CACHE_KEY_SIZE];
+    subsonic_server_t current = subsonic_server_from_settings();
+    subsonic_cache_server_key(&current, current_key);
+    return strcmp(current_key, subsonic_session_server_key) == 0;
+}
+
+void gui_subsonic_session_set_active(bool active) {
+    subsonic_session_active = active;
+    subsonic_session_server_key[0] = '\0';
+    if (active) {
+        subsonic_server_t current = subsonic_server_from_settings();
+        subsonic_cache_server_key(&current, subsonic_session_server_key);
+    }
+}
 
 /* Subsonic talks to a remote server, so the radio being on is not enough: this
  * asks for a real association. New connections and servers without a cache need
@@ -130,6 +151,16 @@ void gui_subsonic_handle_wifi_disabled(void) {
     gui_subsonic_browse_cancel();
     gui_subsonic_downloads_cancel();
     gui_subsonic_sync_stop_network();
+}
+
+void gui_subsonic_global_open_artist(const char *id, const char *name) {
+    if (!id || !id[0] || !name || !name[0]) return;
+    start_subsonic_browse(SUBSONIC_BROWSE_ARTIST_ALBUMS, id, name);
+}
+
+void gui_subsonic_global_open_album(const char *id, const char *name) {
+    if (!id || !id[0] || !name || !name[0]) return;
+    subsonic_open_songs(SUBSONIC_LIST_ALBUM_SONGS, id, name);
 }
 
 void gui_subsonic_cancel_background_work(void) {

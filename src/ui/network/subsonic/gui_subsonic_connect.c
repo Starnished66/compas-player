@@ -130,6 +130,7 @@ static void subsonic_adopt_connected_server(void) {
                                     subsonic_connect_pending_server.username, subsonic_connect_pending_server.password,
                                     subsonic_connect_pending_server.verify_tls);
     settings_save(&current_settings);
+    gui_subsonic_session_set_active(true);
     /* A new connection starts with empty browse caches. */
     subsonic_clear_browse_caches();
     nav_push(gui_subsonic_menu_screen());
@@ -161,6 +162,8 @@ static void start_subsonic_connect(const subsonic_server_t * server) {
         return;
     }
     req->server = *server;
+
+    gui_subsonic_session_set_active(false);
 
     atomic_store_explicit(&subsonic_connect_done_flag, false, memory_order_relaxed);
     subsonic_connect_success_flag = false;
@@ -194,6 +197,7 @@ static bool subsonic_is_active_server(const subsonic_server_t * server) {
 static void subsonic_open_cached_server(const subsonic_server_t * server) {
     bool same = subsonic_is_active_server(server);
     subsonic_set_active_server(server);
+    gui_subsonic_session_set_active(true);
     if (!same) {
         subsonic_clear_browse_caches();
         settings_save_async(&current_settings);

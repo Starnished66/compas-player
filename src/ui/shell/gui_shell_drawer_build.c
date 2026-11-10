@@ -1,4 +1,8 @@
 #include "gui_shell_internal.h"
+#include "../network/gui_network.h"
+#ifndef HOST_BUILD
+#include "../../audio/output/audio_output.h"
+#endif
 
 #if defined(BOARD_TEMPOTEC_V1)
 #define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(265)
@@ -474,6 +478,72 @@ static void quick_drawer_build_car_mode_toggle(int32_t x, int32_t row_y) {
     quick_drawer_set_toggle_state(QD_TOGGLE_CAR_MODE, on);
 }
 
+static void quick_drawer_output_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    quick_drawer_dismiss_for_navigation();
+    gui_network_bt_open_output_menu();
+}
+
+static void quick_drawer_build_output_tile(void) {
+    quick_drawer_output_icon = lv_image_create(quick_drawer_expansion_box);
+    quick_drawer_set_toggle_image(quick_drawer_output_icon, topbar_icon("audio_lines"));
+    lv_obj_add_flag(quick_drawer_output_icon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(quick_drawer_output_icon, quick_drawer_output_event_cb, LV_EVENT_CLICKED, NULL);
+    quick_drawer_output_name = lv_label_create(quick_drawer_expansion_box);
+    lv_obj_add_style(quick_drawer_output_name, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(quick_drawer_output_name, fallback_font_ui_12(), 0);
+    lv_obj_set_style_text_align(quick_drawer_output_name, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(quick_drawer_output_name, TR("Output"));
+    lv_obj_add_flag(quick_drawer_output_name, LV_OBJ_FLAG_HIDDEN);
+    quick_drawer_output_state = lv_label_create(quick_drawer_expansion_box);
+    lv_obj_add_style(quick_drawer_output_state, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(quick_drawer_output_state, fallback_font_ui_12(), 0);
+    lv_obj_set_style_text_color(quick_drawer_output_state, shell_drawer_off_color, 0);
+    lv_obj_set_style_text_align(quick_drawer_output_state, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(quick_drawer_output_state, LV_LABEL_LONG_DOT);
+    lv_obj_add_flag(quick_drawer_output_state, LV_OBJ_FLAG_HIDDEN);
+    quick_drawer_refresh_output_state();
+}
+
+void quick_drawer_refresh_output_state(void) {
+    if (!quick_drawer_output_state) return;
+#ifdef HOST_BUILD
+    bool bluetooth_route = gui_shell_is_bt_audio_connected();
+    const char * text = bluetooth_route ? TR("Bluetooth") : TR("Wired");
+#else
+    audio_output_info_t info;
+    audio_output_get_info(&info);
+    audio_output_route_t route = info.active ? info.route : info.requested_route;
+    bool bluetooth_route = route == AUDIO_OUTPUT_ROUTE_BLUETOOTH;
+    const char * text = route == AUDIO_OUTPUT_ROUTE_USB ? TR("USB output") :
+                        bluetooth_route ? TR("Bluetooth") : TR("Wired");
+#endif
+    char bluetooth_name[64] = "";
+    if (bluetooth_route) {
+        char active_mac[18];
+        gui_shell_bt_output_device_t devices[32];
+        if (gui_shell_get_bt_audio_device_mac(active_mac, sizeof(active_mac))) {
+            int count = gui_shell_get_bt_output_devices(devices, 32);
+            for (int i = 0; i < count; ++i) {
+                if (strcmp(devices[i].mac, active_mac) == 0 && devices[i].name[0]) {
+                    snprintf(bluetooth_name, sizeof(bluetooth_name), "%s", devices[i].name);
+                    text = bluetooth_name;
+                    break;
+                }
+            }
+        }
+    }
+    if (!ui_label_text_matches(quick_drawer_output_state, text))
+        lv_label_set_text(quick_drawer_output_state, text);
+}
+
+void quick_drawer_request_output_name_snapshot_if_needed(void) {
+    if (!gui_shell_is_bt_audio_connected()) return;
+    gui_shell_bt_output_device_t device;
+    if (gui_shell_get_bt_output_devices(&device, 1) < 0)
+        gui_shell_request_bt_output_devices();
+}
+
 static void quick_drawer_build_plugin_toggle(int plugin_index, int32_t x, int32_t row_y) {
     bool on = plugin_manager_get_quick_toggle_value(plugin_index);
     lv_obj_t * icon = lv_image_create(quick_drawer_expansion_box);
@@ -499,6 +569,7 @@ static void quick_drawer_build_expansion_row3(void) {
         if (i == 0) quick_drawer_build_car_mode_toggle(x, row_y);
         else quick_drawer_build_plugin_toggle(i - 1, x, row_y);
     }
+    quick_drawer_build_output_tile();
 }
 
 static void quick_drawer_set_expansion_full_height(void) {
@@ -660,6 +731,23 @@ static void quick_drawer_open_player_cb(lv_event_t * e) {
     nav_push(gui_player_get_screen());
 }
 
+void gui_shell_build_mini_player_widgets(lv_obj_t * cover_parent, lv_obj_t * title_parent,
+                                         lv_obj_t * play_parent,
+                                         gui_shell_mini_player_widgets_t * out) {
+    if (!cover_parent || !title_parent || !play_parent || !out) return;
+    out->cover = lv_image_create(cover_parent);
+    lv_image_set_src(out->cover, asset_path("playing_plane/default_cover_565.png"));
+    out->title = lv_label_create(title_parent);
+    lv_label_set_text(out->title, TR("No track loaded"));
+    lv_obj_add_style(out->title, &style_theme_text_primary, 0);
+    lv_obj_set_style_text_font(out->title, &app_font_player_title, 0);
+    lv_label_set_long_mode(out->title, LV_LABEL_LONG_DOT);
+    out->play = lv_image_create(play_parent);
+    lv_image_set_src(out->play, gui_player_play_btn_image_src(audio_is_playing()));
+    lv_obj_add_flag(out->play, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(out->play, play_btn_event_cb, LV_EVENT_CLICKED, NULL);
+}
+
 /* Now-playing card shell and its cover thumbnail. Returns the card. */
 static lv_obj_t * quick_drawer_build_card_frame(void) {
     /* Mini now-playing card: cover thumbnail (left), track title/artist
@@ -696,10 +784,6 @@ static lv_obj_t * quick_drawer_build_card_frame(void) {
     lv_obj_set_size(quick_drawer_cover_frame, QUICK_DRAWER_CARD_W, QUICK_DRAWER_CARD_H);
     lv_obj_align(quick_drawer_cover_frame, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_remove_flag(quick_drawer_cover_frame, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    quick_drawer_cover_img = lv_image_create(quick_drawer_cover_frame);
-    lv_obj_remove_flag(quick_drawer_cover_img, LV_OBJ_FLAG_CLICKABLE);
-    lv_image_set_src(quick_drawer_cover_img, asset_path("playing_plane/default_cover_565.png"));
-    quick_drawer_fit_cover();
     return card;
 }
 
@@ -752,11 +836,11 @@ static lv_obj_t * quick_drawer_build_card_band(lv_obj_t * card) {
 
 /* One centred, marquee-scrolling line of card text. v1_h is the V1's fixed
  * label height; the other boards use the font's bounded row height. */
-static lv_obj_t * quick_drawer_card_line(lv_obj_t * band, const char * text, bool secondary,
+static void quick_drawer_style_card_line(lv_obj_t * label, const char * text, bool secondary,
                                          const lv_font_t * font, int32_t width, int32_t v1_h,
                                          int32_t y) {
-    lv_obj_t * label = lv_label_create(band);
     lv_label_set_text(label, text);
+    lv_obj_remove_style(label, &style_theme_text_primary, 0);
     lv_obj_add_style(label, gui_player_backdrop_text_style(secondary), 0);
     lv_obj_set_style_text_font(label, font, 0);
     lv_obj_set_width(label, width);
@@ -771,6 +855,13 @@ static lv_obj_t * quick_drawer_card_line(lv_obj_t * band, const char * text, boo
 #endif
     row_label_enable_marquee(label);
     lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
+}
+
+static lv_obj_t * quick_drawer_card_line(lv_obj_t * band, const char * text, bool secondary,
+                                         const lv_font_t * font, int32_t width, int32_t v1_h,
+                                         int32_t y) {
+    lv_obj_t * label = lv_label_create(band);
+    quick_drawer_style_card_line(label, text, secondary, font, width, v1_h, y);
     return label;
 }
 
@@ -811,8 +902,6 @@ static lv_obj_t * quick_drawer_build_card_text(lv_obj_t * card) {
     quick_drawer_card_text_layout(&l);
     lv_obj_t * band = quick_drawer_build_card_band(card);
 
-    quick_drawer_title_label = quick_drawer_card_line(band, TR("No track loaded"), false,
-                                                      &app_font_player_title, l.width, l.title_h, l.y_title);
     quick_drawer_artist_label = quick_drawer_card_line(band, "", true, l.meta_font, l.artist_w,
                                                        l.artist_h, l.y_artist);
     quick_drawer_album_label = quick_drawer_card_line(band, "", true, l.meta_font, l.width,
@@ -822,6 +911,13 @@ static lv_obj_t * quick_drawer_build_card_text(lv_obj_t * card) {
 #endif
     quick_drawer_build_card_format(band, &l);
     return band;
+}
+
+static void quick_drawer_style_card_title(lv_obj_t * title) {
+    quick_drawer_card_text_layout_t l;
+    quick_drawer_card_text_layout(&l);
+    quick_drawer_style_card_line(title, TR("No track loaded"), false,
+                                 &app_font_player_title, l.width, l.title_h, l.y_title);
 }
 
 /* Transport button (prev/next): backdrop-styled icon at its reference X. */
@@ -841,9 +937,7 @@ static void quick_drawer_create_transport_button(lv_obj_t * parent, const char *
 }
 
 /* Centre play/pause button of the transport row. */
-static void quick_drawer_build_play_button(lv_obj_t * controls_row) {
-    quick_drawer_play_btn = lv_image_create(controls_row);
-    lv_image_set_src(quick_drawer_play_btn, gui_player_play_btn_image_src(audio_is_playing()));
+static void quick_drawer_layout_play_button(void) {
 #if BOARD_COMPACT_UI
     /* Size the layout box as well as the image so its center and touch
      * target follow the smaller panel, including after play/pause changes. */
@@ -861,12 +955,10 @@ static void quick_drawer_build_play_button(lv_obj_t * controls_row) {
     lv_obj_set_pos(quick_drawer_play_btn, BOARD_SCALE_PX(164), (BOARD_SCALE_PY(86) - 84) / 2);
     lv_image_set_scale(quick_drawer_play_btn, (BOARD_SCALE_PY(86) * LV_SCALE_NONE + 42) / 84);
 #endif
-    lv_obj_add_flag(quick_drawer_play_btn, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(quick_drawer_play_btn, play_btn_event_cb, LV_EVENT_CLICKED, NULL);
 }
 
 /* Transport row: prev/play/next, all three in one row. */
-static void quick_drawer_build_transport_row(lv_obj_t * band) {
+static lv_obj_t * quick_drawer_build_transport_row(lv_obj_t * band) {
     int32_t controls_bottom = BOARD_SCALE_PY(24);
 #if defined(BOARD_TEMPOTEC_V1)
     controls_bottom = BOARD_SCALE_PY(12);
@@ -886,8 +978,8 @@ static void quick_drawer_build_transport_row(lv_obj_t * band) {
     lv_obj_set_style_pad_all(controls_row, 0, 0);
     lv_obj_remove_flag(controls_row, LV_OBJ_FLAG_SCROLLABLE);
     quick_drawer_create_transport_button(controls_row, "playing_plane/btn_prev.png", 84, prev_btn_event_cb);
-    quick_drawer_build_play_button(controls_row);
     quick_drawer_create_transport_button(controls_row, "playing_plane/btn_next.png", 290, next_btn_event_cb);
+    return controls_row;
 }
 
 /* Label inside the EQ shortcut button. */
@@ -965,7 +1057,16 @@ void build_quick_drawer(void) {
 
     lv_obj_t * card = quick_drawer_build_card_frame();
     lv_obj_t * band = quick_drawer_build_card_text(card);
-    quick_drawer_build_transport_row(band);
+    lv_obj_t * controls = quick_drawer_build_transport_row(band);
+    gui_shell_mini_player_widgets_t widgets = {0};
+    gui_shell_build_mini_player_widgets(quick_drawer_cover_frame, band, controls, &widgets);
+    quick_drawer_cover_img = widgets.cover;
+    quick_drawer_title_label = widgets.title;
+    quick_drawer_play_btn = widgets.play;
+    lv_obj_remove_flag(quick_drawer_cover_img, LV_OBJ_FLAG_CLICKABLE);
+    quick_drawer_fit_cover();
+    quick_drawer_style_card_title(quick_drawer_title_label);
+    quick_drawer_layout_play_button();
     quick_drawer_build_eq_button(card);
 
     gui_shell_refresh_quick_drawer_cover();

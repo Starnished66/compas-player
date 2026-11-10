@@ -18,6 +18,85 @@ static lv_obj_t * bt_codec_screen;
 static lv_obj_t * bt_advanced_screen;
 static lv_obj_t * bt_rate_screen;
 static void start_bt_scan(bool inquiry);
+static void start_bt_connect(const char * mac);
+static void start_bt_forget(const char * mac, bool disconnect);
+
+static lv_obj_t * bt_output_menu_popup;
+static lv_obj_t * bt_output_menu_backdrop;
+static bool bt_output_menu_pending;
+static gui_shell_bt_output_device_t bt_output_menu_devices[BT_MAX_RESULTS];
+static int bt_output_menu_device_count;
+
+static void bt_output_menu_delete(void) {
+    if (bt_output_menu_popup) lv_obj_delete(bt_output_menu_popup);
+    if (bt_output_menu_backdrop) lv_obj_delete(bt_output_menu_backdrop);
+    bt_output_menu_popup = NULL;
+    bt_output_menu_backdrop = NULL;
+}
+static void bt_output_menu_close(void) {
+    bt_output_menu_pending = false;
+    bt_output_menu_delete();
+}
+
+static void bt_output_menu_backdrop_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) bt_output_menu_close();
+}
+
+static void bt_output_menu_action_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int action = (int)(intptr_t)lv_event_get_user_data(e);
+    char mac[18] = "";
+    bool disconnect = false;
+    if (action == -1) {
+        disconnect = gui_shell_get_bt_audio_device_mac(mac, sizeof(mac));
+    } else if (action >= 0 && action < bt_output_menu_device_count) {
+        snprintf(mac, sizeof(mac), "%s", bt_output_menu_devices[action].mac);
+        if (bt_output_menu_devices[action].connected) mac[0] = '\0';
+    }
+    bt_output_menu_close();
+    if (!mac[0]) return;
+    gui_shell_cancel_bt_reconnect();
+    if (disconnect) start_bt_forget(mac, true);
+    else start_bt_connect(mac);
+}
+
+static void bt_output_menu_build(void) {
+    bt_output_menu_delete();
+    menu_popup_row_t rows[BT_MAX_RESULTS + 2];
+    int count = 0;
+    rows[count++] = (menu_popup_row_t){ TR("Wired"), bt_output_menu_action_cb, false, false,
+                                        (void *)(intptr_t)-1 };
+    for (int i = 0; i < bt_output_menu_device_count; ++i) {
+        static char labels[BT_MAX_RESULTS][112];
+        const char * name = bt_output_menu_devices[i].name[0] ? bt_output_menu_devices[i].name
+                                                              : bt_output_menu_devices[i].mac;
+        snprintf(labels[i], sizeof(labels[i]), "%s%s%s", name,
+                 bt_output_menu_devices[i].connected ? " · " : "",
+                 bt_output_menu_devices[i].connected ? TR("Connected") : "");
+        rows[count++] = (menu_popup_row_t){ labels[i], bt_output_menu_action_cb, false, false,
+                                            (void *)(intptr_t)i };
+    }
+    rows[count++] = (menu_popup_row_t){ TR("Cancel"), bt_output_menu_action_cb, false, true,
+                                        (void *)(intptr_t)-2 };
+    bt_output_menu_popup = build_menu_popup(rows, count, bt_output_menu_backdrop_cb,
+                                            &bt_output_menu_backdrop);
+}
+
+void gui_network_bt_open_output_menu(void) {
+    bt_output_menu_pending = true;
+    bt_output_menu_device_count = 0;
+    bt_output_menu_build();
+    gui_shell_request_bt_output_devices();
+}
+
+void gui_network_bt_output_snapshot_ready(void) {
+    if (!bt_output_menu_pending) return;
+    bt_output_menu_pending = false;
+    int count = gui_shell_get_bt_output_devices(bt_output_menu_devices, BT_MAX_RESULTS);
+    if (count < 0) show_error_toast(TR("Unable to load items"));
+    bt_output_menu_device_count = count > 0 ? count : 0;
+    if (bt_output_menu_popup) bt_output_menu_build();
+}
 
 /* ---- Bluetooth settings screen ----
  *
@@ -985,6 +1064,7 @@ void gui_network_bt_build(void) {
 }
 
 void gui_network_bt_teardown(void) {
+    bt_output_menu_close();
     gui_popup_teardown(&bt_action_popup);
     gui_popup_teardown(&bt_forget_popup);
     network_delete_screen(&bt_screen);

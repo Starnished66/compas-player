@@ -381,6 +381,20 @@ static void existing_playlist_row_cb(lv_event_t *event) {
     nav_pop();
 }
 
+static bool open_saved_playlist_path(const char *path) {
+    if (!path || !path[0] || !open_row_cb) return false;
+    char **songs = NULL;
+    int count = 0;
+    if (!playlist_files_read(path, &songs, &count)) {
+        show_error_toast(TR("Playlist unavailable or unreadable"));
+        return false;
+    }
+    open_row_cb(GUI_PLAYLIST_ROW_SAVED_M3U, basename_of(path), path, songs, count);
+    for (int i = 0; i < count; i++) free(songs[i]);
+    free(songs);
+    return true;
+}
+
 static void playlist_row_click_cb(lv_event_t *event) {
     lv_event_code_t code = lv_event_get_code(event);
     if (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED) return;
@@ -392,16 +406,7 @@ static void playlist_row_click_cb(lv_event_t *event) {
     }
     int i = index - 4;
     if (i < 0 || i >= playlists_m3u_count) return;
-    char **songs = NULL;
-    int count = 0;
-    if (!playlist_files_read(playlists_m3u_paths[i], &songs, &count)) {
-        show_error_toast(TR("Playlist unavailable or unreadable"));
-        return;
-    }
-    if (open_row_cb)
-        open_row_cb(GUI_PLAYLIST_ROW_SAVED_M3U, basename_of(playlists_m3u_paths[i]), playlists_m3u_paths[i], songs, count);
-    for (int j = 0; j < count; j++) free(songs[j]);
-    free(songs);
+    (void)open_saved_playlist_path(playlists_m3u_paths[i]);
 }
 
 void gui_playlists_init(gui_playlists_open_row_cb_t open_row,
@@ -427,6 +432,23 @@ void gui_playlists_build_context_menu(void) { build_playlist_context_menu_popup(
 void gui_playlists_open_saved_screen(void) {
     populate_playlists_screen();
     nav_push(playlists_screen);
+}
+
+bool gui_playlists_open_path(const char * path) {
+    if (!path || !path[0] || !open_row_cb) return false;
+    char ** paths = NULL;
+    int count = 0;
+    metadata_db_load_all_playlists(&paths, &count);
+    bool opened = false;
+    for (int i = 0; i < count; i++) {
+        if (strcmp(paths[i], path) == 0) {
+            opened = open_saved_playlist_path(paths[i]);
+            break;
+        }
+    }
+    for (int i = 0; i < count; i++) free(paths[i]);
+    free(paths);
+    return opened;
 }
 
 void gui_playlists_open_for_song(const char *path) {

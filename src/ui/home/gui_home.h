@@ -8,5 +8,6 @@
  * destination when clicked. */
 lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb,
                                  lv_event_cb_t stream_media_cb);
+void gui_home_update_mini_player(void);
 
 #endif

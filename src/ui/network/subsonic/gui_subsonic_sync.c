@@ -96,6 +96,7 @@ void subsonic_ping_or_queue(void) {
     int level;
     if (!wifi_get_status(&level)) {
         subsonic_next_clear(&subsonic_next);
+        gui_subsonic_session_set_active(false);
         show_info_toast(TR("Offline - showing saved library"));
         return;
     }
@@ -262,7 +263,10 @@ void poll_subsonic_refresh(void) {
     subsonic_refresh_job_t job;
     if (subsonic_refresh_take(&job)) {
         if (job.mode == SUBSONIC_REFRESH_FETCH) subsonic_apply_fetched(&job);
-        else if (job.mode == SUBSONIC_REFRESH_PING && !job.ok) show_info_toast(TR("Offline - showing saved library"));
+        else if (job.mode == SUBSONIC_REFRESH_PING && !job.ok) {
+            gui_subsonic_session_set_active(false);
+            show_info_toast(TR("Offline - showing saved library"));
+        }
     }
     subsonic_start_next();
     for (int kind = 0; kind < SUBSONIC_LIST_ALL_KINDS; kind++) subsonic_poll_list((subsonic_list_kind_t) kind);

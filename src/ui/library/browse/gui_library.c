@@ -253,6 +253,8 @@ void request_now_playing_indicator_lookup(void) {
 static void music_files_tile_cb(lv_event_t * e);
 
 /* Screen pointers owned by this module */
+static lv_obj_t * global_search_screen;
+static lv_obj_t * global_search_list;
 static lv_obj_t * music_screen = NULL;
 static lv_obj_t * files_screen = NULL;
 static lv_obj_t * files_search_list = NULL;
@@ -1142,6 +1144,58 @@ static icon_grid_item_t music_plugin_item(int index) {
 
 _Static_assert(UI_MUSIC_COUNT + PLUGIN_MAX_MUSIC_LIST_ITEMS <= UI_ORDER_MAX,
                "Music order cannot hold every plugin entry");
+static void global_search_selected(const library_global_result_t *result, bool long_press) {
+    /* Navigation can invalidate the search buffer. */
+    library_global_result_t item = *result;
+    if (item.kind <= LIBRARY_GLOBAL_PLAYLIST && gui_library_scan_active()) return;
+    if (long_press) {
+        if (item.kind == LIBRARY_GLOBAL_SONG)
+            open_song_context_menu_for(item.target, SONG_MENU_ALL);
+        else if (item.kind == LIBRARY_GLOBAL_SERVER_SONG)
+            gui_subsonic_global_song(&item.server_song, true);
+        return;
+    }
+    switch (item.kind) {
+        case LIBRARY_GLOBAL_ARTIST:
+            show_artist_albums(item.target, METADATA_DB_GROUP_ARTIST); break;
+        case LIBRARY_GLOBAL_ALBUM:
+            gui_library_open_album(item.target, item.secondary); break;
+        case LIBRARY_GLOBAL_SONG:
+            play_remote_control_song(item.target, "", "", "", ""); break;
+        case LIBRARY_GLOBAL_PLAYLIST:
+            gui_playlists_open_path(item.target); break;
+        case LIBRARY_GLOBAL_SERVER_ARTIST:
+            gui_subsonic_global_open_artist(item.target, item.label); break;
+        case LIBRARY_GLOBAL_SERVER_ALBUM:
+            gui_subsonic_global_open_album(item.target, item.label); break;
+        case LIBRARY_GLOBAL_SERVER_SONG:
+            gui_subsonic_global_song(&item.server_song, false); break;
+        default: break;
+    }
+}
+
+static void global_search_row_click(int index) { library_search_global_select(index, false); }
+static void global_search_row_long_press(int index) { library_search_global_select(index, true); }
+static void global_search_open(lv_event_t *e) {
+    (void)e;
+    library_search_open(SEARCH_BINDING_GLOBAL);
+}
+
+static void build_global_search_screen(void) {
+    global_search_screen = build_compact_list_screen(TR("Search"), generic_back_cb, NULL, 0,
+        global_search_row_click, global_search_row_long_press, &global_search_list, NULL,
+        LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
+    compact_list_set_row_height(global_search_list, MUSIC_LIST_ROW_HEIGHT);
+    library_thumbnails_bind_list(global_search_screen, global_search_list, LIBRARY_THUMB_LIST_GLOBAL_SEARCH);
+    library_search_config_t config = {
+        .screen = global_search_screen, .list = global_search_list, .db_backed = true,
+        .az_strip_for_screen = search_az_strip_for_screen,
+        .refresh_now_playing = search_refresh_now_playing, .global_click = global_search_selected
+    };
+    library_search_register(SEARCH_BINDING_GLOBAL, &config);
+    finalize_screen_navigation(global_search_screen);
+}
+
 static lv_obj_t * build_music_screen(void) {
     const icon_grid_item_t items[UI_MUSIC_COUNT] = {
         { "submenu/files.png", NULL, TR("Files"), music_files_tile_cb, NULL },
@@ -1204,15 +1258,18 @@ static lv_obj_t * build_music_screen(void) {
      * aligned from the right edge, place later entries farther right. */
     for (int i = 0; i < toolbar_count; ++i) {
         lv_obj_align(toolbar_buttons[i], LV_ALIGN_TOP_RIGHT,
-                     -(toolbar_count - 1 - i) * HEADER_BUTTON_WIDTH,
+                     -(toolbar_count - i) * HEADER_BUTTON_WIDTH,
                      STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
     }
+
+    lv_obj_t *search_button = build_top_right_icon_button(
+        scr, asset_path("navigation/search.png"), global_search_open);
 
     /* build_top_right_icon_button() gives a title room for one icon while
      * constructing each button. Recompute against the actual leftmost
      * visible button, or restore the normal full title width if none remain. */
     lv_obj_t * title = screen_header_title(scr);
-    if (title && toolbar_count > 0) reserve_title_width_before(title, toolbar_buttons[0]);
+    if (title) reserve_title_width_before(title, toolbar_count ? toolbar_buttons[0] : search_button);
     music_tile_prewarm_attach(scr);
     finalize_screen_navigation(scr);
     return scr;
@@ -1334,6 +1391,7 @@ void gui_library_init(void) {
     library_teardown_diag("build_add_to_playlist_screen before");
     gui_playlists_build_add_screen();
     library_teardown_diag("build_music_screen before");
+    build_global_search_screen();
     music_screen = build_music_screen();
 
     /* Register A-Z index & search */
@@ -1499,6 +1557,9 @@ void gui_library_teardown(void) {
         lv_obj_delete(album_collection_menu_backdrop);
         album_collection_menu_backdrop = NULL;
     }
+    library_thumbnails_forget_list(global_search_list);
+    if (global_search_screen) lv_obj_delete(global_search_screen);
+    global_search_screen = global_search_list = NULL;
     library_teardown_diag("music_screen before");
     if (music_screen) { lv_obj_delete(music_screen); music_screen = NULL; }
     library_teardown_diag("files_screen before");
@@ -1602,7 +1663,7 @@ void gui_library_start_boot_thumbnail_warmup(void) {
 bool gui_library_has_background_work(void) {
     library_thumbnail_status_t thumbnails;
     library_thumbnails_get_status(&thumbnails);
-    return gui_folder_actions_busy() || library_rescan_active || library_rescan_success_pending ||
+    return gui_folder_actions_busy() || library_rescan_active ||
            album_load_job || album_load_pending || thumbnails.lazy_active ||
            thumbnails.warmup_active || thumbnails.cover_active || gui_library_sd_format_is_active() || library_search_has_active_job() ||
            remote_collection_busy() || (group_probe_job && !track_probe_job_done(group_probe_job));
@@ -1612,7 +1673,10 @@ bool gui_library_navigation_blocked(void) {
     /* These operations use a modal progress/completion screen. Thumbnail
      * decoding, post-scan cache warming, and search are deliberately absent:
      * they are cancellable/optional workers and do not own the active screen. */
-    return gui_folder_actions_busy() || library_rescan_active || library_rescan_success_pending || gui_library_sd_format_is_active();
+    bool cover_reload = library_rescan_active &&
+        (library_rescan_mode == LIBRARY_RESCAN_REFRESH_COVERS_ALL ||
+         library_rescan_mode == LIBRARY_RESCAN_REFRESH_COVERS_ALBUM);
+    return gui_folder_actions_busy() || cover_reload || gui_library_sd_format_is_active();
 }
 
 void gui_library_prepare_for_ui_reload(bool preserve_artwork) {

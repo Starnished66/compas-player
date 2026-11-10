@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <lvgl/lvgl.h>
 #include "../../../library/remote/subsonic/subsonic_cache.h"
+#include "../../../network/services/subsonic_client.h"
 
 typedef struct {
     char song_id[64];
@@ -24,6 +25,8 @@ typedef struct {
 
 
 subsonic_server_t subsonic_server_from_settings(void);
+bool gui_subsonic_session_active(void);
+void gui_subsonic_session_set_active(bool active);
 void gui_subsonic_init(void);
 /* Deletes every screen this module owns so gui_reload.c's in-process UI
  * reload can call gui_subsonic_init() again from a clean slate. */
@@ -47,3 +50,9 @@ void gui_subsonic_refresh_now_playing(void);
 
 /* Prepare one directly streamable song for the shared queue context menu. */
 void gui_subsonic_open_song_context(int index);
+
+/* Open an artist's albums or an album's songs from global search results. */
+void gui_subsonic_global_open_artist(const char *id, const char *name);
+void gui_subsonic_global_open_album(const char *id, const char *name);
+/* The song value must own its strings; it remains valid only for this call. */
+void gui_subsonic_global_song(const subsonic_song_t *song, bool long_press);

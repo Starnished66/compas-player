@@ -418,6 +418,11 @@ void gui_books_rescan(void) {
     rescan_books();
 }
 
+/* A background scan replaces the book cache; redraw the list if it is showing. */
+void gui_books_refresh_visible(void) {
+    if (books_files_screen && lv_screen_active() == books_files_screen) populate_books_files_screen();
+}
+
 lv_obj_t * gui_books_get_screen(void) {
     return books_screen;
 }

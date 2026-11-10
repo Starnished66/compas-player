@@ -786,6 +786,39 @@ bool subsonic_get_random_songs(const subsonic_server_t * server, int size, subso
     return ok;
 }
 
+bool subsonic_search3(const subsonic_server_t * server, const char * query, int limit,
+                      subsonic_artist_t ** out_artists, int * out_artist_count,
+                      subsonic_album_t ** out_albums, int * out_album_count,
+                      subsonic_song_t ** out_songs, int * out_song_count, http_cancel_token_t * cancel) {
+    *out_artists = NULL; *out_artist_count = 0;
+    *out_albums = NULL; *out_album_count = 0;
+    *out_songs = NULL; *out_song_count = 0;
+    if (!query || !query[0] || limit <= 0 || limit > 100) return false;
+    char encoded[URL_ID_ENC_MAX], params[URL_ID_ENC_MAX + 128];
+    if (strlen(query) > URL_ID_MAX || !url_encode(query, encoded, sizeof(encoded))) return false;
+    snprintf(params, sizeof(params), "query=%s&artistCount=%d&artistOffset=0&albumCount=%d&albumOffset=0&songCount=%d&songOffset=0",
+             encoded, limit, limit, limit);
+    cJSON * root = NULL;
+    cJSON * resp = api_request(server, "search3.view", params, &root, cancel);
+    if (!resp) return false;
+    cJSON * result = cJSON_GetObjectItemCaseSensitive(resp, "searchResult3");
+    cJSON * artists, * albums, * songs;
+    bool ok = cJSON_IsObject(result) && optional_array(result, "artist", &artists) &&
+              optional_array(result, "album", &albums) && optional_array(result, "song", &songs);
+    if (ok) ok = pack_list(artists, sizeof(subsonic_artist_t), SUBSONIC_ARTIST_TEXT_FIELDS,
+                           pack_artist, (void **) out_artists, out_artist_count) &&
+                 pack_albums(albums, out_albums, out_album_count) &&
+                 songs_from_array(songs, NULL, out_songs, out_song_count);
+    cJSON_Delete(root);
+    if (!ok) {
+        free(*out_artists); free(*out_albums); free(*out_songs);
+        *out_artists = NULL; *out_artist_count = 0;
+        *out_albums = NULL; *out_album_count = 0;
+        *out_songs = NULL; *out_song_count = 0;
+    }
+    return ok;
+}
+
 bool subsonic_get_starred(const subsonic_server_t * server, subsonic_starred_t * out, http_cancel_token_t * cancel) {
     memset(out, 0, sizeof(*out));
     cJSON * root = NULL;

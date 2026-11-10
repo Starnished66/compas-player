@@ -535,6 +535,9 @@ void quick_drawer_dismiss_for_navigation(void) {
  * (refresh_quick_drawer_crossfade_icon() / gui_settings_sync_crossfade_toggle()).
  * Uses pull_down/fade.png and pull_down/fade_s.png. */
 lv_obj_t * quick_drawer_crossfade_icon;
+lv_obj_t * quick_drawer_output_icon;
+lv_obj_t * quick_drawer_output_name;
+lv_obj_t * quick_drawer_output_state;
 void refresh_quick_drawer_crossfade_icon(void) {
     if (!quick_drawer_crossfade_icon) return;
     quick_drawer_apply_toggle_image(QD_TOGGLE_CROSSFADE, quick_drawer_crossfade_icon, current_settings.crossfade_enabled);
@@ -776,6 +779,11 @@ void quick_drawer_reflow_customization(void) {
             }
         }
     }
+    if (count < UI_DRAWER_MAX_TILES && quick_drawer_output_icon && quick_drawer_output_name &&
+        quick_drawer_output_state) {
+        items[count++] = (quick_drawer_layout_item_t){ quick_drawer_output_icon,
+            quick_drawer_output_name, quick_drawer_output_state, -1 };
+    }
 
 #if defined(BOARD_TEMPOTEC_V1)
     int expansion_rows = count > 4 ? (count - 4 + 3) / 4 : 0;
@@ -852,6 +860,11 @@ void quick_drawer_reflow_customization(void) {
             if (state_index < QUICK_DRAWER_TOGGLE_SLOTS)
                 quick_drawer_place_widget(quick_drawer_toggle_state[state_index], parent, 0, 0, false);
         }
+    }
+    if (count == 0 || items[count - 1].id != -1) {
+        quick_drawer_place_widget(quick_drawer_output_icon, quick_drawer_expansion_box, 0, 0, false);
+        quick_drawer_place_widget(quick_drawer_output_name, quick_drawer_expansion_box, 0, 0, false);
+        quick_drawer_place_widget(quick_drawer_output_state, quick_drawer_expansion_box, 0, 0, false);
     }
 #if defined(BOARD_TEMPOTEC_V1)
     /* Resolve the new order before measuring icon centers for captions. */
@@ -958,6 +971,9 @@ void quick_drawer_teardown_widgets(void) {
     quick_drawer_gapless_icon = NULL;
     quick_drawer_rc_icon = NULL;
     quick_drawer_car_mode_icon = NULL;
+    quick_drawer_output_icon = NULL;
+    quick_drawer_output_name = NULL;
+    quick_drawer_output_state = NULL;
     for (int i = 0; i < PLUGIN_QUICK_TOGGLE_CAPACITY; i++) quick_drawer_plugin_icon[i] = NULL;
     quick_drawer_plugin_toggle_count = 0;
     quick_drawer_motion_teardown_state();

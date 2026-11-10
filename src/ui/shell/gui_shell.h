@@ -40,6 +40,15 @@ void gui_shell_refresh_quick_drawer_cover(void);
  * re-points the widgets at the new buffers. Call after the accent changes. */
 void gui_shell_refresh_quick_drawer_toggle_accent(void);
 void gui_shell_update_quick_drawer_play_state(bool is_playing);
+typedef struct {
+    lv_obj_t * cover;
+    lv_obj_t * title;
+    lv_obj_t * play;
+} gui_shell_mini_player_widgets_t;
+/* Shared cover/title/play widget constructor used by the drawer and Home. */
+void gui_shell_build_mini_player_widgets(lv_obj_t * cover_parent, lv_obj_t * title_parent,
+                                         lv_obj_t * play_parent,
+                                         gui_shell_mini_player_widgets_t * out);
 
 void gui_shell_init(uint32_t screen_width, uint32_t screen_height);
 /* The screen-construction half of gui_shell_init(), without the Bluetooth-
@@ -53,6 +62,7 @@ void gui_shell_teardown(void);
 void gui_shell_refresh_static_assets(void);
 void refresh_clock_label(void);
 void refresh_battery_topbar(void);
+void gui_shell_set_library_scan_indicator(bool active);
 void refresh_volume_topbar(int32_t percent);
 void gui_shell_apply_topbar_settings(void);
 void quick_drawer_mark_snapshot_dirty(void);
@@ -79,6 +89,14 @@ bool gui_shell_is_bt_audio_connected(void);
 /* Copies the UI-thread Bluetooth codec snapshot populated by the existing
  * asynchronous status refresh; does not query BlueALSA or spawn a process. */
 bool gui_shell_get_bt_audio_codec(char * out, size_t out_size);
+bool gui_shell_get_bt_audio_device_mac(char * out, size_t out_size);
+typedef struct {
+    char mac[18];
+    char name[64];
+    bool connected;
+} gui_shell_bt_output_device_t;
+void gui_shell_request_bt_output_devices(void);
+int gui_shell_get_bt_output_devices(gui_shell_bt_output_device_t * out, int capacity);
 void gui_shell_notify_bt_audio_disconnected(void);
 /* Cancels persisted-device auto-reconnect and suppresses it for the current
  * powered Bluetooth cycle. Manual connect/forget actions use this so an

@@ -4,6 +4,7 @@
 /* Internal to the gui_shell*.c files; never include from public headers. */
 
 #include "gui_shell.h"
+#include "../home/gui_home.h"
 #include "../text/rendering/ui_label_text.h"
 #include "../text/i18n/i18n.h"
 #include "../../core/system/runtime/app_clock.h"
@@ -293,6 +294,9 @@ extern lv_obj_t * quick_drawer_dlna_icon;
 extern lv_obj_t * quick_drawer_gapless_icon;
 extern lv_obj_t * quick_drawer_rc_icon;
 extern lv_obj_t * quick_drawer_car_mode_icon;
+extern lv_obj_t * quick_drawer_output_icon;
+extern lv_obj_t * quick_drawer_output_name;
+extern lv_obj_t * quick_drawer_output_state;
 extern lv_obj_t * quick_drawer_plugin_icon[PLUGIN_QUICK_TOGGLE_CAPACITY];
 extern int quick_drawer_plugin_toggle_count;
 extern int32_t quick_drawer_expansion_full;
@@ -418,6 +422,8 @@ void quick_drawer_make_toggle_labels(int slot, int32_t x, int32_t row_y,
 void build_quick_drawer(void);
 bool quick_drawer_customization_enabled(void);
 void quick_drawer_reflow_customization(void);
+void quick_drawer_refresh_output_state(void);
+void quick_drawer_request_output_name_snapshot_if_needed(void);
 void topbar_load_volume_warn_threshold(void);
 void quick_drawer_motion_teardown_cancel(void);
 void quick_drawer_brightness_teardown_flush(void);

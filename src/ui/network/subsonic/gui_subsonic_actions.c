@@ -68,6 +68,8 @@ static int subsonic_stream_quality_kbps(void) {
            current_settings.subsonic_stream_quality == 3 ? 320 : 0;
 }
 
+static void subsonic_play_songs(const subsonic_song_t * songs, int count, int index, bool is_album);
+
 static bool subsonic_streams_directly(const subsonic_song_t * song, int quality_kbps) {
     return quality_kbps > 0 || strcasecmp(song->suffix, "mp3") == 0 || strcasecmp(song->suffix, "flac") == 0;
 }
@@ -88,34 +90,54 @@ static void subsonic_context_queue(bool next) {
     if (revision == gui_player_queue_revision()) --subsonic_stream_meta_count;
 }
 
-void gui_subsonic_open_song_context(int index) {
-    if (index < 0 || index >= subsonic_songs_count) return;
-    subsonic_song_t * song = &subsonic_songs_cache[index];
+static bool subsonic_prepare_context_song(const subsonic_song_t *song) {
+    if (!song) return false;
     int quality_kbps = subsonic_stream_quality_kbps();
-    if (!subsonic_streams_directly(song, quality_kbps)) return;
+    if (!subsonic_streams_directly(song, quality_kbps)) return false;
     subsonic_server_t server = subsonic_server_from_settings();
     char * entry = NULL;
     subsonic_fill_stream_queue_entry(&server, song, NULL, quality_kbps, &entry, &context_song, 0);
-    if (!entry) return;
+    if (!entry) return false;
     free(entry);
     /* The shared queue and current-track path buffers are 600 bytes. */
-    if (!context_song.url[0] || strlen(context_song.url) >= 600) return;
+    return context_song.url[0] && strlen(context_song.url) < 600;
+}
+
+void gui_subsonic_open_song_context(int index) {
+    if (index < 0 || index >= subsonic_songs_count) return;
+    if (!subsonic_prepare_context_song(&subsonic_songs_cache[index])) return;
     open_song_context_menu_stream(context_song.url, subsonic_context_queue);
 }
 
-static void subsonic_start_stream_queue(const subsonic_server_t * server, int index, int quality_kbps) {
-    char ** new_playlist = malloc(sizeof(char *) * (size_t) subsonic_songs_count);
-    subsonic_stream_song_meta_t * new_meta = malloc(sizeof(subsonic_stream_song_meta_t) * (size_t) subsonic_songs_count);
+void gui_subsonic_global_song(const subsonic_song_t *song, bool long_press) {
+    if (!song || !song->id[0] || !gui_subsonic_wifi_connected_guard()) return;
+    if (long_press) {
+        if (subsonic_prepare_context_song(song))
+            open_song_context_menu_stream(context_song.url, subsonic_context_queue);
+        return;
+    }
+
+    subsonic_play_songs(song, 1, 0, false);
+}
+
+static void subsonic_start_stream_queue(const subsonic_server_t * server, const subsonic_song_t * songs,
+                                        int song_count, int index, bool is_album, int quality_kbps) {
+    char ** new_playlist = malloc(sizeof(char *) * (size_t) song_count);
+    subsonic_stream_song_meta_t * new_meta = malloc(sizeof(subsonic_stream_song_meta_t) * (size_t) song_count);
+    if (!new_playlist || !new_meta) {
+        free(new_playlist);
+        free(new_meta);
+        return;
+    }
     int count = 0;
     int start_index = -1;
     /* An album's songs share its cover (Navidrome gives each file its own id);
      * a playlist mixes albums, so each song keeps its own. */
     gui_subsonic_album_info_t album = {0};
-    bool is_album = subsonic_songs_kind == SUBSONIC_LIST_ALBUM_SONGS;
     if (is_album) subsonic_songs_album_info(server, &album);
 
-    for (int i = 0; i < subsonic_songs_count; i++) {
-        subsonic_song_t * s = &subsonic_songs_cache[i];
+    for (int i = 0; i < song_count; i++) {
+        const subsonic_song_t * s = &songs[i];
         if (!subsonic_streams_directly(s, quality_kbps)) continue;
         subsonic_fill_stream_queue_entry(server, s, is_album ? album.cover_id : NULL, quality_kbps, new_playlist, new_meta, count);
         if (i == index) start_index = count;
@@ -163,21 +185,21 @@ static void subsonic_download_then_play(const subsonic_server_t * server, const 
  * reachable instead of the queue silently dead-ending on it. See this
  * section's own top comment for why a non-streamable format tapped
  * directly still downloads first, as a single track, same as before. */
-static void subsonic_play_song_and_queue_rest(int index) {
+static void subsonic_play_songs(const subsonic_song_t * songs, int count, int index, bool is_album) {
     if (!gui_subsonic_wifi_connected_guard()) return; /* cached lists open offline, playing needs the server */
-    subsonic_song_t * song = &subsonic_songs_cache[index];
     subsonic_server_t server = subsonic_server_from_settings();
     int quality_kbps = subsonic_stream_quality_kbps();
-    if (subsonic_streams_directly(song, quality_kbps)) {
-        subsonic_start_stream_queue(&server, index, quality_kbps);
+    if (subsonic_streams_directly(&songs[index], quality_kbps)) {
+        subsonic_start_stream_queue(&server, songs, count, index, is_album, quality_kbps);
         return;
     }
-    subsonic_download_then_play(&server, song);
+    subsonic_download_then_play(&server, &songs[index]);
 }
 
 void gui_subsonic_play_from(int index) {
     if (index < 0 || index >= subsonic_songs_count) return;
-    subsonic_play_song_and_queue_rest(index);
+    subsonic_play_songs(subsonic_songs_cache, subsonic_songs_count, index,
+                        subsonic_songs_kind == SUBSONIC_LIST_ALBUM_SONGS);
 }
 
 static subsonic_download_pending_t subsonic_download_pending = SUBSONIC_DOWNLOAD_PENDING_NONE;

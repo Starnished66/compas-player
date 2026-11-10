@@ -12,6 +12,7 @@ typedef struct {
     char name[64];
     bool paired;
     bool connected;
+    bool audio_sink;
 } bt_device_t;
 
 /* Negotiated Bluetooth transport/decoded PCM information. This describes

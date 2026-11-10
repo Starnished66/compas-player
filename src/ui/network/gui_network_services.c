@@ -296,7 +296,8 @@ static void handle_remote_import_request(bool start) {
             remote_control_set_import_state(REMOTE_IMPORT_ERROR, "sd_card_unavailable");
             return;
         }
-        if (gui_network_usb_storage_session_active() || gui_library_navigation_blocked()) {
+        if (gui_network_usb_storage_session_active() || gui_library_navigation_blocked() ||
+            gui_library_scan_active()) {
             remote_control_set_import_state(REMOTE_IMPORT_ERROR, "player_storage_busy");
             return;
         }

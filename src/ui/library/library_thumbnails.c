@@ -56,7 +56,8 @@ static bool thumbnail_role_visible_capability(library_thumbnail_list_role_t role
 }
 
 static bool thumbnail_role_compact_capability(library_thumbnail_list_role_t role) {
-    return role >= LIBRARY_THUMB_LIST_ALBUMS && role <= LIBRARY_THUMB_LIST_GROUP_SONGS_SEARCH;
+    return role >= LIBRARY_THUMB_LIST_ALBUMS &&
+           (role <= LIBRARY_THUMB_LIST_GROUP_SONGS_SEARCH || role == LIBRARY_THUMB_LIST_GLOBAL_SEARCH);
 }
 
 static library_thumbnail_context_t thumbnail_context_for_list(lv_obj_t *list) {
@@ -291,6 +292,9 @@ static void thumbnail_decorate_image(lv_obj_t * list, lv_obj_t * row, lv_obj_t *
     /* Lists whose art kind changes (the genre browser) pass NULL and are
      * looked up per row. */
     library_thumbnail_context_t dynamic_context = ctx ? *(const library_thumbnail_context_t *)ctx : thumbnail_context_for_list(list);
+    thumbnail_binding_t *binding = thumbnail_binding_for_list(list);
+    if (!ctx && binding && binding->role == LIBRARY_THUMB_LIST_GLOBAL_SEARCH)
+        dynamic_context = artwork_name ? artist_thumbnail_context : album_thumbnail_context;
     const library_thumbnail_context_t *context = &dynamic_context;
     if (context->key_kind == THUMBNAIL_KEY_ARTIST &&
         !atomic_load(&artist_thumbnail_work_enabled)) {
@@ -387,6 +391,7 @@ static const char *thumbnail_role_page(const thumbnail_binding_t *binding) {
     case LIBRARY_THUMB_LIST_RECENTLY_ADDED: return "recently_added";
     case LIBRARY_THUMB_LIST_GROUP_SONGS_CUSTOM: return "group_songs";
     case LIBRARY_THUMB_LIST_GROUP_SONGS_SEARCH: return "group_songs_search";
+    case LIBRARY_THUMB_LIST_GLOBAL_SEARCH: return "global_search";
     default: return "files_search";
     }
 }
@@ -455,7 +460,8 @@ static bool queue_match_artist_work(const album_thumbnail_request_t * req, const
     const thumbnail_binding_t *binding = thumbnail_binding_for_list(req->list);
     return req->key_kind != THUMBNAIL_KEY_ALBUM ||
            (binding && (binding->role == LIBRARY_THUMB_LIST_ARTISTS ||
-                        binding->role == LIBRARY_THUMB_LIST_ALBUM_ARTISTS));
+                        binding->role == LIBRARY_THUMB_LIST_ALBUM_ARTISTS ||
+                        binding->role == LIBRARY_THUMB_LIST_GLOBAL_SEARCH));
 }
 
 void library_thumbnails_set_artist_images_enabled(bool enabled) {
@@ -465,7 +471,8 @@ void library_thumbnails_set_artist_images_enabled(bool enabled) {
     }
     for (size_t i = 0; i < THUMBNAIL_BINDING_CAPACITY; ++i)
         if (thumbnail_bindings[i].list && (thumbnail_bindings[i].role == LIBRARY_THUMB_LIST_ARTISTS ||
-                                           thumbnail_bindings[i].role == LIBRARY_THUMB_LIST_ALBUM_ARTISTS))
+                                           thumbnail_bindings[i].role == LIBRARY_THUMB_LIST_ALBUM_ARTISTS ||
+                                           thumbnail_bindings[i].role == LIBRARY_THUMB_LIST_GLOBAL_SEARCH))
             compact_list_refresh_decorations(thumbnail_bindings[i].list);
 }
 

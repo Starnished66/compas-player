@@ -141,6 +141,7 @@ void gui_library_cancel_background_work(void);
 /* Frees the decoded thumbnail cache before an external session; rows refill it on demand. */
 void gui_library_release_memory_for_external_session(void);
 void gui_library_cancel_scan(void);
+bool gui_library_scan_active(void);
 
 /* Shared song detail line and source-format badge. */
 void gui_song_format_detail(char * out, size_t size, int seconds, const char * format);

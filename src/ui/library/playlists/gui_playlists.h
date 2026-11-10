@@ -26,6 +26,7 @@ lv_obj_t *gui_playlists_build_saved_screen(void);
 lv_obj_t *gui_playlists_build_add_screen(void);
 void gui_playlists_build_context_menu(void);
 void gui_playlists_open_saved_screen(void);
+bool gui_playlists_open_path(const char * path);
 void gui_playlists_open_for_song(const char *path);
 void gui_playlists_open_for_folder(const char *path);
 void gui_playlists_reset_name_target_mode(void);

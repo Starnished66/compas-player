@@ -155,6 +155,12 @@ bool subsonic_get_genres(const subsonic_server_t * server, subsonic_genre_t ** o
 bool subsonic_get_random_songs(const subsonic_server_t * server, int size, subsonic_song_t ** out_songs,
                                int * out_count, http_cancel_token_t * cancel);
 
+/* Bounded global search via search3.view. Each result list is independently owned by the caller. */
+bool subsonic_search3(const subsonic_server_t * server, const char * query, int limit,
+                      subsonic_artist_t ** out_artists, int * out_artist_count,
+                      subsonic_album_t ** out_albums, int * out_album_count,
+                      subsonic_song_t ** out_songs, int * out_song_count, http_cancel_token_t * cancel);
+
 /* The starred items of getStarred2.view. Free each list with free(); a list
  * with no items is NULL with count 0. */
 typedef struct {

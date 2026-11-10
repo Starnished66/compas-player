@@ -2,6 +2,7 @@
 #include "home_background.h"
 #include "home_layout.h"
 #include "home_layout_sizing.h"
+#include "../assets/assets.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../shell/gui_navigation.h"
 #include "../library/browse/gui_library.h"
@@ -11,9 +12,151 @@
 #include "../network/subsonic/gui_subsonic.h"
 #include "../../plugins/manager/plugin_manager.h"
 #include "../text/i18n/i18n.h"
+#include "../text/rendering/ui_label_text.h"
+#include "../application/gui.h"
+#include "../player/queue/player_queue_model.h"
+#include "../player/screen/gui_player.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+static lv_obj_t * home_mini_strip;
+static lv_obj_t * home_mini_cover;
+static lv_obj_t * home_mini_title;
+static lv_obj_t * home_mini_play;
+static lv_obj_t * home_mini_content;
+static int32_t home_mini_content_height;
+static int32_t home_mini_content_y;
+static uint64_t home_mini_cover_generation = UINT64_MAX;
+static bool home_mini_playing;
+static bool home_mini_cover_active;
+
+static void home_mini_open_player_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    nav_push(gui_player_get_screen());
+}
+
+static void home_mini_delete_cb(lv_event_t * e) {
+    if (lv_event_get_target(e) != home_mini_strip) return;
+    home_mini_strip = NULL;
+    home_mini_cover = NULL;
+    home_mini_title = NULL;
+    home_mini_play = NULL;
+    home_mini_content = NULL;
+    home_mini_content_height = 0;
+    home_mini_cover_generation = UINT64_MAX;
+    home_mini_cover_active = false;
+}
+
+static void home_mini_build(lv_obj_t * screen) {
+    lv_display_t * display = lv_display_get_default();
+    int32_t width = display ? lv_display_get_horizontal_resolution(display) : BOARD_SCREEN_WIDTH;
+    int32_t height = display ? lv_display_get_vertical_resolution(display) : BOARD_SCREEN_HEIGHT;
+    int32_t strip_h = BOARD_SCALE_PY(96);
+    int32_t bottom = HOME_INDICATOR_CONTENT_INSET + BOARD_SCALE_PY(8);
+    int32_t inset = bottom + strip_h;
+
+    home_mini_content = NULL;
+    lv_obj_update_layout(screen);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(screen); ++i) {
+        lv_obj_t * child = lv_obj_get_child(screen, (int32_t)i);
+        if (lv_obj_has_flag(child, LV_OBJ_FLAG_SCROLLABLE)) {
+            int32_t content_x = lv_obj_get_x(child);
+            home_mini_content = child;
+            home_mini_content_height = lv_obj_get_height(child);
+            home_mini_content_y = lv_obj_get_y(child);
+            lv_obj_set_align(child, LV_ALIGN_TOP_LEFT);
+            lv_obj_set_pos(child, content_x, home_mini_content_y);
+            break;
+        }
+    }
+
+    home_mini_strip = lv_obj_create(screen);
+    home_mini_cover_generation = UINT64_MAX;
+    home_mini_cover_active = false;
+    home_mini_playing = !audio_is_playing();
+    lv_obj_remove_style_all(home_mini_strip);
+    lv_obj_add_style(home_mini_strip, &style_theme_card_bg, 0);
+    lv_obj_set_style_radius(home_mini_strip, BOARD_SCALE_PX(18), 0);
+    lv_obj_set_style_pad_all(home_mini_strip, 0, 0);
+    lv_obj_set_size(home_mini_strip, width - BOARD_SCALE_PX(32), strip_h);
+    lv_obj_set_pos(home_mini_strip, BOARD_SCALE_PX(16), height - inset);
+    lv_obj_remove_flag(home_mini_strip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(home_mini_strip, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(home_mini_strip, home_mini_open_player_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(home_mini_strip, home_mini_delete_cb, LV_EVENT_DELETE, NULL);
+
+    gui_shell_mini_player_widgets_t widgets = {0};
+    gui_shell_build_mini_player_widgets(home_mini_strip, home_mini_strip, home_mini_strip, &widgets);
+    home_mini_cover = widgets.cover;
+    lv_obj_set_size(home_mini_cover, BOARD_SCALE_PX(64), BOARD_SCALE_PY(64));
+    lv_image_set_inner_align(home_mini_cover, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_align(home_mini_cover, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(14), 0);
+    lv_obj_remove_flag(home_mini_cover, LV_OBJ_FLAG_CLICKABLE);
+
+    home_mini_title = widgets.title;
+    lv_obj_set_style_text_font(home_mini_title, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_set_width(home_mini_title, width - BOARD_SCALE_PX(202));
+    lv_obj_set_height(home_mini_title, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) + BOARD_SCALE_PY(8));
+    lv_label_set_long_mode(home_mini_title, LV_LABEL_LONG_DOT);
+    lv_obj_align(home_mini_title, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(90), 0);
+    lv_obj_remove_flag(home_mini_title, LV_OBJ_FLAG_CLICKABLE);
+
+    home_mini_play = widgets.play;
+    lv_obj_set_size(home_mini_play, BOARD_SCALE_PX(56), BOARD_SCALE_PY(56));
+    lv_image_set_inner_align(home_mini_play, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_align(home_mini_play, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(12), 0);
+    lv_obj_set_ext_click_area(home_mini_play, BOARD_SCALE_PX(6));
+    gui_home_update_mini_player();
+}
+
+void gui_home_update_mini_player(void) {
+    if (!home_mini_strip) return;
+    bool changed = false;
+    bool queued = player_queue_model_count() > 0;
+    bool was_hidden = lv_obj_has_flag(home_mini_strip, LV_OBJ_FLAG_HIDDEN);
+    if (was_hidden == queued) changed = true;
+    lv_obj_set_flag(home_mini_strip, LV_OBJ_FLAG_HIDDEN, !queued);
+    if (home_mini_content && home_mini_content_height > 0) {
+        int32_t inset = queued ? HOME_INDICATOR_CONTENT_INSET + BOARD_SCALE_PY(8) + BOARD_SCALE_PY(96) : 0;
+        int32_t display_h = lv_display_get_vertical_resolution(lv_display_get_default());
+        int32_t height = display_h - inset - home_mini_content_y;
+        if (!queued) height = home_mini_content_height;
+        if (height < BOARD_SCALE_PY(120)) height = BOARD_SCALE_PY(120);
+        if (lv_obj_get_height(home_mini_content) != height) {
+            lv_obj_set_height(home_mini_content, height);
+            changed = true;
+        }
+    }
+
+    if (queued) {
+        const char * title = gui_player_get_now_playing_title();
+        if (!title || !title[0]) title = TR("No track loaded");
+        if (!ui_label_text_matches(home_mini_title, title)) {
+            lv_label_set_text(home_mini_title, title);
+            changed = true;
+        }
+    }
+
+    uint64_t generation = 0;
+    bool cover_active = queued && gui_player_has_active_track();
+    const lv_image_dsc_t * cover = cover_active ? gui_player_get_current_cover_dsc(&generation) : NULL;
+    if (generation != home_mini_cover_generation || cover_active != home_mini_cover_active) {
+        lv_image_set_src(home_mini_cover, cover ? (const void *)cover
+                                                : (const void *)asset_path("playing_plane/default_cover_565.png"));
+        home_mini_cover_generation = generation;
+        home_mini_cover_active = cover_active;
+        changed = true;
+    }
+    bool playing = audio_is_playing();
+    if (playing != home_mini_playing) {
+        lv_image_set_src(home_mini_play, gui_player_play_btn_image_src(playing));
+        home_mini_playing = playing;
+        changed = true;
+    }
+    if (changed && gui_shell_get_home_screen() == lv_obj_get_screen(home_mini_strip))
+        gui_navigation_refresh_home_snapshot();
+}
 
 /* Published order for plugin.set_home_layout()'s `key` field (home_layout.h)
  * -- the one and only place this order is spelled out; plugin_ui_bindings.c
@@ -297,6 +440,7 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
             .row_gap = row_gap,
         };
         lv_obj_t * scr = build_launcher_menu_screen(items, count, &home_list_layout);
+        home_mini_build(scr);
         apply_home_background_image(scr);
         finalize_screen_navigation(scr);
         return scr;
@@ -335,6 +479,7 @@ lv_obj_t * gui_home_build_screen(lv_event_cb_t settings_cb, lv_event_cb_t stream
                                              home_layout_config.configured
                                                ? home_layout_scale_px(home_layout_config.tile_gap, display_width)
                                                : 0);
+    home_mini_build(scr);
     apply_home_background_image(scr);
     finalize_screen_navigation(scr);
     return scr;

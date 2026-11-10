@@ -3,7 +3,14 @@
 #include "library_thumbnails.h"
 #include "library_az_index.h"
 #include "browse/gui_library.h"
+#include "playlists/gui_playlists.h"
+#include "../network/subsonic/gui_subsonic.h"
+#include "../../network/services/subsonic_client.h"
+#include "../../library/remote/subsonic/subsonic_cache.h"
+#include "../shell/gui_shell.h"
 #include "../../core/process/worker_thread.h"
+#include "../../core/process/worker_notify.h"
+#include "../shell/gui_navigation.h"
 #include "../../core/text/utf8_util.h"
 #include "../text/rendering/gui_text_input.h"
 #include "../widgets/builders/screen_builders.h"
@@ -73,11 +80,15 @@ typedef struct {
     char (*filtered_labels)[COMPACT_LIST_LABEL_MAX]; /* Owned label storage backing eager list row pointers. The DB results have no
                                   * other long-lived home, so list rows must be cleared/replaced before this is freed. */
     char (*filtered_subtitles)[256]; /* Owned subtitles backing eager music search rows. */
+    library_global_result_t *global_results;
+    char global_server_key[SUBSONIC_CACHE_KEY_SIZE];
+    int32_t global_generation;
     lv_obj_t *files_title, *files_options, *restore_thumbnail_list;
     bool inset_search_beside_options;
     library_search_group_item_cb_t group_item;
     library_search_az_strip_cb_t az_strip_for_screen;
     library_search_refresh_now_playing_cb_t refresh_now_playing;
+    library_search_global_click_cb_t global_click;
 } search_binding_t;
 
 static search_binding_t search_bindings[SEARCH_BINDING_COUNT];
@@ -149,6 +160,11 @@ static lv_timer_t * search_debounce_timer;
 typedef struct {
     metadata_db_az_kind_t db_kind;
     search_binding_id_t binding_id;
+    bool server_active;
+    subsonic_server_t server;
+    int32_t db_generation;
+    char unknown_artist[48];
+    char unknown_album[48];
     char query[256];
 } search_job_request_t;
 
@@ -157,6 +173,7 @@ static bool search_job_active = false;
 static atomic_bool search_job_done_flag = false;
 static uint64_t search_catalog_epoch;
 static uint64_t search_job_catalog_epoch;
+static int32_t search_job_db_generation;
 static search_binding_t * search_job_for_binding;
 static int search_job_result_count;
 static metadata_db_search_hit_t search_job_result_hits[SEARCH_RESULTS_MAX];
@@ -164,6 +181,23 @@ static int64_t search_job_result_identity[SEARCH_RESULTS_MAX];
 static uint64_t search_job_result_artwork_key[SEARCH_RESULTS_MAX];
 static char search_job_result_titles[SEARCH_RESULTS_MAX][COMPACT_LIST_LABEL_MAX];
 static char search_job_result_subtitles[SEARCH_RESULTS_MAX][256];
+/* Heap, only while a global search is in flight; the binding takes it over. */
+static library_global_result_t * global_job_results;
+static int global_job_result_count;
+static http_cancel_token_t search_job_cancel;
+static bool search_job_cancel_initialized;
+static char search_job_server_key[SUBSONIC_CACHE_KEY_SIZE];
+
+static void search_job_finish(bool cancel) {
+    if (!search_job_active) return;
+    if (cancel && search_job_cancel_initialized) http_cancel_token_cancel(&search_job_cancel);
+    pthread_join(search_job_thread, NULL);
+    search_job_active = false;
+    if (search_job_cancel_initialized) {
+        http_cancel_token_destroy(&search_job_cancel);
+        search_job_cancel_initialized = false;
+    }
+}
 
 static bool search_job_pending_valid = false;
 static search_job_request_t search_job_pending_request;
@@ -172,6 +206,9 @@ static search_binding_t * search_job_pending_binding;
 void library_search_invalidate_catalog(void) {
     search_catalog_epoch++;
     search_job_pending_valid = false;
+    if (search_job_active && search_job_for_binding &&
+        search_job_for_binding->id == SEARCH_BINDING_GLOBAL && search_job_cancel_initialized)
+        http_cancel_token_cancel(&search_job_cancel);
 }
 
 typedef struct {
@@ -190,9 +227,162 @@ static int cmp_search_result_recency(const void * a, const void * b) {
     return 0;
 }
 
+/* Capture translated fallbacks on the UI thread before worker formatting. */
+static void search_format_subtitle(const char *artist, const char *album,
+                                   const search_job_request_t *req,
+                                   char *subtitle, size_t subtitle_size) {
+    gui_library_format_artist_album_subtitle(
+        artist && artist[0] ? artist : req->unknown_artist,
+        album && album[0] ? album : req->unknown_album,
+        subtitle, subtitle_size);
+}
+
+static void search_format_song_identity(const song_row_t *song, const search_job_request_t *req,
+                                        char *title, size_t title_size,
+                                        char *subtitle, size_t subtitle_size) {
+    metadata_db_song_display_title(song, title, title_size);
+    search_format_subtitle(song->tags.artist, song->tags.album, req, subtitle, subtitle_size);
+}
+
+static void global_add_heading(const char * label) {
+    if (!global_job_results || global_job_result_count >= SEARCH_RESULTS_MAX) return;
+    library_global_result_t * row = &global_job_results[global_job_result_count++];
+    memset(row, 0, sizeof(*row));
+    row->kind = LIBRARY_GLOBAL_HEADING;
+    snprintf(row->label, sizeof(row->label), "%s", label);
+}
+
+static void global_add_result(library_global_result_kind_t kind, int offset, int64_t identity,
+                              const char * label, const char * subtitle,
+                              const char * target, const char * secondary,
+                              uint64_t artwork_key, const char * artwork_name) {
+    if (!global_job_results || global_job_result_count >= SEARCH_RESULTS_MAX) return;
+    library_global_result_t * row = &global_job_results[global_job_result_count++];
+    memset(row, 0, sizeof(*row));
+    row->kind = kind;
+    row->offset = offset;
+    row->identity = identity;
+    row->artwork_key = artwork_key;
+    snprintf(row->artwork_name, sizeof(row->artwork_name), "%s", artwork_name ? artwork_name : "");
+    snprintf(row->label, sizeof(row->label), "%s", label ? label : "");
+    snprintf(row->subtitle, sizeof(row->subtitle), "%s", subtitle ? subtitle : "");
+    snprintf(row->target, sizeof(row->target), "%s", target ? target : "");
+    snprintf(row->secondary, sizeof(row->secondary), "%s", secondary ? secondary : "");
+}
+
+static void search_global_db_kind(metadata_db_az_kind_t db_kind, library_global_result_kind_t result_kind,
+                                  const char * heading, const search_job_request_t *req) {
+    metadata_db_search_hit_t hits[32];
+    int count = metadata_db_search_names(db_kind, req->query, 32, hits);
+    if (count <= 0) return;
+    global_add_heading(heading);
+    for (int i = 0; i < count && global_job_result_count < SEARCH_RESULTS_MAX; i++) {
+        if (db_kind == METADATA_DB_AZ_ARTIST) {
+            group_row_t group;
+            if (metadata_db_get_groups_page(METADATA_DB_GROUP_ARTIST, hits[i].offset, 1, &group) == 1)
+                global_add_result(result_kind, hits[i].offset, group.first_song_id, group.name, NULL, group.name, NULL,
+                                  albumart_artist_thumbnail_key(group.name), group.name);
+        } else if (db_kind == METADATA_DB_AZ_ALBUM) {
+            group_row_t group;
+            song_row_t first_song;
+            if (metadata_db_get_albums_page_filtered(NULL, hits[i].offset, 1, &group) == 1 &&
+                metadata_db_get_song_by_id(group.first_song_id, &first_song))
+                global_add_result(result_kind, hits[i].offset, group.first_song_id, group.name,
+                                  group.album_artist, group.name, group.album_artist,
+                                  song_album_thumbnail_key(&first_song), NULL);
+        } else {
+            song_row_t song;
+            if (metadata_db_get_songs_filtered_page(NULL, NULL, NULL, NULL, NULL,
+                    hits[i].offset, 1, &song) == 1) {
+                char title[COMPACT_LIST_LABEL_MAX], subtitle[256];
+                search_format_song_identity(&song, req, title, sizeof(title), subtitle, sizeof(subtitle));
+                global_add_result(result_kind, hits[i].offset, song.id, title, subtitle, song.path, NULL,
+                                  song_album_thumbnail_key(&song), NULL);
+            }
+        }
+    }
+}
+
+static bool search_global_playlists(const char * query) {
+    char ** paths = NULL;
+    int count = 0;
+    metadata_db_load_all_playlists(&paths, &count);
+    int matched = 0;
+    for (int i = 0; i < count && matched < 32; i++) {
+        const char * name = strrchr(paths[i], '/');
+        name = name ? name + 1 : paths[i];
+        char label[COMPACT_LIST_LABEL_MAX];
+        size_t len = strlen(name);
+        size_t copy = len < sizeof(label) - 1 ? len : sizeof(label) - 1;
+        memcpy(label, name, copy);
+        label[copy] = '\0';
+        if (search_matches(label, query)) {
+            if (!matched) global_add_heading("Playlists");
+            global_add_result(LIBRARY_GLOBAL_PLAYLIST, i, 0, label, NULL, paths[i], NULL, 0, NULL);
+            matched++;
+        }
+    }
+    for (int i = 0; i < count; i++) free(paths[i]);
+    free(paths);
+    return matched > 0;
+}
+
+static void search_global_worker(const search_job_request_t * req) {
+    global_job_result_count = 0;
+    free(global_job_results);
+    global_job_results = malloc(sizeof(*global_job_results) * SEARCH_RESULTS_MAX);
+    if (!global_job_results) return;
+    search_global_db_kind(METADATA_DB_AZ_ARTIST, LIBRARY_GLOBAL_ARTIST, "Artists", req);
+    search_global_db_kind(METADATA_DB_AZ_ALBUM, LIBRARY_GLOBAL_ALBUM, "Albums", req);
+    search_global_db_kind(METADATA_DB_AZ_ALL_SONGS, LIBRARY_GLOBAL_SONG, "Songs", req);
+    search_global_playlists(req->query);
+    int32_t generation_after = 0;
+    if (!metadata_db_try_get_generation(&generation_after) || generation_after != req->db_generation) {
+        global_job_result_count = 0;
+        return;
+    }
+    if (!req->server_active || global_job_result_count >= SEARCH_RESULTS_MAX - 1 ||
+        (search_job_cancel_initialized && http_cancel_token_is_cancelled(&search_job_cancel))) return;
+    subsonic_artist_t * artists = NULL;
+    subsonic_album_t * albums = NULL;
+    subsonic_song_t * songs = NULL;
+    int artist_count = 0, album_count = 0, song_count = 0;
+    bool server_ok = subsonic_search3(&req->server, req->query, 20, &artists, &artist_count,
+                                      &albums, &album_count, &songs, &song_count,
+                                      search_job_cancel_initialized ? &search_job_cancel : NULL);
+    if (server_ok) {
+        if (artist_count + album_count + song_count > 0) global_add_heading("Subsonic");
+        for (int i = 0; i < artist_count && global_job_result_count < SEARCH_RESULTS_MAX; i++)
+            global_add_result(LIBRARY_GLOBAL_SERVER_ARTIST, i, 0, artists[i].name, NULL, artists[i].id, "", 0, NULL);
+        for (int i = 0; i < album_count && global_job_result_count < SEARCH_RESULTS_MAX; i++) {
+            char subtitle[256];
+            snprintf(subtitle, sizeof(subtitle), "%s", albums[i].artist);
+            global_add_result(LIBRARY_GLOBAL_SERVER_ALBUM, i, 0, albums[i].name, subtitle, albums[i].id, albums[i].artist_id, 0, NULL);
+        }
+        for (int i = 0; i < song_count && global_job_result_count < SEARCH_RESULTS_MAX; i++) {
+            char subtitle[256];
+            search_format_subtitle(songs[i].artist, songs[i].album,
+                                          req, subtitle, sizeof(subtitle));
+            global_add_result(LIBRARY_GLOBAL_SERVER_SONG, i, 0, songs[i].title, subtitle, songs[i].id, songs[i].album, 0, NULL);
+            global_job_results[global_job_result_count - 1].server_song = songs[i];
+        }
+    }
+    free(artists); free(albums); free(songs);
+    if (!metadata_db_try_get_generation(&generation_after) || generation_after != req->db_generation ||
+        (search_job_cancel_initialized && http_cancel_token_is_cancelled(&search_job_cancel)))
+        global_job_result_count = 0;
+}
+
 static void * search_job_thread_func(void * arg) {
     search_job_request_t * req = (search_job_request_t *) arg;
     worker_lower_priority(WORKER_NICE_BACKGROUND);
+    if (req->binding_id == SEARCH_BINDING_GLOBAL) {
+        search_global_worker(req);
+        atomic_store_explicit(&search_job_done_flag, true, memory_order_release);
+        free(req);
+        worker_notify_ui();
+        return NULL;
+    }
     search_job_result_count = metadata_db_search_names(req->db_kind, req->query, SEARCH_RESULTS_MAX, search_job_result_hits);
     for (int i = 0; i < search_job_result_count; i++) {
         search_job_result_identity[i] = 0;
@@ -223,7 +413,7 @@ static void * search_job_thread_func(void * arg) {
                     search_job_result_hits[i].offset, 1, &song) == 1) {
                 search_job_result_identity[i] = song.id;
                 search_job_result_artwork_key[i] = song_album_thumbnail_key(&song);
-                gui_library_format_song_identity(&song, search_job_result_titles[i],
+                search_format_song_identity(&song, req, search_job_result_titles[i],
                     sizeof(search_job_result_titles[i]), search_job_result_subtitles[i],
                     sizeof(search_job_result_subtitles[i]));
                 if (req->binding_id == SEARCH_BINDING_RECENTLY_ADDED) {
@@ -265,9 +455,15 @@ static void * search_job_thread_func(void * arg) {
  * cover_decode_pending. */
 static void launch_search_job(search_binding_t * b, const char * query) {
     if (search_job_active) {
+        if (search_job_for_binding && search_job_for_binding->id == SEARCH_BINDING_GLOBAL &&
+            search_job_cancel_initialized) http_cancel_token_cancel(&search_job_cancel);
         search_job_pending_binding = b;
         search_job_pending_request.db_kind = b->db_kind;
         search_job_pending_request.binding_id = (search_binding_id_t) (b - search_bindings);
+        search_job_pending_request.server_active = b->id == SEARCH_BINDING_GLOBAL &&
+            gui_subsonic_session_active() && gui_shell_wifi_connected();
+        if (search_job_pending_request.server_active)
+            search_job_pending_request.server = subsonic_server_from_settings();
         snprintf(search_job_pending_request.query, sizeof(search_job_pending_request.query), "%s", query);
         search_job_pending_valid = true;
         return;
@@ -277,15 +473,32 @@ static void launch_search_job(search_binding_t * b, const char * query) {
     if (!req) return;
     req->db_kind = b->db_kind;
     req->binding_id = (search_binding_id_t) (b - search_bindings);
+    req->server_active = b->id == SEARCH_BINDING_GLOBAL &&
+        gui_subsonic_session_active() && gui_shell_wifi_connected();
+    if (req->server_active) {
+        req->server = subsonic_server_from_settings();
+        subsonic_cache_server_key(&req->server, search_job_server_key);
+    } else search_job_server_key[0] = '\0';
+    req->db_generation = 0;
+    if (b->id == SEARCH_BINDING_GLOBAL) metadata_db_try_get_generation(&req->db_generation);
+    utf8_truncate_safe(req->unknown_artist, TR("Unknown artist"), sizeof(req->unknown_artist));
+    utf8_truncate_safe(req->unknown_album, TR("Unknown album"), sizeof(req->unknown_album));
     snprintf(req->query, sizeof(req->query), "%s", query);
 
     search_job_for_binding = b;
     search_job_catalog_epoch = search_catalog_epoch;
+    search_job_db_generation = req->db_generation;
     atomic_store_explicit(&search_job_done_flag, false, memory_order_relaxed);
     search_job_active = true;
+    if (req->server_active) {
+        http_cancel_token_init(&search_job_cancel);
+        search_job_cancel_initialized = true;
+    } else search_job_cancel_initialized = false;
     if (pthread_create(&search_job_thread, NULL, search_job_thread_func, req) != 0) {
         free(req);
         search_job_active = false;
+        if (search_job_cancel_initialized) http_cancel_token_destroy(&search_job_cancel);
+        search_job_cancel_initialized = false;
     }
 }
 
@@ -300,14 +513,35 @@ static void search_apply_results_to_list(search_binding_t * b, const metadata_db
     int * indices = malloc(sizeof(int) * (size_t) (matched > 0 ? matched : 1));
     char(*labels)[COMPACT_LIST_LABEL_MAX] = malloc(sizeof(*labels) * (size_t) (matched > 0 ? matched : 1));
     char(*owned_subtitles)[256] = malloc(sizeof(*owned_subtitles) * (size_t) (matched > 0 ? matched : 1));
-    if (!items || !indices || !labels || !owned_subtitles) {
+    library_global_result_t * global_results = NULL;
+    if (b->id == SEARCH_BINDING_GLOBAL) {
+        global_results = global_job_results;
+        global_job_results = NULL;
+    }
+    if (!items || !indices || !labels || !owned_subtitles ||
+        (b->id == SEARCH_BINDING_GLOBAL && !global_results)) {
         free(items);
         free(indices);
         free(labels);
         free(owned_subtitles);
+        free(global_results);
         return;
     }
     for (int i = 0; i < matched; i++) {
+        if (global_results) {
+            library_global_result_t * result = &global_results[i];
+            utf8_truncate_safe(labels[i], result->kind == LIBRARY_GLOBAL_HEADING ? TR(result->label) : result->label,
+                               sizeof(labels[i]));
+            memcpy(owned_subtitles[i], result->subtitle, sizeof(owned_subtitles[i]));
+            items[i] = (compact_list_item_t){
+                .label = labels[i], .subtitle = owned_subtitles[i][0] ? owned_subtitles[i] : NULL,
+                .is_action = result->kind == LIBRARY_GLOBAL_HEADING,
+                .identity = result->identity, .artwork_key = result->artwork_key,
+                .artwork_name = result->artwork_name[0] ? labels[i] : NULL
+            };
+            indices[i] = i;
+            continue;
+        }
         const char * title = titles[i][0] ? titles[i] : hits[i].label;
         utf8_truncate_safe(labels[i], title, sizeof(labels[i]));
         memcpy(owned_subtitles[i], subtitles[i], sizeof(owned_subtitles[i]));
@@ -328,9 +562,15 @@ static void search_apply_results_to_list(search_binding_t * b, const metadata_db
     free(b->filtered_indices);
     free(b->filtered_labels);
     free(b->filtered_subtitles);
+    free(b->global_results);
     b->filtered_indices = indices;
     b->filtered_labels = labels;
     b->filtered_subtitles = owned_subtitles;
+    b->global_results = global_results;
+    b->global_generation = global_results ? search_job_db_generation : 0;
+    if (global_results && search_job_server_key[0])
+        snprintf(b->global_server_key, sizeof(b->global_server_key), "%s", search_job_server_key);
+    else b->global_server_key[0] = '\0';
     b->filtered_count = matched;
     b->refresh_now_playing();
 }
@@ -342,20 +582,47 @@ static void search_apply_results_to_list(search_binding_t * b, const metadata_db
  * was in flight. */
 void poll_search_job(void) {
     if (!search_job_active || !atomic_load_explicit(&search_job_done_flag, memory_order_acquire)) return;
-    search_job_active = false;
-    pthread_join(search_job_thread, NULL);
+    search_job_finish(false);
 
-    if (search_job_catalog_epoch == search_catalog_epoch && search_job_for_binding->active &&
-        find_search_binding_for_screen(lv_screen_active()) == search_job_for_binding) {
-        search_apply_results_to_list(search_job_for_binding, search_job_result_hits,
+    bool session_current = true;
+    if (search_job_for_binding->id == SEARCH_BINDING_GLOBAL && search_job_server_key[0]) {
+        char active_key[SUBSONIC_CACHE_KEY_SIZE];
+        subsonic_server_t active_server = subsonic_server_from_settings();
+        subsonic_cache_server_key(&active_server, active_key);
+        session_current = gui_subsonic_session_active() && gui_shell_wifi_connected() &&
+                          strcmp(active_key, search_job_server_key) == 0;
+    }
+    int32_t current_generation = 0;
+    bool generation_current = search_job_for_binding->id != SEARCH_BINDING_GLOBAL ||
+        (metadata_db_try_get_generation(&current_generation) && current_generation == search_job_db_generation);
+    bool can_apply = generation_current && search_job_catalog_epoch == search_catalog_epoch && !search_job_pending_valid &&
+        search_job_for_binding->active && find_search_binding_for_screen(lv_screen_active()) == search_job_for_binding;
+    if (can_apply) {
+        if (search_job_for_binding->id == SEARCH_BINDING_GLOBAL && !session_current) {
+            for (int i = global_job_result_count - 1; i >= 0; i--) {
+                if (global_job_results[i].kind == LIBRARY_GLOBAL_HEADING &&
+                    strcmp(global_job_results[i].label, "Subsonic") == 0) {
+                    global_job_result_count = i;
+                    break;
+                }
+            }
+        }
+        if (search_job_for_binding->id == SEARCH_BINDING_GLOBAL)
+            search_apply_results_to_list(search_job_for_binding, NULL, NULL, NULL, NULL, NULL,
+                                         global_job_result_count);
+        else search_apply_results_to_list(search_job_for_binding, search_job_result_hits,
                                      search_job_result_identity, search_job_result_artwork_key,
                                      search_job_result_titles, search_job_result_subtitles,
                                      search_job_result_count);
     }
+    free(global_job_results); /* results nobody took */
+    global_job_results = NULL;
 
     if (search_job_pending_valid) {
         search_job_pending_valid = false;
-        launch_search_job(search_job_pending_binding, search_job_pending_request.query);
+        if (search_job_pending_binding->active &&
+            find_search_binding_for_screen(lv_screen_active()) == search_job_pending_binding)
+            launch_search_job(search_job_pending_binding, search_job_pending_request.query);
     }
 }
 
@@ -370,7 +637,7 @@ static void search_apply_filter(search_binding_t * b, const char * query) {
     bool have_query = query && query[0];
     compact_list_set_empty_heading(b->list, have_query ? TR("No matches") : TR("Type to search"));
 
-    if (b->db_backed) {
+    if (b->db_backed || b->id == SEARCH_BINDING_GLOBAL) {
         if (!have_query) {
             library_search_invalidate_catalog();
             compact_list_set_items(b->list, NULL, 0);
@@ -381,6 +648,8 @@ static void search_apply_filter(search_binding_t * b, const char * query) {
             b->filtered_labels = NULL;
             free(b->filtered_subtitles);
             b->filtered_subtitles = NULL;
+            free(b->global_results);
+            b->global_results = NULL;
             b->refresh_now_playing();
             return;
         }
@@ -567,6 +836,8 @@ static void search_open(search_binding_t * b) {
 }
 
 static void search_close_internal(search_binding_t * b, bool restore_provider) {
+    if (search_job_active && search_job_for_binding == b && search_job_cancel_initialized)
+        http_cancel_token_cancel(&search_job_cancel);
     t9_keypad_release();
     if (b->is_overlay_list) {
         if (b->id == SEARCH_BINDING_FILES) {
@@ -610,8 +881,12 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
     b->filtered_labels = NULL;
     free(b->filtered_subtitles);
     b->filtered_subtitles = NULL;
+    free(b->global_results);
+    b->global_results = NULL;
+    b->global_server_key[0] = '\0';
+    b->global_generation = 0;
 
-    if (b->db_backed) {
+    if (b->db_backed && b->id != SEARCH_BINDING_GLOBAL) {
         if (restore_provider) {
             /* Switches the list back to paged mode instead of rebuilding a
              * static items[] array. */
@@ -626,6 +901,8 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
             }
             compact_list_set_paged_provider(b->list, b->restore_fetch_page, NULL, total);
         }
+    } else if (b->id == SEARCH_BINDING_GLOBAL) {
+        /* The shared result cleanup above already released global rows. */
     } else if (!b->is_overlay_list) {
         compact_list_item_t * items = NULL;
         int count = *b->count_ptr;
@@ -665,7 +942,7 @@ void library_search_invalidate_bindings(void) {
     }
     for (int i = 0; i < SEARCH_BINDING_COUNT; i++) {
         search_binding_t * b = &search_bindings[i];
-        if ((!b->db_backed && b->id != SEARCH_BINDING_GROUP_SONGS) || !b->list) continue;
+        if ((!b->db_backed && b->id != SEARCH_BINDING_GROUP_SONGS && b->id != SEARCH_BINDING_GLOBAL) || !b->list) continue;
         if (b->active) search_close_internal(b, false);
         else if (b->filtered_labels || b->filtered_indices || b->filtered_subtitles) {
             /* Files results can be hidden while their eager items still
@@ -681,6 +958,8 @@ void library_search_invalidate_bindings(void) {
             b->filtered_labels = NULL;
             free(b->filtered_subtitles);
             b->filtered_subtitles = NULL;
+            free(b->global_results);
+            b->global_results = NULL;
         }
     }
 }
@@ -707,6 +986,7 @@ void library_search_register(search_binding_id_t id, const library_search_config
     free(b->filtered_indices); /* A rebuild replaces the fixed id after the old screen is gone. */
     free(b->filtered_labels);
     free(b->filtered_subtitles);
+    free(b->global_results);
     lv_obj_t *screen = config->screen;
     lv_obj_t *list = config->list;
     lv_obj_t *search_btn = build_top_right_icon_button(screen, asset_path("navigation/search.png"), NULL);
@@ -766,8 +1046,37 @@ void library_search_register(search_binding_id_t id, const library_search_config
         .inset_search_beside_options = config->inset_search_beside_options,
         .restore_thumbnail_list = config->restore_thumbnail_list, .group_item = config->group_item,
         .az_strip_for_screen = config->az_strip_for_screen,
-        .refresh_now_playing = config->refresh_now_playing
+        .refresh_now_playing = config->refresh_now_playing,
+        .global_click = config->global_click
     };
+}
+
+void library_search_open(search_binding_id_t id) {
+    search_binding_t * b = &search_bindings[id];
+    if (!b->screen || !b->search_btn) return;
+    if (lv_screen_active() != b->screen) nav_push(b->screen);
+    search_open(b);
+}
+
+void library_search_global_select(int display_index, bool long_press) {
+    search_binding_t * b = &search_bindings[SEARCH_BINDING_GLOBAL];
+    if (!b->active || !b->global_click || display_index < 0 || display_index >= b->filtered_count) return;
+    int source = b->filtered_indices ? b->filtered_indices[display_index] : display_index;
+    if (source < 0 || source >= b->filtered_count || !b->global_results) return;
+    library_global_result_kind_t kind = b->global_results[source].kind;
+    if (kind >= LIBRARY_GLOBAL_ARTIST && kind <= LIBRARY_GLOBAL_PLAYLIST) {
+        int32_t generation = 0;
+        if (!metadata_db_try_get_generation(&generation) || generation != b->global_generation) return;
+    }
+    if (kind >= LIBRARY_GLOBAL_SERVER_ARTIST && kind <= LIBRARY_GLOBAL_SERVER_SONG) {
+        subsonic_server_t active_server = subsonic_server_from_settings();
+        char active_key[SUBSONIC_CACHE_KEY_SIZE];
+        subsonic_cache_server_key(&active_server, active_key);
+        if (!gui_subsonic_session_active() || !gui_shell_wifi_connected() ||
+            !b->global_server_key[0] || strcmp(active_key, b->global_server_key) != 0) return;
+    }
+    if (kind != LIBRARY_GLOBAL_HEADING)
+        b->global_click(&b->global_results[source], long_press);
 }
 
 
@@ -795,20 +1104,15 @@ bool library_search_has_active_job(void) { return search_job_active; }
 void library_search_quiesce_for_ui_reload(void) {
     if (search_debounce_timer) lv_timer_pause(search_debounce_timer);
     search_job_pending_valid = false;
-    if (search_job_active) {
-        pthread_join(search_job_thread, NULL);
-        search_job_active = false;
-    }
+    search_job_finish(true);
     atomic_store_explicit(&search_job_done_flag, false, memory_order_relaxed);
     search_job_for_binding = NULL;
     search_job_pending_binding = NULL;
 }
 
 void library_search_join_for_shutdown(void) {
-    if (search_job_active) {
-        pthread_join(search_job_thread, NULL);
-        search_job_active = false;
-    }
+    search_job_pending_valid = false;
+    search_job_finish(true);
 }
 
 void library_search_update_header(search_binding_id_t id, lv_obj_t *title,

@@ -354,7 +354,6 @@ void library_prompt_requeue_visible(void);
 extern _Atomic bool library_rescan_active; /* read by the thumbnail warmer thread and the remote settings */
 void library_rescan_free_target_paths(void);
 extern library_rescan_mode_t library_rescan_mode;
-extern bool library_rescan_success_pending;
 extern gui_busy_handle_t library_rescan_token;
 extern void (*library_setup_scan_complete)(bool success);
 extern lv_obj_t * library_update_prompt_body;

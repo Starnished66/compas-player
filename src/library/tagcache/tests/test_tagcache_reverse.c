@@ -57,6 +57,19 @@ static void check_orders(int known) {
     }
 }
 
+typedef struct {
+    const char *path;
+    char title[64];
+} committed_read_t;
+
+static void *read_committed_title(void *arg) {
+    committed_read_t *read = arg;
+    tagcache_song_t song;
+    if (tagcache_song_by_path(read->path, &song))
+        snprintf(read->title, sizeof(read->title), "%s", song.title);
+    return NULL;
+}
+
 int main(void) {
     char dir[] = "/tmp/compas-sort-XXXXXX";
     assert(mkdtemp(dir));
@@ -86,6 +99,20 @@ int main(void) {
     }
     assert(tagcache_end_update_with_lock(NULL, NULL));
     check_orders(0);
+    /* The worker's staging reader is thread-local. A concurrent UI query
+     * must keep seeing the old committed generation until publication. */
+    tagcache_begin_update_with_lock(NULL, NULL);
+    tagcache_upsert_year_changed("/music/0.mp3", 300, 1000, "Updated Song", "Artist",
+                                 "A", "Artist", "Genre", 1, 1, 2026, NULL);
+    committed_read_t concurrent_read = { .path = "/music/0.mp3" };
+    pthread_t reader;
+    assert(pthread_create(&reader, NULL, read_committed_title, &concurrent_read) == 0);
+    assert(pthread_join(reader, NULL) == 0);
+    assert(strcmp(concurrent_read.title, "Song") == 0);
+    assert(tagcache_end_update_with_lock(NULL, NULL));
+    tagcache_song_t published_song;
+    assert(tagcache_song_by_path("/music/0.mp3", &published_song));
+    assert(strcmp(published_song.title, "Updated Song") == 0);
     tagcache_close();
     char command[128];
     snprintf(command, sizeof(command), "rm -rf '%s'", dir);

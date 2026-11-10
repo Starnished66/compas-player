@@ -49,9 +49,12 @@ void gui_network_set_usb_dac_charging_disabled(bool disabled);
 void poll_usb_storage_hotplug(void);
 /* UI-thread snapshot: a real Storage host was observed on this cable session. */
 bool gui_network_usb_storage_session_active(void);
+bool gui_network_usb_storage_switch_pending(void);
 
 void open_wifi_screen(void);
 void open_bluetooth_screen(void);
+void gui_network_bt_open_output_menu(void);
+void gui_network_bt_output_snapshot_ready(void);
 
 /* The Sample Rate screen shows one accessory's rates and edits that
  * accessory's stored entry, so it must redraw when the connected device

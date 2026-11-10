@@ -1,3 +1,4 @@
+#include "../../core/text/utf8_util.h"
 #include "gui_shell_internal.h"
 
 static bool bt_toggle_active = false;
@@ -79,6 +80,11 @@ int bt_scan_result_count = 0;
  * bt_scan_results by poll_refresh_bt_icon() -- see its own comment. */
 static bt_device_t bt_paired_states_result[BT_MAX_RESULTS];
 static int bt_paired_states_count = 0;
+static bool bt_output_snapshot_requested;
+static bool bt_worker_output_snapshot_requested;
+static gui_shell_bt_output_device_t bt_output_devices[BT_MAX_RESULTS];
+static int bt_output_device_count;
+static bool bt_output_snapshot_valid;
 
 /* Bluetooth status checks (bt_control_is_powered / bt_control_is_connected)
  * run asynchronously in a worker thread to prevent bluetoothctl subprocess
@@ -143,6 +149,11 @@ bool gui_shell_get_bt_audio_codec(char * out, size_t out_size) {
     snprintf(out, out_size, "%s", bt_connected_codec_cached);
     return out[0] != '\0';
 }
+bool gui_shell_get_bt_audio_device_mac(char * out, size_t out_size) {
+    if (!out || out_size == 0 || !bt_is_a2dp_connected_ui || !bt_connected_mac_cached[0]) return false;
+    snprintf(out, out_size, "%s", bt_connected_mac_cached);
+    return true;
+}
 static void bt_drop_audio_link(void) {
     bt_disconnect_epoch++;
     bt_is_a2dp_connected_ui = false;
@@ -202,7 +213,7 @@ static void * refresh_bt_icon_thread_func(void * arg) {
     }
 
     if (powered) {
-        if (bt_worker_bt_screen_visible) {
+        if (bt_worker_bt_screen_visible || bt_worker_output_snapshot_requested) {
             /* bt_control_list_paired_states(), not bt_control_is_connected() --
              * same per-device `bluetoothctl info` cost either way, but this also
              * hands back the full breakdown poll_refresh_bt_icon() merges into
@@ -248,7 +259,22 @@ void start_refresh_bt_icon(void) {
     bt_worker_preference_epoch = bt_preference_epoch;
     bt_worker_toggle_epoch = bt_toggle_epoch;
     bt_worker_bt_screen_visible = gui_navigation_is_top(gui_network_get_bt_screen());
+    bt_worker_output_snapshot_requested = bt_output_snapshot_requested;
     shell_job_start(&refresh_bt_icon_job, refresh_bt_icon_thread_func, NULL);
+}
+
+void gui_shell_request_bt_output_devices(void) {
+    if (bt_output_snapshot_requested) return;
+    bt_output_snapshot_requested = true;
+    bt_output_snapshot_valid = false;
+    start_refresh_bt_icon();
+}
+
+int gui_shell_get_bt_output_devices(gui_shell_bt_output_device_t * out, int capacity) {
+    if (!bt_output_snapshot_valid || !out || capacity <= 0) return -1;
+    int count = bt_output_device_count < capacity ? bt_output_device_count : capacity;
+    memcpy(out, bt_output_devices, (size_t)count * sizeof(*out));
+    return count;
 }
 
 /* Only this lifecycle worker starts/stops the monitors. A rapid reconnect
@@ -302,7 +328,28 @@ static void bt_reconnect_begin_new_cycle(void) {
     bt_reconnect_cycle_suppressed = false;
 }
 void poll_refresh_bt_icon(void) {
+    if (!refresh_bt_icon_job.active) {
+        if (bt_output_snapshot_requested) start_refresh_bt_icon();
+        return;
+    }
     if (!shell_job_reap(&refresh_bt_icon_job)) return;
+
+    if (bt_worker_output_snapshot_requested) {
+        if (bt_paired_states_count >= 0) {
+            bt_output_device_count = 0;
+            for (int i = 0; i < bt_paired_states_count && bt_output_device_count < BT_MAX_RESULTS; ++i) {
+                const bt_device_t * device = &bt_paired_states_result[i];
+                if (!device->paired || !device->audio_sink) continue;
+                gui_shell_bt_output_device_t * output = &bt_output_devices[bt_output_device_count++];
+                utf8_truncate_safe(output->mac, device->mac, sizeof(output->mac));
+                utf8_truncate_safe(output->name, device->name, sizeof(output->name));
+                output->connected = device->connected;
+            }
+            bt_output_snapshot_valid = true;
+        }
+        bt_output_snapshot_requested = false;
+        gui_network_bt_output_snapshot_ready();
+    }
 
     /* While a manual toggle is in-flight (bt_toggle_active), ignore the
      * background poll result to prevent overwriting the optimistic state

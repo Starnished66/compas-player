@@ -6,6 +6,7 @@
 #include <lvgl/lvgl.h>
 #include "../widgets/lists/compact_list.h"
 #include "../../library/metadata/db/metadata_db.h"
+#include "../../network/services/subsonic_client.h"
 
 typedef enum {
     SEARCH_BINDING_ARTISTS,
@@ -17,8 +18,31 @@ typedef enum {
     SEARCH_BINDING_SUBSONIC_ALBUMS,
     SEARCH_BINDING_RECENTLY_ADDED,
     SEARCH_BINDING_GROUP_SONGS,
+    SEARCH_BINDING_GLOBAL,
     SEARCH_BINDING_COUNT
 } search_binding_id_t;
+
+typedef enum {
+    LIBRARY_GLOBAL_ARTIST, LIBRARY_GLOBAL_ALBUM, LIBRARY_GLOBAL_SONG,
+    LIBRARY_GLOBAL_PLAYLIST, LIBRARY_GLOBAL_SERVER_ARTIST,
+    LIBRARY_GLOBAL_SERVER_ALBUM, LIBRARY_GLOBAL_SERVER_SONG,
+    LIBRARY_GLOBAL_HEADING
+} library_global_result_kind_t;
+
+typedef struct {
+    library_global_result_kind_t kind;
+    int offset;
+    int64_t identity;
+    uint64_t artwork_key;
+    char artwork_name[128];
+    char label[COMPACT_LIST_LABEL_MAX];
+    char subtitle[256];
+    char target[600];
+    char secondary[256];
+    subsonic_song_t server_song;
+} library_global_result_t;
+
+typedef void (*library_search_global_click_cb_t)(const library_global_result_t *result, bool long_press);
 
 typedef struct {
     const char *path; /* borrowed for this synchronous item lookup only */
@@ -52,6 +76,7 @@ typedef struct {
     library_search_az_strip_cb_t az_strip_for_screen;
     /* Required non-NULL; called synchronously at the old refresh points. */
     library_search_refresh_now_playing_cb_t refresh_now_playing;
+    library_search_global_click_cb_t global_click;
 } library_search_config_t;
 
 /* All operations and callbacks run on the LVGL thread. Registration copies
@@ -62,6 +87,8 @@ typedef struct {
  * filtering call. The DB worker sees only copied id/kind/query data and never
  * calls or retains any UI callback. */
 void library_search_register(search_binding_id_t id, const library_search_config_t *config);
+void library_search_open(search_binding_id_t id);
+void library_search_global_select(int display_index, bool long_press);
 /* Optional, after registering: the full row (subtitle, cover) for a source
  * index, used when search opens and closes. Without it rows are label-only. */
 void library_search_set_item_of(search_binding_id_t id, library_search_item_of_t item_of);

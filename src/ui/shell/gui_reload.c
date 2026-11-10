@@ -351,7 +351,7 @@ static void reload_trigger_cb(lv_timer_t * timer) {
         last_reload_tick = lv_tick_get();
         return;
     }
-    if (gui_library_navigation_blocked()) {
+    if (gui_library_navigation_blocked() || gui_library_scan_active()) {
         /* A database scan can last minutes; polling it at the transition
          * cadence would waste UI-thread time throughout the scan. */
         lv_timer_set_period(timer, RELOAD_BUSY_RETRY_MS);
