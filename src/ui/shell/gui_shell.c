@@ -13,7 +13,7 @@ lv_color_t shell_drawer_off_color;
  * without a rebuild. The native palette's white status glyph art is used
  * as drawn; any other palette recolors it. */
 lv_style_t shell_drawer_bg_style, shell_drawer_panel_style, shell_drawer_row_style,
-    shell_drawer_card_style, shell_drawer_handle_style, shell_topbar_glyph_style;
+    shell_drawer_card_style, shell_drawer_handle_style, shell_topbar_glyph_style, shell_drawer_slider_glyph_style;
 static lv_style_t * const bg_styles[] = {
     &shell_drawer_bg_style, &shell_drawer_panel_style, &shell_drawer_row_style,
     &shell_drawer_card_style, &shell_drawer_handle_style };
@@ -36,6 +36,7 @@ void shell_theme_styles_init(void) {
     if (shell_theme_styles_ready) return;
     for (unsigned i = 0; i < sizeof(bg_styles) / sizeof(bg_styles[0]); i++) lv_style_init(bg_styles[i]);
     lv_style_init(&shell_topbar_glyph_style);
+    lv_style_init(&shell_drawer_slider_glyph_style);
     shell_theme_styles_ready = true;
     gui_shell_refresh_theme_colors();
 }
@@ -95,6 +96,9 @@ void gui_shell_refresh_theme_colors(void) {
     lv_style_set_bg_color(&shell_drawer_row_style, row);
     lv_style_set_bg_color(&shell_drawer_card_style, row);
     lv_style_set_bg_color(&shell_drawer_handle_style, lv_color_mix(off, card, LV_OPA_60));
+    lv_style_set_image_recolor(&shell_drawer_slider_glyph_style, shell_legible(primary, row, GUI_CONTRAST_TEXT, false));
+    lv_style_set_image_recolor_opa(&shell_drawer_slider_glyph_style, LV_OPA_COVER);
+    lv_obj_report_style_change(&shell_drawer_slider_glyph_style);
     shell_drawer_surface = card;
     shell_drawer_off_color = off;
     shell_bar_color = screen;

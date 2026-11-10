@@ -551,6 +551,7 @@ static int32_t quick_drawer_slider_pct_dy(void) {
 /* Slider row icon at the V1 or default coordinate pair. */
 static lv_obj_t * quick_drawer_create_slider_icon(const void * src, int32_t v1_y, int32_t y) {
     lv_obj_t * icon = lv_image_create(quick_drawer);
+    lv_obj_add_style(icon, &shell_drawer_slider_glyph_style, 0);
     lv_image_set_src(icon, src);
 #if defined(BOARD_TEMPOTEC_V1)
     (void) y;

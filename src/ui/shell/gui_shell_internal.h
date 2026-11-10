@@ -310,7 +310,7 @@ extern lv_obj_t * usb_audio_status_icon;
 extern lv_obj_t * play_pause_status_icon;
 extern lv_obj_t * bt_codec_status_icon;
 extern lv_style_t shell_drawer_bg_style, shell_drawer_panel_style, shell_drawer_row_style,
-    shell_drawer_card_style, shell_drawer_handle_style, shell_topbar_glyph_style;
+    shell_drawer_card_style, shell_drawer_handle_style, shell_topbar_glyph_style, shell_drawer_slider_glyph_style;
 extern bool shell_theme_native;
 extern lv_color_t shell_bar_color, shell_bar_glyph_color, shell_drawer_surface;
 #if defined(BOARD_TEMPOTEC_V1)
