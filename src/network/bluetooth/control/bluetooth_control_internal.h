@@ -165,7 +165,6 @@ bool bluealsa_source_pcm_may_be_connected(void);
 bool ensure_bluealsa_running_rate_ex(unsigned int requested_rate, bool * out_deferred);
 
 /* Defined in bt_devices.c. */
-bool bt_control_disconnect(const char * mac);
 
 /* Defined in bt_transport_info.c. */
 void copy_info_field(char * dst, size_t size, const char * text, const char * key);

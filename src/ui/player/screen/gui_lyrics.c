@@ -164,6 +164,15 @@ static char * lyrics_load_result_plain_text; /* malloc'd, only meaningful when l
 static bool lyrics_load_pending_valid = false;
 static int lyrics_load_pending_for_index;
 static char lyrics_load_pending_path[PATH_MAX];
+static void lyrics_update_empty_text(void) {
+    if (!lyrics_empty_label) return;
+    bool loading = (lyrics_load_active || lyrics_load_pending_valid) &&
+                   current_lyrics_doc_generation != lyrics_load_generation;
+    const char * text = loading ? TR("Loading lyrics") : TR("No lyrics for this song");
+    if (strcmp(lv_label_get_text(lyrics_empty_label), text) != 0)
+        lv_label_set_text(lyrics_empty_label, text);
+}
+
 static void * lyrics_load_thread_func(void * arg) {
     lyrics_load_request_t * req = (lyrics_load_request_t *) arg;
     lyrics_doc_t doc;
@@ -500,6 +509,7 @@ static void lyrics_ensure_layout(bool force_layout_rebuild) {
  * force_layout_rebuild: gui_lyrics_refresh_layout() (font size / custom font
  * changed) must pass true -- see lyrics_ensure_layout() for the cache key. */
 static void lyrics_reset_pool(bool force_layout_rebuild) {
+    lyrics_update_empty_text();
     if (lyrics_active_marker) lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
     int count = current_lyrics_doc_valid ? current_lyrics_doc.count : 0;
     lyrics_ensure_layout(force_layout_rebuild);
@@ -999,7 +1009,7 @@ static lv_obj_t * build_lyrics_screen(void) {
     lv_obj_remove_flag(dark_overlay, LV_OBJ_FLAG_CLICKABLE);
 
     lyrics_empty_label = lv_label_create(scr);
-    lv_label_set_text(lyrics_empty_label, TR("No synchronized lyrics found"));
+    lyrics_update_empty_text();
     lv_obj_set_style_text_font(lyrics_empty_label, &app_font_22, 0);
     lv_obj_set_style_text_color(lyrics_empty_label, lv_color_make(200, 200, 200), 0);
     /* app_font_22 is one of the size-tier-swappable app_font_* handles (see
@@ -1195,6 +1205,7 @@ void gui_lyrics_teardown(void) {
      * timer, see its own comment. */
     if (lyrics_timer) { lv_timer_del(lyrics_timer); lyrics_timer = NULL; }
     if (lyrics_screen) { lv_obj_delete(lyrics_screen); lyrics_screen = NULL; }
+    lyrics_empty_label = NULL;
     lyrics_active_marker = NULL;
     if (lyrics_font_size_screen) { lv_obj_delete(lyrics_font_size_screen); lyrics_font_size_screen = NULL; }
 }
@@ -1224,6 +1235,7 @@ bool gui_lyrics_is_visible(void) {
 void gui_lyrics_poll_load(void) {
     if (gui_player_lyrics_animation_in_progress()) return;
     poll_lyrics_load();
+    lyrics_update_empty_text();
 }
 
 void gui_lyrics_poll_backdrop(void) {
@@ -1257,6 +1269,7 @@ void gui_lyrics_load_track(int index, const char * path) {
         lyrics_load_pending_valid = false;
         current_lyrics_doc_generation = ++lyrics_load_generation;
     }
+    lyrics_update_empty_text();
     if (lyrics_embedded) lyrics_reset_pool(true);
 }
 

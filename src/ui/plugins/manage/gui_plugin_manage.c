@@ -122,7 +122,7 @@ static void plugin_manage_toggle_cb(lv_event_t * e) {
     bool restore_checked = !manage_entries[index].disabled;
     if (restore_checked) lv_obj_add_state(toggle_img, LV_STATE_CHECKED);
     else lv_obj_clear_state(toggle_img, LV_STATE_CHECKED);
-    show_info_toast(TR("Couldn't save -- plugin change was not applied"));
+    show_info_toast(TR("Couldn't save. The plugin change was not applied"));
 }
 
 lv_obj_t * gui_plugin_manage_build_screen(void) {

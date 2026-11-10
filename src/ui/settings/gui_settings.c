@@ -197,7 +197,7 @@ static const struct { const char * icon; const char * label; lv_event_cb_t cb; }
     { "submenu/plugins.png", N_("Plugins"), gui_plugin_manage_row_cb },
     { "submenu/files.png", N_("File Manager"), gui_file_manager_tile_cb },
     { "submenu/themes.png", N_("Themes"), themes_row_cb },
-    { "submenu/layouts.png", N_("Now Playing layouts"), player_layout_choice_settings_row_cb },
+    { "submenu/layouts.png", N_("Player layout"), player_layout_choice_settings_row_cb },
     { "submenu/usb.png", N_("USB DAC"), dac_home_usb_row_cb },
     { "submenu/bluetooth.png", N_("Bluetooth DAC"), bt_dac_settings_row_cb },
 #if BOARD_SUPPORTS_EMULATORS

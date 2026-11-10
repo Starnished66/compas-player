@@ -158,6 +158,8 @@ bool bt_control_connect_with_rate(const char * mac, unsigned int rate);
  * disconnects it first if currently connected, as part of the same
  * command. Blocking; call off the UI thread. */
 bool bt_control_forget(const char * mac);
+/* Blocking; call off the UI thread. */
+bool bt_control_disconnect(const char * mac);
 
 /* Bounded, cancellation-aware reconnect of an already-paired trusted A2DP
  * headset. Never pairs or trusts. Call only from the reconnect worker; all

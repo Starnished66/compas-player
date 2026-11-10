@@ -35,6 +35,7 @@
 gui_busy_handle_t library_rescan_token = 0;
 
 static pthread_t library_rescan_thread;
+static bool library_rescan_from_music;
 _Atomic bool library_rescan_active = false;
 void (*library_setup_scan_complete)(bool success);
 bool library_rescan_success_pending = false;
@@ -214,7 +215,7 @@ static void library_prompt_update_labels(library_prompt_reason_t reason) {
         case LIBRARY_PROMPT_NO_DATABASE:
             lv_label_set_text(library_update_prompt_title, TR("No music database"));
             lv_label_set_text(library_update_prompt_body,
-                              TR("Build it now? Large libraries can take several minutes."));
+                              TR("Build it now? This may take a while."));
             lv_label_set_text(library_update_prompt_confirm_label, TR("Build"));
             break;
         case LIBRARY_PROMPT_LOAD_FAILED:
@@ -428,6 +429,11 @@ void library_rescan_free_target_paths(void) {
     library_scan_release();
 }
 
+static void library_rescan_cancel_cb(void * user) {
+    (void) user;
+    gui_library_cancel_scan();
+}
+
 static bool start_library_rescan_job(bool allow_rebuild, library_rescan_mode_t mode,
                                      char ** target_paths, int target_count,
                                      library_scan_scope_t scope, const char * scope_name,
@@ -474,7 +480,9 @@ static bool start_library_rescan_job(bool allow_rebuild, library_rescan_mode_t m
         : TR("Updating\nmusic database...");
     const char * busy_detail = mode == LIBRARY_RESCAN_TARGETED || mode == LIBRARY_RESCAN_FORCE_METADATA
             ? TR("Preparing metadata refresh...") : TR("Preparing music library...");
+    library_rescan_from_music = library_screen_in_navigation(gui_library_get_music_screen());
     library_rescan_token = gui_busy_show(busy_title, busy_detail);
+    gui_busy_set_cancel(library_rescan_token, library_rescan_cancel_cb, NULL);
     gui_busy_set_progress(library_rescan_token, 0);
 
     pthread_attr_t attr;
@@ -766,7 +774,10 @@ void poll_library_rescan(void) {
     if (library_rescan_success_pending) {
         if (lv_tick_elaps(library_rescan_success_since_tick) >= LIBRARY_RESCAN_SUCCESS_MS) {
             library_rescan_success_pending = false;
-            if (!library_setup_scan_complete) nav_reset_to_home(); /* leaves the busy screen and discards any stale deeper screen */
+            if (!library_setup_scan_complete) {
+                nav_reset_to_home();
+                if (library_rescan_from_music) nav_push(gui_library_get_music_screen());
+            }
         }
         return;
     }

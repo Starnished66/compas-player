@@ -533,6 +533,8 @@ void gui_popup_show(gui_popup_t * p);
 void gui_popup_hide(gui_popup_t * p);
 void gui_popup_teardown(gui_popup_t * p);
 bool gui_popup_is_visible(const gui_popup_t * p);
+void gui_popup_confirm(gui_popup_t * p, const char * title, const char * body,
+                       const char * confirm_text, lv_event_cb_t confirm_cb);
 unsigned gui_popup_visible_count(void);
 /* Full-width tappable action (Install, Remove, Cancel) at the end of a popup. */
 lv_obj_t * add_popup_action_row(lv_obj_t * popup, const char * text, lv_color_t color,

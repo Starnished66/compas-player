@@ -59,7 +59,7 @@ static void delete_song_confirm_cb(lv_event_t *e) {
     }
     unlink(to_delete);
     free(to_delete);
-    show_error_toast(TR("Song deleted"));
+    show_info_toast(TR("Song deleted"));
 }
 
 /* Defined alongside build_confirm_popup() above -- see its own doc comment
@@ -175,7 +175,7 @@ void build_more_menu_popup(void) {
         };
     }
 
-    rows[row_count++] = (menu_popup_row_t) { TR("EQ"), more_menu_eq_cb, false };
+    rows[row_count++] = (menu_popup_row_t) { TR("Equalizer"), more_menu_eq_cb, false };
     rows[row_count++] = (menu_popup_row_t) { TR("Delete"), more_menu_delete_cb, true };
     rows[row_count++] = (menu_popup_row_t) { TR("Cancel"), more_menu_popup_backdrop_cb, false, true };
     more_menu_popup = build_menu_popup(rows, row_count, more_menu_popup_backdrop_cb, &more_menu_popup_backdrop);

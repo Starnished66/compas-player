@@ -642,7 +642,7 @@ void poll_sd_format(void) {
     gui_busy_hide(sd_format_token);
 
     if (sd_format_succeeded) {
-        show_error_toast(TR("SD card formatted"));
+        show_info_toast(TR("SD card formatted"));
         sd_mount_fail_notified = false; /* give the freshly-formatted card a clean slate */
         if (!library_rescan_active) {
             start_library_auto_rescan();

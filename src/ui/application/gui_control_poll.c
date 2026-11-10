@@ -375,7 +375,7 @@ static void poll_output_connection(void) {
         DBG_LOG("gui: output disconnected while playing -- pausing playback\n");
         audio_toggle_pause();
         set_play_button_state(false);
-        show_error_toast(TR("Paused: headphones disconnected"));
+        show_info_toast(TR("Paused: headphones disconnected"));
     }
     last_output_connected = output_connected;
 

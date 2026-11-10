@@ -306,7 +306,8 @@ static void create_named_playlist(const char * text, playlist_name_target_mode_t
     const char * song_path = mode == PLAYLIST_NAME_TARGET_SONG ? target->song_path : "";
     bool ok = playlist_files_create(PLAYLISTS_DIR, text, song_path, created_path, sizeof(created_path));
     if (ok) metadata_db_playlist_insert_one(created_path);
-    show_error_toast(ok ? TR("Playlist created") : TR("Failed to create playlist"));
+    if (ok) show_info_toast(TR("Playlist created"));
+    else show_error_toast(TR("Failed to create playlist"));
     if (!ok) return;
     gui_playlist_target_clear_folder();
     playlist_name_target_mode = PLAYLIST_NAME_TARGET_NONE;
@@ -379,7 +380,8 @@ static void existing_playlist_row_cb(lv_event_t *event) {
         return;
     }
     bool ok = playlist_files_append(path, target.song_path);
-    show_error_toast(ok ? TR("Added to playlist") : TR("Failed to add to playlist"));
+    if (ok) show_info_toast(TR("Added to playlist"));
+    else show_error_toast(TR("Failed to add to playlist"));
     nav_pop();
 }
 

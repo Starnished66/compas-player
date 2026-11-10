@@ -357,6 +357,26 @@ unsigned gui_popup_visible_count(void) {
     return visible_popup_count;
 }
 
+static void popup_confirm_hide_cb(lv_event_t * e) {
+    gui_popup_hide(lv_obj_get_user_data(lv_event_get_current_target(e)));
+}
+
+/* A yes/no question, built once into p. Cancel and the backdrop close it;
+ * confirm_cb runs on the red action and hides p itself. */
+void gui_popup_confirm(gui_popup_t * p, const char * title, const char * body,
+                       const char * confirm_text, lv_event_cb_t confirm_cb) {
+    if (!p->popup) {
+        lv_obj_t * cancel_row;
+        p->popup = build_confirm_popup(title, LV_LABEL_LONG_WRAP, NULL, body, confirm_text,
+                                       lv_color_hex(GUI_BREEZE_NEGATIVE), confirm_cb, NULL, TR("Cancel"),
+                                       accent_lv_color(), popup_confirm_hide_cb, &cancel_row,
+                                       popup_confirm_hide_cb, &p->backdrop);
+        lv_obj_set_user_data(cancel_row, p);
+        lv_obj_set_user_data(p->backdrop, p);
+    }
+    gui_popup_show(p);
+}
+
 lv_obj_t * build_font_change_mask(int target) {
     lv_obj_t * mask = lv_obj_create(lv_layer_sys());
     lv_obj_set_user_data(mask, (void *)(intptr_t)(target + 1));

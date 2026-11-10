@@ -222,7 +222,7 @@ void populate_airplay_screen(void) {
     add_pill_toggle_row(airplay_list, TR("AirPlay"), current_settings.wifi_dac_mode_enabled, airplay_toggle_cb);
 
     add_network_explanation(airplay_list,
-                      TR("When on, this device is visible to AirPlay senders on your Wi-Fi network -- stream "
+                      TR("When on, this device is visible to AirPlay senders on your Wi-Fi network. Stream "
                       "audio from an iPhone, iPad, or Mac to be played through this device's own output."));
 }
 

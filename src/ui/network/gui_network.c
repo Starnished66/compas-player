@@ -123,7 +123,7 @@ int rotate_to_front(int position, int front) {
  * enable/toggle path (screen may already be open when Wi-Fi goes away). */
 bool wifi_feature_guard(void) {
     if (gui_shell_wifi_effective_enabled()) return true;
-    show_error_toast(TR("Enable WiFi to access"));
+    show_error_toast(TR("Enable Wi-Fi to access"));
     return false;
 }
 

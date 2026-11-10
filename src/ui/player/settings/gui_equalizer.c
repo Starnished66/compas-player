@@ -485,7 +485,7 @@ static lv_obj_t * create_eq_slider_card(lv_obj_t * parent, eq_field_t field, lv_
     lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
     lv_obj_add_style(slider, gui_theme_accent_knob_style(), LV_PART_KNOB);
     lv_obj_remove_flag(slider, LV_OBJ_FLAG_ADV_HITTEST);
-    lv_obj_set_ext_click_area(slider, SLIDER_KNOB_PAD + BOARD_SCALE_PX(4));
+    lv_obj_set_ext_click_area(slider, (BOARD_SCALE_PX(48) - SLIDER_TRACK_HEIGHT + 1) / 2);
 
     *out_value_label = value_label;
     *out_slider = slider;
@@ -915,13 +915,7 @@ static void eq_save_profile_name_done_cb(const char * text, void * user_data) {
     eq_save_named_profile(text);
 }
 
-/* Save-choice popup: offered whenever a Save action would otherwise go
- * straight to a blank/prefilled text entry (no current profile, or a
- * deliberate "Save As" hold) AND at least one profile already exists to
- * replace -- reported gap: users had no way to pick an EXISTING preset to
- * overwrite, only a text box to name a new one. `eq_save_choice_prefill_current`
- * remembers which of those two triggered it, so "New Profile" opens the
- * right text-entry variant once the choice is made. */
+/* New Profile can reuse the loaded profile name. */
 static gui_popup_t eq_save_choice_popup;
 static bool eq_save_choice_prefill_current = false;
 
@@ -968,7 +962,7 @@ static void eq_open_save_choice_popup(bool prefill_current_name) {
     for (int i = 0; i < existing_count; i++) free(existing_paths[i]);
     free(existing_paths);
 
-    if (!have_existing) {
+    if (!have_existing && !prefill_current_name) {
         const char * prefill = prefill_current_name ? eq_current_profile_name : "";
         const char * title = prefill_current_name ? TR("Save Profile As") : TR("Profile Name");
         show_text_entry(title, prefill, false, false, eq_save_profile_name_done_cb, NULL);
@@ -979,33 +973,9 @@ static void eq_open_save_choice_popup(bool prefill_current_name) {
     gui_popup_show(&eq_save_choice_popup);
 }
 
-/* Save Profile: a quick tap saves in place; a deliberate hold opens the save
- * choice above (prefilled with the current name if choosing "New Profile").
- * Tracked locally via our own PRESSED/CLICKED timestamps rather than LVGL's
- * global LV_EVENT_LONG_PRESSED (LV_INDEV_DEF_LONG_PRESS_TIME, 400ms, shared
- * by every long-press in the app) -- 400ms was too easy to trip on an
- * ordinary deliberate tap here, especially right after a run of slider
- * drags, so this button alone uses a longer local hold. */
-#define EQ_SAVE_PROFILE_HOLD_MS 700
-static uint32_t eq_save_profile_press_start_ms = 0;
-
-static void eq_save_profile_pressed_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
-    eq_save_profile_press_start_ms = lv_tick_get();
-}
-
 static void eq_save_profile_btn_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    bool held = lv_tick_elaps(eq_save_profile_press_start_ms) >= EQ_SAVE_PROFILE_HOLD_MS;
-    if (held) {
-        eq_open_save_choice_popup(true);
-        return;
-    }
-    if (eq_current_profile_name[0]) {
-        eq_save_named_profile(eq_current_profile_name);
-        return;
-    }
-    eq_open_save_choice_popup(false);
+    eq_open_save_choice_popup(eq_current_profile_name[0] != '\0');
 }
 
 static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const char * title,
@@ -1065,7 +1035,7 @@ static lv_obj_t * eq_make_slider_card(lv_obj_t * parent, eq_field_t field, const
     /* Keep the thin rail while accepting touches above and below it.
      * Disable knob-only hit testing so any point along the rail can drag. */
     lv_obj_remove_flag(slider, LV_OBJ_FLAG_ADV_HITTEST);
-    lv_obj_set_ext_click_area(slider, BOARD_SCALE_PX(14));
+    lv_obj_set_ext_click_area(slider, BOARD_SCALE_PX(21));
     lv_obj_set_style_margin_bottom(slider, BOARD_SCALE_PX(10), 0);
     *value_out = value;
     *slider_out = slider;
@@ -1201,7 +1171,7 @@ static void eq_graph_grid_draw_cb(lv_event_t * e) {
 static lv_obj_t * build_eq_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
-    lv_obj_t * title = build_screen_header(scr, TR("PEQ"), generic_back_cb, NULL, NULL);
+    lv_obj_t * title = build_screen_header(scr, TR("Equalizer"), generic_back_cb, NULL, NULL);
     eq_bypass_switch = lv_switch_create(scr);
     align_screen_header_action(eq_bypass_switch, 16);
     lv_obj_add_style(eq_bypass_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
@@ -1443,7 +1413,6 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_add_style(save, &pill_row_bg_style, 0);
     lv_obj_add_style(save, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_shadow_width(save, 0, 0);
-    lv_obj_add_event_cb(save, eq_save_profile_pressed_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(save, eq_save_profile_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * sl = lv_label_create(save);
     lv_label_set_text(sl, TR("Save"));

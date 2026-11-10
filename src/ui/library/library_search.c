@@ -1,4 +1,5 @@
 #include "library_search.h"
+#include "../text/i18n/i18n.h"
 #include "library_thumbnails.h"
 #include "library_az_index.h"
 #include "../../core/process/worker_thread.h"
@@ -341,6 +342,7 @@ void poll_search_job(void) {
  * worker (launch_search_job()). In-memory bindings are filtered synchronously. */
 static void search_apply_filter(search_binding_t * b, const char * query) {
     bool have_query = query && query[0];
+    compact_list_set_empty_heading(b->list, have_query ? TR("No matches") : TR("Type to search"));
 
     if (b->db_backed) {
         if (!have_query) {
@@ -552,6 +554,8 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
     } else {
         search_restore_list_geometry(b->list);
     }
+
+    compact_list_set_empty_heading(b->list, NULL);
 
     /* Eager search rows can point into filtered_labels. Drop those rows
      * before releasing the labels, including for a hidden overlay list. */

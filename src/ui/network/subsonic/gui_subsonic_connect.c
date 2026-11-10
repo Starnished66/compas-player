@@ -109,7 +109,7 @@ static bool subsonic_connect_poll_waiting(void) {
         http_cancel_token_cancel(&subsonic_connect_cancel);
         gui_busy_hide(subsonic_connect_token);
         subsonic_connect_token = 0;
-        show_error_toast(TR("Connection timed out after 30 seconds"));
+        show_error_toast(TR("The server did not answer"));
         return true; /* Do not join a request still blocked in the network. */
     }
     return !atomic_load_explicit(&subsonic_connect_done_flag, memory_order_acquire);

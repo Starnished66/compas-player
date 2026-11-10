@@ -104,6 +104,8 @@ void compact_list_set_now_playing(lv_obj_t * list, int item_index);
  * know this list's internal row geometry. */
 void compact_list_scroll_to_index(lv_obj_t * list, int index);
 
+/* Heading for an empty list; NULL restores the default. Must outlive the list. */
+void compact_list_set_empty_heading(lv_obj_t * list, const char * heading);
 /* Swaps a build_compact_list_screen() list's contents in place -- used for
  * live search filtering -- without the delete()+rebuild this project
  * otherwise uses for changing a screen's list contents. */

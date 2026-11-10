@@ -106,6 +106,8 @@ static void font_size_apply_timer_cb(lv_timer_t * timer) {
     compact_list_refresh_all();
     quick_drawer_mark_snapshot_dirty();
     nav_reset_to_home();
+    nav_push(gui_settings_get_screen());
+    nav_push(gui_settings_get_display_screen());
     screen_builders_refresh_font_geometry(lv_screen_active());
     lv_obj_invalidate(lv_screen_active());
     lv_obj_invalidate(lv_layer_top());

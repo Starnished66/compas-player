@@ -1,3 +1,4 @@
+#include "../i18n/i18n.h"
 #include "gui_text_input.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +36,8 @@ extern void plugin_manager_text_input_cancelled(void);
 extern void plugin_text_entry_done_cb(const char * text, void * user_data);
 
 static lv_obj_t * text_entry_screen;
+static gui_popup_t text_entry_discard_popup;
+static bool text_entry_edited; /* typed since show_text_entry() */
 static lv_obj_t * text_entry_title_label;
 static lv_obj_t * text_entry_textarea;
 static lv_obj_t * text_entry_keypad_group; /* wraps both keypad layouts (T9 pad + QWERTY keyboard) -- reparented onto whichever screen has inline search open, see t9_keypad_attach()/t9_keypad_release() */
@@ -1429,11 +1432,27 @@ void t9_keypad_release(void) {
     text_entry_inline_mode_active = false;
 }
 
-static void text_entry_back_cb(lv_event_t * e) {
+static void text_entry_discard_cb(lv_event_t * e) {
+    gui_popup_hide(&text_entry_discard_popup);
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     text_entry_variant_close();
     if (text_entry_on_done == plugin_text_entry_done_cb) plugin_manager_text_input_cancelled();
     generic_back_cb(e);
+}
+
+static void text_entry_edited_cb(lv_event_t * e) {
+    (void) e;
+    text_entry_edited = true;
+}
+
+static void text_entry_back_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (!text_entry_edited || !lv_textarea_get_text(text_entry_textarea)[0]) {
+        text_entry_discard_cb(e);
+        return;
+    }
+    gui_popup_confirm(&text_entry_discard_popup, TR("Discard what you typed?"), NULL, TR("Discard"),
+                      text_entry_discard_cb);
 }
 
 static lv_obj_t * build_text_entry_screen(void) {
@@ -1461,6 +1480,7 @@ static lv_obj_t * build_text_entry_screen(void) {
      * no-ops unless text_entry_inline_mode_active is set, so this is inert
      * for all 9 existing modal callers. */
     lv_obj_add_event_cb(text_entry_textarea, search_textarea_value_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(text_entry_textarea, text_entry_edited_cb, LV_EVENT_VALUE_CHANGED, NULL);
     /* After Enter dismisses the shared keypad, the query field stays in the
      * search bar. Let the owning search binding reclaim the keypad on tap. */
     lv_obj_add_event_cb(text_entry_textarea, search_textarea_clicked_cb, LV_EVENT_CLICKED, NULL);
@@ -1507,6 +1527,7 @@ void show_text_entry(const char * title, const char * initial_text, bool is_pass
 
     lv_label_set_text(text_entry_title_label, title);
     lv_textarea_set_text(text_entry_textarea, initial_text ? initial_text : "");
+    text_entry_edited = false;
     lv_textarea_set_password_mode(text_entry_textarea, is_password);
     /* Always reset to masked/hidden -- otherwise a field left revealed by
      * the previous show_text_entry() call (e.g. Wi-Fi's chained SSID ->
@@ -1542,6 +1563,7 @@ bool gui_text_input_init(void) {
  * other screen's inline search (t9_keypad_attach()) -- that other screen is
  * being torn down in the same reload pass regardless. */
 void gui_text_input_teardown(void) {
+    gui_popup_teardown(&text_entry_discard_popup);
     text_entry_variant_close();
     text_entry_variant_set_owner(NULL);
     text_entry_variant_overlay = NULL;
@@ -1564,7 +1586,10 @@ lv_obj_t * gui_text_input_get_screen(void) {
 }
 
 void gui_text_input_cancel_if_removed(lv_obj_t * removed_screen) {
-    if (removed_screen == text_entry_screen) text_entry_variant_close();
+    if (removed_screen == text_entry_screen) {
+        text_entry_variant_close();
+        gui_popup_hide(&text_entry_discard_popup);
+    }
     if (removed_screen == text_entry_screen &&
         text_entry_on_done == plugin_text_entry_done_cb) {
         plugin_manager_text_input_cancelled();

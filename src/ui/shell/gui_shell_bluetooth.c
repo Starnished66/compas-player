@@ -656,7 +656,7 @@ static void bt_request_power(bool bt_will_be_powered, bool dac_stopped) {
         bt_toggle_active = false;
         bt_is_powered_cached = !bt_will_be_powered;
         if (gui_navigation_is_top(gui_network_get_bt_screen())) populate_bt_screen();
-        show_info_toast(TR("Failed to toggle Bluetooth"));
+        show_error_toast(TR("Failed to toggle Bluetooth"));
     }
 }
 void gui_shell_bt_request_power(bool powered) { bt_request_power(powered, false); }
@@ -678,7 +678,7 @@ void poll_bt_toggle(void) {
                            bt_toggle_target_arg(target)) == 0)
             return;
         bt_toggle_active = false;
-        show_info_toast(TR("Failed to toggle Bluetooth"));
+        show_error_toast(TR("Failed to toggle Bluetooth"));
     }
 
     /* start_refresh_bt_icon() only starts the background check -- it

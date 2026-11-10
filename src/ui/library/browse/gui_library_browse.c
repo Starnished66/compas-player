@@ -1481,7 +1481,7 @@ lv_obj_t * build_genres_screen(void) {
     compact_list_set_row_height(genres_list, MUSIC_LIST_ROW_HEIGHT);
     compact_list_set_paged_provider(genres_list, genres_fetch_page, NULL, count_genres_from_database());
     compact_list_set_press_cb(genres_list, genre_row_press_cb);
-    build_top_right_icon_button(scr, asset_path("settings/playback.png"), genre_view_open_cb);
+    build_top_right_icon_button(scr, asset_path("sub_back/btn_playlist.png"), genre_view_open_cb);
     finalize_screen_navigation(scr);
     return scr;
 }

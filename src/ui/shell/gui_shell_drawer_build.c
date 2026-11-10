@@ -654,6 +654,12 @@ static void quick_drawer_register_shift_objs(lv_obj_t * brightness_container, in
 #endif
 }
 
+static void quick_drawer_open_player_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    quick_drawer_dismiss_for_navigation();
+    nav_push(gui_player_get_screen());
+}
+
 /* Now-playing card shell and its cover thumbnail. Returns the card. */
 static lv_obj_t * quick_drawer_build_card_frame(void) {
     /* Mini now-playing card: cover thumbnail (left), track title/artist
@@ -675,6 +681,8 @@ static lv_obj_t * quick_drawer_build_card_frame(void) {
     lv_obj_set_style_radius(card, BOARD_SCALE_PX(24), 0);
     lv_obj_set_style_clip_corner(card, true, 0);
     lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(card, quick_drawer_open_player_cb, LV_EVENT_CLICKED, NULL);
 
     /* Cover thumbnail -- reuses whatever the Player screen already decoded
      * (gui_player_get_current_cover_dsc(), same accessor gui_lock_screen.c
@@ -687,7 +695,7 @@ static lv_obj_t * quick_drawer_build_card_frame(void) {
     lv_obj_remove_style_all(quick_drawer_cover_frame);
     lv_obj_set_size(quick_drawer_cover_frame, QUICK_DRAWER_CARD_W, QUICK_DRAWER_CARD_H);
     lv_obj_align(quick_drawer_cover_frame, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_remove_flag(quick_drawer_cover_frame, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(quick_drawer_cover_frame, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     quick_drawer_cover_img = lv_image_create(quick_drawer_cover_frame);
     lv_obj_remove_flag(quick_drawer_cover_img, LV_OBJ_FLAG_CLICKABLE);
     lv_image_set_src(quick_drawer_cover_img, asset_path("playing_plane/default_cover_565.png"));

@@ -45,7 +45,7 @@ typedef struct {
 } animation_speed_option_t;
 
 static const animation_speed_option_t animation_speed_options[] = {
-    { 0, N_("Off") }, { 25, "0.25x" }, { 50, "0.5x" }, { 75, "0.75x" }, { 100, "1x" },
+    { 0, N_("Off") }, { 25, N_("Fastest") }, { 50, N_("Faster") }, { 75, N_("Fast") }, { 100, N_("Normal") },
 };
 #define ANIMATION_SPEED_OPTION_COUNT (sizeof(animation_speed_options) / sizeof(animation_speed_options[0]))
 
@@ -242,7 +242,7 @@ void player_layout_choice_settings_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_player_layout_choice_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen(TR("Layout"), &title_label, &player_layout_choice_list);
+    return build_subsonic_list_screen(TR("Player layout"), &title_label, &player_layout_choice_list);
 }
 
 static lv_obj_t * build_lyrics_settings_screen(void) {

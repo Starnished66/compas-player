@@ -573,7 +573,7 @@ static lv_obj_t * build_sorting_screen(void) {
     lv_obj_t * screen = build_subsonic_list_screen(TR("Sorting"), &title, &list);
     (void) title;
     static const char * group_titles[] = {
-        N_("Files (folders stay first)"), N_("Albums"), N_("Artists"), N_("Album Artist")
+        N_("Files (folders stay first)"), N_("Albums"), N_("Albums on an artist page"), N_("Albums on an album-artist page")
     };
     int previous_context = -1;
     for (int option = 0; option < SORTING_OPTION_COUNT; option++) {

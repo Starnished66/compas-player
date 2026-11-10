@@ -37,6 +37,7 @@ extern void row_label_enable_marquee(lv_obj_t * label);
 static int queue_page;
 static uint64_t displayed_revision;
 static bool queue_editing;
+static gui_popup_t queue_clear_popup;
 static lv_obj_t * queue_actions, * queue_actions_backdrop;
 static void queue_actions_open(lv_event_t * e);
 static lv_obj_t * queue_current_row;
@@ -123,10 +124,12 @@ static void queue_reorder_handle_cb(lv_event_t * e) {
 static void queue_screen_unload_cb(lv_event_t * e) {
     (void) e;
     queue_finish_drag();
+    gui_popup_hide(&queue_clear_popup);
 }
 
 bool gui_queue_boot_prompt_blocked(void) {
-    return (queue_actions && !lv_obj_has_flag(queue_actions, LV_OBJ_FLAG_HIDDEN)) ||
+    return gui_popup_is_visible(&queue_clear_popup) ||
+           (queue_actions && !lv_obj_has_flag(queue_actions, LV_OBJ_FLAG_HIDDEN)) ||
            (queue_actions_backdrop && !lv_obj_has_flag(queue_actions_backdrop, LV_OBJ_FLAG_HIDDEN)) ||
            (song_context_menu_popup && !lv_obj_has_flag(song_context_menu_popup, LV_OBJ_FLAG_HIDDEN)) ||
            (song_context_menu_popup_backdrop &&
@@ -327,6 +330,7 @@ void populate_queue_screen(void) {
 
             lv_obj_t * button = lv_obj_create(row);
             lv_obj_set_size(button, action_slot, action_slot);
+            lv_obj_set_ext_click_area(button, BOARD_SCALE_PX(6));
             lv_obj_set_style_bg_opa(button, LV_OPA_TRANSP, 0);
             lv_obj_set_style_border_width(button, 0, 0);
             lv_obj_set_style_pad_all(button, 0, 0);
@@ -365,8 +369,8 @@ void populate_queue_screen(void) {
 
 static void queue_actions_hide(lv_event_t * e) {
     (void) e;
-    lv_obj_add_flag(queue_actions, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(queue_actions_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (queue_actions) lv_obj_add_flag(queue_actions, LV_OBJ_FLAG_HIDDEN);
+    if (queue_actions_backdrop) lv_obj_add_flag(queue_actions_backdrop, LV_OBJ_FLAG_HIDDEN);
 }
 static void queue_toggle_edit(lv_event_t * e) {
     queue_actions_hide(e); queue_finish_drag();
@@ -394,9 +398,17 @@ static void queue_start(lv_event_t * e, bool shuffle) {
 }
 static void queue_start_sequential(lv_event_t * e) { queue_start(e, false); }
 static void queue_start_shuffle(lv_event_t * e) { queue_start(e, true); }
+static void queue_clear_confirm_cb(lv_event_t * e) {
+    (void) e;
+    gui_popup_hide(&queue_clear_popup);
+    queue_finish_drag();
+    gui_player_queue_clear_all();
+    populate_queue_screen();
+}
 static void queue_clear_cb(lv_event_t * e) {
-    queue_actions_hide(e); queue_finish_drag();
-    gui_player_queue_clear_all(); populate_queue_screen();
+    queue_actions_hide(e);
+    gui_popup_confirm(&queue_clear_popup, TR("Clear the queue?"), TR("The playing song keeps playing."),
+                      TR("Clear Queue"), queue_clear_confirm_cb);
 }
 static void queue_save_done(const char * name, void * data) {
     (void) data;
@@ -409,6 +421,17 @@ static void queue_save_cb(lv_event_t * e) {
 }
 static void queue_actions_open(lv_event_t * e) {
     (void) e;
+    if (queue_actions) lv_obj_delete(queue_actions);
+    if (queue_actions_backdrop) lv_obj_delete(queue_actions_backdrop);
+    const menu_popup_row_t rows[] = {
+        { TR("Start sequentially"), queue_start_sequential, false },
+        { TR("Shuffle from a random song"), queue_start_shuffle, false },
+        { queue_editing ? TR("Done") : TR("Edit"), queue_toggle_edit, false },
+        { TR("Clear Queue"), queue_clear_cb, false },
+        { TR("Save as Playlist"), queue_save_cb, false },
+        { TR("Cancel"), queue_actions_hide, false, true },
+    };
+    queue_actions = build_menu_popup(rows, sizeof(rows) / sizeof(rows[0]), queue_actions_hide, &queue_actions_backdrop);
     lv_obj_remove_flag(queue_actions_backdrop, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(queue_actions, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(queue_actions_backdrop);
@@ -419,15 +442,6 @@ static lv_obj_t * build_queue_screen(void) {
     lv_obj_t * title;
     lv_obj_t * screen = build_subsonic_list_screen(TR("Queue"), &title, &queue_list);
     build_top_right_icon_button(screen, asset_path("settings/playback.png"), queue_actions_open);
-    const menu_popup_row_t rows[] = {
-        { TR("Start sequentially"), queue_start_sequential, false },
-        { TR("Shuffle from a random song"), queue_start_shuffle, false },
-        { TR("Edit / Done"), queue_toggle_edit, false },
-        { TR("Clear Queue"), queue_clear_cb, false },
-        { TR("Save as Playlist"), queue_save_cb, false },
-        { TR("Cancel"), queue_actions_hide, false, true },
-    };
-    queue_actions = build_menu_popup(rows, sizeof(rows) / sizeof(rows[0]), queue_actions_hide, &queue_actions_backdrop);
     lv_obj_add_event_cb(screen, queue_screen_unload_cb, LV_EVENT_SCREEN_UNLOAD_START, NULL);
     return screen;
 }
@@ -545,6 +559,7 @@ void gui_queue_teardown(void) {
     queue_reorder_state.rows = NULL;
     queue_reorder_state.list = NULL;
     queue_unregister_handles();
+    gui_popup_teardown(&queue_clear_popup);
     if (queue_actions) { lv_obj_delete(queue_actions); queue_actions = NULL; }
     if (queue_actions_backdrop) { lv_obj_delete(queue_actions_backdrop); queue_actions_backdrop = NULL; }
     if (song_context_menu_popup) { lv_obj_delete(song_context_menu_popup); song_context_menu_popup = NULL; }

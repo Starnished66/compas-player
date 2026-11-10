@@ -33,11 +33,11 @@ extern player_settings_t current_settings;
  * separate because Layout now sits between Plugins and Scan. */
 enum {
     STEP_WELCOME = 0, STEP_LANGUAGE = 1, STEP_TIMEZONE = 2, STEP_WIFI = 3,
-    STEP_PLUGINS = 4, STEP_SCAN = 5, STEP_COMPLETE = 6, STEP_LAYOUT = 7
+    STEP_PLUGINS = 4, STEP_SCAN = 5, STEP_COMPLETE = 6, STEP_LAYOUT = 7, STEP_GESTURES = 8
 };
 static const int setup_step_order[] = {
     STEP_WELCOME, STEP_LANGUAGE, STEP_TIMEZONE, STEP_WIFI,
-    STEP_PLUGINS, STEP_LAYOUT, STEP_SCAN, STEP_COMPLETE
+    STEP_PLUGINS, STEP_LAYOUT, STEP_SCAN, STEP_GESTURES, STEP_COMPLETE
 };
 
 static int setup_step_position(int value) {
@@ -244,16 +244,6 @@ static void skip_cb(lv_event_t * e) {
 static void next_cb(lv_event_t * e) {
     (void)e;
     if (installation_blocks_navigation()) return;
-    if (step == STEP_WIFI && !gui_network_setup_wifi_connected()) {
-        show_error_toast(TR("Connect to a Wi-Fi network before continuing."));
-        return;
-    }
-    if (step == STEP_PLUGINS) {
-        if (gui_setup_plugins_selected_count() == 0) {
-            show_info_toast(TR("Select at least one plugin to continue."));
-            return;
-        }
-    }
     if (step == STEP_LANGUAGE) {
         if (strcmp(staged_language, current_settings.language) != 0) {
             snprintf(current_settings.language, sizeof(current_settings.language), "%s", staged_language);
@@ -975,7 +965,7 @@ static void add_header(void) {
 
 /* One thin bar: how far through the steps this page is. */
 static void add_progress(void) {
-    const int total = setup_step_position(STEP_SCAN);
+    const int total = setup_step_position(STEP_GESTURES);
     int done = setup_step_position(step);
     if (done > total) done = total;
     lv_obj_t * track = lv_obj_create(content);
@@ -1271,7 +1261,22 @@ static void render_async(void * unused) {
     if (step == STEP_WELCOME) {
         add_brand_wordmark(setup_body);
         add_journey();
+        button(setup_body, selected_language_name(), false, language_open_cb);
         button(footer, TR("Get started"), true, next_cb);
+        return;
+    }
+    if (step == STEP_GESTURES) {
+        add_page_title(setup_body, TR("Getting around"), NULL);
+        lv_obj_t * card = setup_card(setup_body);
+        const char * headings[] = { TR("Swipe left"), TR("Swipe right"), TR("Pull down from the top"),
+                                    TR("Swipe up from the bottom"), TR("Tap the cover") };
+        const char * details[] = { TR("Open Now Playing"), TR("Go back"),
+            TR("Quick Drawer. Hold a tile to open its settings."), TR("Home"), TR("Lyrics") };
+        for (unsigned i = 0; i < sizeof(headings) / sizeof(headings[0]); ++i) {
+            label(card, headings[i], GUI_FONT_ROLE_BODY, SETUP_TEXT, LV_PCT(100));
+            label(card, details[i], GUI_FONT_ROLE_SUBTEXT, SETUP_MUTED, LV_PCT(100));
+        }
+        button(footer, TR("Continue"), true, next_cb);
         return;
     }
     if (step == STEP_COMPLETE) {
@@ -1290,7 +1295,7 @@ static void render_async(void * unused) {
                          step == STEP_TIMEZONE ? TR("Time zone") :
                          step == STEP_WIFI ? TR("Wi-Fi") :
                          step == STEP_PLUGINS ? TR("Plugins") :
-                         step == STEP_LAYOUT ? TR("Player Layout") : TR("Your music");
+                         step == STEP_LAYOUT ? TR("Player layout") : TR("Your music");
     const char * detail = step == STEP_LANGUAGE ? TR("Choose the language for your player.") :
                           step == STEP_TIMEZONE ? TR("Set your local time zone so the clock is right.") :
                           step == STEP_WIFI ? TR("Connect to Wi-Fi for streaming, updates, and online services.") :

@@ -28,6 +28,7 @@ static lv_obj_t * wifi_dns_screen;
  * Presents options to Connect or Forget for a selected memorized network,
  * matching bt_action_popup's overlay and backdrop pattern. */
 static gui_popup_t wifi_action_popup;
+static gui_popup_t wifi_forget_popup;
 static lv_obj_t * wifi_action_popup_title;
 static lv_obj_t * wifi_action_primary_label;
 static int wifi_action_popup_network_id = -1;
@@ -90,7 +91,8 @@ static void wifi_action_primary_cb(lv_event_t * e) {
     else start_wifi_connect_saved(id, ssid);
 }
 
-static void wifi_action_forget_cb(lv_event_t * e) {
+static void wifi_forget_confirm_cb(lv_event_t * e) {
+    gui_popup_hide(&wifi_forget_popup);
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = wifi_action_popup_resolve_network();
     if (index < 0) {
@@ -100,6 +102,12 @@ static void wifi_action_forget_cb(lv_event_t * e) {
     int id = wifi_saved_results[index].id;
     hide_wifi_action_popup();
     start_wifi_forget(id);
+}
+
+static void wifi_action_forget_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_popup_hide(&wifi_action_popup);
+    gui_popup_confirm(&wifi_forget_popup, TR("Forget this network?"), NULL, TR("Forget"), wifi_forget_confirm_cb);
 }
 
 static void build_wifi_action_popup(void) {
@@ -449,6 +457,7 @@ void gui_network_wifi_screen_build(void) {
 
 void gui_network_wifi_screen_teardown(void) {
     gui_popup_teardown(&wifi_action_popup);
+    gui_popup_teardown(&wifi_forget_popup);
     network_delete_screen(&wifi_screen);
     network_delete_screen(&wifi_info_screen);
     network_delete_screen(&wifi_dns_screen);

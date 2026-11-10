@@ -76,6 +76,7 @@ typedef struct {
     bool landing_rebind; /* set while a landed fetch repaints: bound rows whose content is unchanged are left alone */
     lv_obj_t * spacer; /* repositioned by compact_list_set_items() when item_count changes */
     lv_obj_t * message;
+    const char * empty_heading;
     lv_obj_t * now_playing_bar; /* NULL if this list wasn't built with enable_now_playing -- see compact_list_set_now_playing() */
     int now_playing_index; /* -1 = nothing playing/matching in this list */
 
@@ -741,9 +742,9 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
         if (!lv_obj_has_flag(data->rows[slot], LV_OBJ_FLAG_HIDDEN)) any_visible = true;
     if (any_visible) lv_obj_add_flag(data->message, LV_OBJ_FLAG_HIDDEN);
     else {
-        const char * heading = data->item_count == 0 ? TR("No items") :
+        const char * heading = data->item_count == 0 ? (data->empty_heading ? data->empty_heading : TR("No items")) :
                                data->pending_job ? TR("Loading...") : TR("Unable to load items");
-        const char * detail = data->item_count == 0 ? TR("There are no entries in this view.") :
+        const char * detail = data->item_count == 0 ? (data->empty_heading ? "" : TR("There are no entries in this view.")) :
                               data->pending_job ? TR("Your library is being loaded.") : TR("Leave this view and try again.");
         lv_label_set_text(lv_obj_get_child(data->message, 0), heading);
         lv_label_set_text(lv_obj_get_child(data->message, 1), detail);
@@ -974,6 +975,12 @@ static void compact_list_apply_paged_header(compact_list_virtual_data_t * data) 
     data->top_offset = paged ? data->paged_header_height : 0;
     if (paged) lv_obj_remove_flag(data->paged_header, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(data->paged_header, LV_OBJ_FLAG_HIDDEN);
+}
+
+void compact_list_set_empty_heading(lv_obj_t * list, const char * heading) {
+    COMPACT_LIST_DATA_OR_RETURN("set_empty_heading");
+    data->empty_heading = heading;
+    compact_list_update_window(list, data);
 }
 
 /* Swaps a build_compact_list_screen() list's contents in place -- e.g. a

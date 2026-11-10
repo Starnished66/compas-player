@@ -80,8 +80,14 @@ static void * bt_connect_thread_func(void * arg) {
 }
 
 static void start_bt_connect(const char * mac) {
-    if (current_settings.bt_dac_mode_enabled) return;
-    if (bt_connect_active) return; /* one at a time -- bt_connect_thread/succeeded are single shared slots */
+    if (current_settings.bt_dac_mode_enabled) {
+        show_info_toast(TR("Pause Bluetooth DAC to connect a device"));
+        return;
+    }
+    if (bt_connect_active) {
+        show_info_toast(TR("Still connecting"));
+        return;
+    }
 
     bt_connect_request_t * req = malloc(sizeof(*req));
     if (!req) return;
@@ -125,6 +131,7 @@ static atomic_bool bt_forget_done_flag = false;
 typedef struct {
     char mac[18];
     bool succeeded;
+    bool disconnect;
 } bt_forget_request_t;
 
 /* Kept alive past the thread completing (freed in poll_bt_forget() instead
@@ -135,17 +142,18 @@ static bt_forget_request_t * bt_forget_pending_req = NULL;
 
 static void * bt_forget_thread_func(void * arg) {
     bt_forget_request_t * req = (bt_forget_request_t *) arg;
-    req->succeeded = bt_control_forget(req->mac);
+    req->succeeded = req->disconnect ? bt_control_disconnect(req->mac) : bt_control_forget(req->mac);
     atomic_store_explicit(&bt_forget_done_flag, true, memory_order_release); /* written last -- poll_bt_forget only checks this flag */
     return NULL;
 }
 
-static void start_bt_forget(const char * mac) {
+static void start_bt_forget(const char * mac, bool disconnect) {
     if (bt_forget_active) return;
     gui_shell_cancel_bt_reconnect();
     bt_forget_request_t * req = malloc(sizeof(*req));
     if (!req) return;
     snprintf(req->mac, sizeof(req->mac), "%s", mac);
+    req->disconnect = disconnect;
     bt_forget_pending_req = req;
 
     atomic_store_explicit(&bt_forget_done_flag, false, memory_order_relaxed);
@@ -169,8 +177,11 @@ void poll_bt_forget(void) {
          * have observed the device before Forget completed. Invalidate that
          * positive snapshot before changing the remembered preference. */
         gui_shell_cancel_bt_reconnect();
-        bt_clear_snapshot_state_for_mac(bt_forget_pending_req->mac);
-        if (strcasecmp(current_settings.bt_last_output_mac, bt_forget_pending_req->mac) == 0) {
+        if (bt_forget_pending_req->disconnect)
+            bt_apply_connection_result_to_snapshot(bt_forget_pending_req->mac, false);
+        else bt_clear_snapshot_state_for_mac(bt_forget_pending_req->mac);
+        if (!bt_forget_pending_req->disconnect &&
+            strcasecmp(current_settings.bt_last_output_mac, bt_forget_pending_req->mac) == 0) {
             current_settings.bt_last_output_mac[0] = '\0';
             settings_save_async(&current_settings);
         }
@@ -184,8 +195,11 @@ void poll_bt_forget(void) {
  * Displays an action popup offering Connect or Forget based on the device's
  * current paired/connected state. */
 static gui_popup_t bt_action_popup;
+static gui_popup_t bt_forget_popup;
+static char bt_forget_mac[18];
+static bool bt_action_disconnect;
+static lv_obj_t * bt_action_connect_label;
 static lv_obj_t * bt_action_popup_title;
-static lv_obj_t * bt_action_connect_row;
 static lv_obj_t * bt_action_forget_row;
 static char bt_action_popup_device_mac[18] = "";
 
@@ -216,19 +230,24 @@ static void bt_action_connect_cb(lv_event_t * e) {
     char mac[18];
     if (!bt_action_take_mac(mac)) return;
     gui_shell_cancel_bt_reconnect();
-    start_bt_connect(mac);
+    if (bt_action_disconnect) start_bt_forget(mac, true);
+    else start_bt_connect(mac);
 }
 
+static void bt_forget_confirm_cb(lv_event_t * e) {
+    (void) e;
+    gui_popup_hide(&bt_forget_popup);
+    start_bt_forget(bt_forget_mac, false);
+}
 static void bt_action_forget_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    char mac[18];
-    if (!bt_action_take_mac(mac)) return;
-    start_bt_forget(mac);
+    if (!bt_action_take_mac(bt_forget_mac)) return;
+    gui_popup_confirm(&bt_forget_popup, TR("Forget this device?"), NULL, TR("Forget"), bt_forget_confirm_cb);
 }
 
 static void build_bt_action_popup(void) {
-    bt_action_popup.popup = build_confirm_popup("", LV_LABEL_LONG_DOT, &bt_action_popup_title, NULL, TR("Connect"),
-                                                 accent_lv_color(), bt_action_connect_cb, &bt_action_connect_row, TR("Forget"),
+    bt_action_popup.popup = build_confirm_popup_with_labels("", LV_LABEL_LONG_DOT, &bt_action_popup_title, NULL, NULL, TR("Connect"), &bt_action_connect_label,
+                                                 accent_lv_color(), bt_action_connect_cb, NULL, TR("Forget"),
                                                  lv_color_hex(GUI_BREEZE_NEGATIVE), bt_action_forget_cb, &bt_action_forget_row,
                                                  bt_action_popup_backdrop_cb, &bt_action_popup.backdrop);
 }
@@ -240,17 +259,9 @@ static void show_bt_action_popup(int index) {
 
     lv_label_set_text(bt_action_popup_title, dev->name[0] != '\0' ? dev->name : dev->mac);
 
-    /* Connect makes sense unless already connected. Forget makes sense for
-     * anything paired OR connected (the "OR connected" is just a safety net
-     * -- a connected-but-somehow-not-paired device shouldn't be able to land
-     * on a popup with neither action available). */
-    bool show_connect = !dev->connected;
+    bt_action_disconnect = dev->connected;
+    lv_label_set_text(bt_action_connect_label, dev->connected ? TR("Disconnect") : TR("Connect"));
     bool show_forget = dev->paired || dev->connected;
-    /* No manual reposition needed -- bt_action_popup's rows are flex-column
-     * children now (build_confirm_popup()), so hiding one lets the other
-     * reflow up to take its place automatically. */
-    if (show_connect) lv_obj_remove_flag(bt_action_connect_row, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(bt_action_connect_row, LV_OBJ_FLAG_HIDDEN);
     if (show_forget) lv_obj_remove_flag(bt_action_forget_row, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(bt_action_forget_row, LV_OBJ_FLAG_HIDDEN);
 
@@ -452,10 +463,12 @@ static void start_bt_scan(bool inquiry) {
     atomic_store_explicit(&bt_scan_done_flag, false, memory_order_relaxed);
     bt_scan_active = true;
     set_bt_rescan_active(true);
+    populate_bt_screen();
 
     if (pthread_create(&bt_scan_thread, NULL, bt_scan_thread_func, NULL) != 0) {
         bt_scan_active = false;
         set_bt_rescan_active(false);
+        populate_bt_screen();
     }
 }
 
@@ -877,7 +890,7 @@ void populate_bt_screen(void) {
     /* Nothing changed: keep the rows (and any press on them) in place. A
      * different or emptied list always rebuilds. A touch in progress defers
      * the rebuild; the signature stays stale so the next refresh does it. */
-    uint64_t signature = bt_screen_signature(powered);
+    uint64_t signature = bt_screen_signature(powered) ^ ((uint64_t)(bt_scan_active && bt_scan_want_inquiry) << 63);
     bool same_list = bt_list == last_list && lv_obj_get_child_count(bt_list) == last_child_count;
     if (same_list && signature == last_signature) return;
     if (same_list && network_list_touch_active(bt_list)) return;
@@ -905,7 +918,8 @@ void populate_bt_screen(void) {
         build_list_message(bt_list, TR("No paired devices"), TR("Previously connected accessories will appear here."));
     }
 
-    add_section_header(bt_list, TR("Available Devices"));
+    add_section_header(bt_list, bt_scan_active && bt_scan_want_inquiry
+                       ? TR("Scanning for devices") : TR("Available Devices"));
     if (add_bt_device_section(false) == 0) {
         build_list_message(bt_list, TR("No nearby devices"), TR("Make an accessory discoverable, then tap Rescan."));
     }
@@ -972,6 +986,7 @@ void gui_network_bt_build(void) {
 
 void gui_network_bt_teardown(void) {
     gui_popup_teardown(&bt_action_popup);
+    gui_popup_teardown(&bt_forget_popup);
     network_delete_screen(&bt_screen);
     network_delete_screen(&bt_codec_screen);
     network_delete_screen(&bt_advanced_screen);

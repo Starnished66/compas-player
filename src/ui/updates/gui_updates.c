@@ -392,7 +392,7 @@ static void ota_offer_download_cb(lv_event_t * e) {
 static void ota_install_later_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_popup_hide(&ota_install_popup);
-    show_info_toast(TR("Update saved. Connect to Wi-Fi, then install from Firmware Update > Install from SD card."));
+    show_info_toast(TR("Update saved. Install from Firmware Update > Install from SD card."));
     firmware_ota_reset();
 }
 

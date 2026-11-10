@@ -422,7 +422,7 @@ static bool subsonic_browse_poll_waiting(void) {
         http_cancel_token_cancel(&subsonic_browse_cancel);
         gui_busy_hide(subsonic_browse_token);
         subsonic_browse_token = 0;
-        show_error_toast(TR("Server request timed out after 30 seconds"));
+        show_error_toast(TR("The server did not answer"));
         /* Keep the worker and its buffers alive; a later poll reaps it. */
         return true;
     }

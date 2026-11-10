@@ -555,7 +555,7 @@ void poll_usb_audio_output(void) {
     bool connected = current_settings.usb_mode != USB_MODE_DAC &&
                       usb_audio_output_is_connected(alsa_device, sizeof(alsa_device));
 
-    if (connected && !was_connected) show_error_toast(TR("USB audio device detected"));
+    if (connected && !was_connected) show_info_toast(TR("USB audio device detected"));
     was_connected = connected;
 
     audio_set_usb_output(connected, alsa_device);

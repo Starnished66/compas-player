@@ -391,7 +391,7 @@ static void populate_dlna_screen(void) {
     add_pill_toggle_row(dlna_list, TR("DLNA Renderer"), current_settings.dlna_renderer_enabled, dlna_toggle_cb);
 
     add_network_explanation(dlna_list,
-                      TR("When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network -- cast "
+                      TR("When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network. Cast "
                       "a track from one to play it here. Pause, mute, volume, and seek from the controller app "
                       "aren't supported; use this device's own controls instead once a track starts."));
 }

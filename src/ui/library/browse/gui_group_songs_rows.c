@@ -557,6 +557,10 @@ static void group_songs_rows_header(bool editing, bool album_layout) {
             build_list_message(group_songs_list, TR("Loading tracks…"), NULL);
         else if (group_songs_edit_m3u_path)
             build_list_message(group_songs_list, TR("Playlist is empty"), TR("Add songs from a song menu."));
+        else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_FAVORITES)
+            build_list_message(group_songs_list, TR("No favorites yet"), TR("Tap the heart on a song to keep it here."));
+        else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_MOST_PLAYED)
+            build_list_message(group_songs_list, TR("No plays yet"), TR("Songs you play most will appear here."));
         else
             build_list_message(group_songs_list, TR("No tracks found"), TR("Refresh the music database to update this list."));
     }

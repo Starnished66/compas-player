@@ -104,7 +104,7 @@ static void open_text_reader(const char * path) {
         char * buf = malloc(strlen(text_reader_current_content) + 256);
         if (buf) {
             snprintf(buf, strlen(text_reader_current_content) + 256,
-                     TR("[File truncated at %d KB -- showing the first part only]\n\n%s"),
+                     TR("[File truncated at %d KB; showing the first part only]\n\n%s"),
                      TEXT_READER_MAX_BYTES / 1024, text_reader_current_content);
             free(text_reader_current_content);
             text_reader_current_content = buf;

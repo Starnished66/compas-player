@@ -63,7 +63,7 @@ static lv_obj_t * build_toast(lv_obj_t ** out_label, int32_t width, int32_t y_of
     lv_obj_align(toast, LV_ALIGN_CENTER, 0, y_offset);
     lv_obj_set_style_radius(toast, 16, 0);
     lv_obj_set_style_border_width(toast, 0, 0);
-    lv_obj_remove_flag(toast, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(toast, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(toast, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t * label = lv_label_create(toast);

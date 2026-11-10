@@ -575,7 +575,7 @@ static void wifi_setup_render(void) {
         goto restore_scroll;
     }
     if (wifi_scan_active || (!wifi_setup_scan_finished && wifi_setup_scan_started)) {
-        build_list_message(parent, TR("Searching for networks"), TR("This can take a few seconds."));
+        build_list_message(parent, TR("Searching for networks"), TR("This may take a while."));
         goto restore_scroll;
     }
     if (wifi_scan_result_count == 0) {

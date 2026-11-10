@@ -506,7 +506,7 @@ typedef struct {
     /* False only on a fresh install or unfinished first-run setup. */
     bool setup_complete;
     bool setup_intro_played; /* Reset with settings; prevents replay during setup. */
-    int setup_step; /* Persisted IDs: 0 welcome, 1 language, 2 timezone, 3 Wi-Fi, 4 plugins, 5 scan, 6 complete, 7 layout; retained across restarts. */
+    int setup_step; /* Persisted IDs: 0 welcome, 1 language, 2 timezone, 3 Wi-Fi, 4 plugins, 5 scan, 6 complete, 7 layout, 8 gestures; retained across restarts. */
     /* Choices staged during first-run setup. Stored separately so restarting
      * at the scan step does not discard plugin or layout selections. */
     char setup_plugin_ids[SETTINGS_SETUP_PLUGIN_MAX][SETTINGS_SETUP_PLUGIN_ID_MAX];
