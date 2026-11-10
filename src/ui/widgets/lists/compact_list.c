@@ -67,6 +67,7 @@ typedef struct {
     lv_obj_t * trailing_images[COMPACT_LIST_POOL_SIZE];
     lv_obj_t * subtitle_labels[COMPACT_LIST_POOL_SIZE];
     lv_obj_t * action_circles[COMPACT_LIST_POOL_SIZE];
+    bool row_is_section_header[COMPACT_LIST_POOL_SIZE];
     void * row_ctx[COMPACT_LIST_POOL_SIZE]; /* opaque to this struct, freed alongside it -- see compact_list_row_ctx_t below */
     int row_logical_index[COMPACT_LIST_POOL_SIZE]; /* item currently represented by each recycled slot; -1 when unused */
     uint64_t row_artwork_key[COMPACT_LIST_POOL_SIZE]; /* artwork key of the item in each slot; 0 when none */
@@ -508,7 +509,7 @@ static void compact_list_fit_image_box(lv_obj_t * image) {
 static bool compact_list_run_row_decorator(lv_obj_t * list, compact_list_virtual_data_t * data,
                                             int slot, int index, int64_t identity,
                                             uint64_t artwork_key, const char * artwork_name,
-                                            bool is_action) {
+                                            bool is_action, bool is_section_header) {
     lv_obj_t * row = data->rows[slot];
     lv_obj_t * image = data->leading_images[slot];
     const void * picture = lv_image_get_src(image);
@@ -520,6 +521,9 @@ static bool compact_list_run_row_decorator(lv_obj_t * list, compact_list_virtual
     }
     if (is_action) {
         lv_idem_set_pad_left(row, BOARD_SCALE_PX(100));
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+    } else if (is_section_header) {
+        lv_idem_set_pad_left(row, LIST_ROW_LABEL_INSET);
         lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
     }
     bool hidden = lv_obj_has_flag(image, LV_OBJ_FLAG_HIDDEN);
@@ -593,7 +597,7 @@ static uint32_t compact_list_hash_str(uint32_t h, const char * str) {
 }
 
 static uint32_t compact_list_row_hash(const char * label, int64_t identity, const char * trailing,
-                                      const char * subtitle, bool is_action,
+                                      const char * subtitle, bool is_action, bool is_section_header,
                                       uint64_t artwork_key, const char * artwork_name,
                                       const void * decorator, const void * decorator_ctx) {
     uint32_t h = 2166136261u;
@@ -606,7 +610,7 @@ static uint32_t compact_list_row_hash(const char * label, int64_t identity, cons
     /* What the row decorator is wired to also decides how the row is painted. */
     h = (h ^ (uint32_t) (uintptr_t) decorator) * 16777619u;
     h = (h ^ (uint32_t) (uintptr_t) decorator_ctx) * 16777619u;
-    return (h ^ (is_action ? 1u : 0u)) * 16777619u;
+    return (h ^ (is_action ? 1u : 0u) ^ (is_section_header ? 2u : 0u)) * 16777619u;
 }
 
 static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_data_t * data) {
@@ -660,6 +664,7 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
         const char * trailing_asset = NULL;
         const char * subtitle = NULL;
         bool is_action = false;
+        bool is_section_header = false;
         uint64_t artwork_key = 0;
         const char * artwork_name = NULL;
         if (data->fetch_page) {
@@ -680,6 +685,7 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
             trailing_asset = info->trailing_asset[0] ? info->trailing_asset : NULL;
             subtitle = info->subtitle[0] ? info->subtitle : NULL;
             is_action = info->is_action;
+            is_section_header = info->is_section_header;
             artwork_key = info->artwork_key;
             artwork_name = info->artwork_name[0] ? info->artwork_name : NULL;
         } else {
@@ -688,11 +694,12 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
             trailing_asset = data->items[index].trailing_asset;
             subtitle = data->items[index].subtitle;
             is_action = data->items[index].is_action;
+            is_section_header = data->items[index].is_section_header;
             artwork_key = data->items[index].artwork_key;
             artwork_name = data->items[index].artwork_name;
         }
         uint32_t content_hash = compact_list_row_hash(label, identity, trailing_asset, subtitle,
-                                                      is_action, artwork_key, artwork_name,
+                                                      is_action, is_section_header, artwork_key, artwork_name,
                                                       (const void *) data->row_decorator,
                                                       data->row_decorator_ctx);
         /* A landed fetch repaints the whole window, but a row that already
@@ -720,9 +727,23 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
          * default first would only change the layout twice. */
         if (!data->row_decorator) lv_idem_set_pad_left(row, LIST_ROW_LABEL_INSET);
         compact_list_run_row_decorator(list, data, slot, index, identity,
-                                       artwork_key, artwork_name, is_action);
+                                       artwork_key, artwork_name, is_action, is_section_header);
         lv_obj_remove_style(row, &style_theme_card_bg, 0);
         if (is_action) lv_obj_add_style(row, &style_theme_card_bg, 0);
+        if (data->row_is_section_header[slot] != is_section_header) {
+            data->row_is_section_header[slot] = is_section_header;
+            if (is_section_header) {
+                lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+                lv_obj_set_style_border_width(row, 0, 0);
+                lv_obj_add_style(row, &style_theme_text_muted, 0);
+                lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            } else {
+                lv_obj_remove_style(row, &style_theme_text_muted, 0);
+                lv_obj_remove_local_style_prop(row, LV_STYLE_BG_OPA, 0);
+                lv_obj_remove_local_style_prop(row, LV_STYLE_BORDER_WIDTH, 0);
+                lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+            }
+        }
         /* Identity details use two lines on music rows. Reset on every
          * recycled slot so the selector/single-line rows retain centering.
          * Uses data->row_height and LIST_ROW_FONT directly rather than querying
@@ -1131,6 +1152,7 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
 
     for (int slot = 0; slot < COMPACT_LIST_POOL_SIZE; slot++) {
         data->action_circles[slot] = NULL;
+        data->row_is_section_header[slot] = false;
         lv_obj_t * row = lv_label_create(list);
         lv_obj_add_style(row, &list_row_style, 0);
         lv_obj_add_style(row, &list_row_pressed_style, LV_STATE_PRESSED);
@@ -1362,6 +1384,7 @@ void compact_list_refresh_decorations_for(lv_obj_t * list, compact_list_key_matc
         uint64_t artwork_key = 0;
         const char * artwork_name = NULL;
         bool is_action = false;
+        bool is_section_header = false;
         bool row_data_available = true;
         if (data->fetch_page) {
             int cache_idx = index - data->cache_start;
@@ -1373,12 +1396,14 @@ void compact_list_refresh_decorations_for(lv_obj_t * list, compact_list_key_matc
                 artwork_key = info->artwork_key;
                 artwork_name = info->artwork_name[0] ? info->artwork_name : NULL;
                 is_action = info->is_action;
+                is_section_header = info->is_section_header;
             }
         } else {
             identity = data->items[index].identity;
             artwork_key = data->items[index].artwork_key;
             artwork_name = data->items[index].artwork_name;
             is_action = data->items[index].is_action;
+            is_section_header = data->items[index].is_section_header;
         }
 
         if (!row_data_available) {
@@ -1395,7 +1420,7 @@ void compact_list_refresh_decorations_for(lv_obj_t * list, compact_list_key_matc
         }
         data->row_artwork_key[slot] = artwork_key;
         if (compact_list_run_row_decorator(list, data, slot, index, identity,
-                                           artwork_key, artwork_name, is_action))
+                                           artwork_key, artwork_name, is_action, is_section_header))
             data->image_repaint[slot] = true;
         compact_list_align_row_decoration(data, slot, is_action);
     }

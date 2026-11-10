@@ -80,6 +80,8 @@ static void bt_output_menu_build(void) {
                                         (void *)(intptr_t)-2 };
     bt_output_menu_popup = build_menu_popup(rows, count, bt_output_menu_backdrop_cb,
                                             &bt_output_menu_backdrop);
+    lv_obj_remove_flag(bt_output_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(bt_output_menu_popup, LV_OBJ_FLAG_HIDDEN);
 }
 
 void gui_network_bt_open_output_menu(void) {

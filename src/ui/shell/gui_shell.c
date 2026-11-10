@@ -235,8 +235,6 @@ void gui_shell_init(uint32_t screen_width, uint32_t screen_height) {
 }
 void gui_shell_poll(void) {
     quick_drawer_poll_snapshot_wake();
-    gui_home_update_mini_player();
-    quick_drawer_refresh_output_state();
     poll_wifi_status();
     poll_wifi_status_screen_off();
     poll_usb_audio_output();

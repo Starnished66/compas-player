@@ -696,7 +696,7 @@ void open_quick_drawer(void) {
     }
     if (quick_drawer_open) return;
     quick_drawer_open = true;
-    quick_drawer_request_output_name_snapshot_if_needed();
+    quick_drawer_refresh_output_state();
     refresh_quick_drawer_brightness(); /* see its own comment -- keeps the slider from showing a stale pre-screen-off value */
     quick_drawer_refresh_volume();
     /* Customization can move expanded controls into the collapsed row.

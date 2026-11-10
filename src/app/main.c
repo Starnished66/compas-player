@@ -7,6 +7,8 @@
 #include "../audio/visualization/waveform.h"
 #include "../hardware/indicators/backlight.h"
 #include "../library/metadata/parsing/metadata.h"
+#include "../library/metadata/scan/library_scan.h"
+#include "../ui/effects/transition_compositor.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
@@ -936,6 +938,14 @@ int main(int argc, char ** argv) {
          * still carries every pause/resume/ready rule (screen off, RAM-stage,
          * lyrics barrier): it is only rendered when it is not paused. */
         uint32_t now_tick = custom_tick_get();
+        /* Ignore perpetual spinners/marquees: only interaction should defer scans. */
+        bool ui_active = lv_display_get_inactive_time(disp) < 50 ||
+                         gui_navigation_transition_in_progress() || transition_compositor_is_active();
+        for (lv_indev_t *input = lv_indev_get_next(NULL); input; input = lv_indev_get_next(input))
+            ui_active |= lv_indev_get_state(input) == LV_INDEV_STATE_PRESSED ||
+                         lv_indev_get_scroll_obj(input) != NULL;
+        if (ui_active)
+            atomic_store_explicit(&library_scan_last_ui_activity_ms, now_tick, memory_order_relaxed);
         lv_timer_t * refr_timer = lv_display_get_refr_timer(disp);
         /* Never more than one render per refresh period, whatever woke the
          * loop (a flood of worker notifies) and whether or not the pan blocks. */
@@ -1030,6 +1040,7 @@ int main(int argc, char ** argv) {
                     fprintf(stderr, "Touch input: descriptor error, removing device\n");
                     lv_evdev_delete(event_touch);
                 } else if ((ready & UI_WAKE_TOUCH) && event_touch) {
+                    atomic_store_explicit(&library_scan_last_ui_activity_ms, input_tick, memory_order_relaxed);
                     lv_indev_read(event_touch);
                     /* Explicitly preserve stationary long presses. LVGL also
                      * resumes this timer in its pointer press handler. */

@@ -1057,17 +1057,15 @@ static void artists_tile_cb(lv_event_t * e) {
 }
 
 void gui_library_open_albums(void) {
-    /* metadata_db_get_group_counts() is a real DB query, worth skipping
-     * outright (not just leaving DB_LOG to no-op on the result) since this
-     * runs on every ordinary tap into Albums, not just during a scan. */
+    /* The list's initial page is fetched asynchronously by the compact-list
+     * provider. Keep diagnostics from putting a full group-count query back
+     * on the UI thread before the screen push. */
     if (db_log_enabled()) {
-        int artist_count = 0, album_artist_count = 0, album_count = 0;
-        metadata_db_get_group_counts(&artist_count, &album_artist_count, &album_count);
         library_thumbnails_note_album_page_open();
         library_thumbnail_status_t thumb_status;
         library_thumbnails_get_status(&thumb_status);
-        DB_LOG("ALBUMS_PAGE", "open_requested albums=%d cache_worker_active=%d lazy_active=%d rss_kb=%ld",
-               album_count, (int) thumb_status.warmup_active,
+        DB_LOG("ALBUMS_PAGE", "open_requested cache_worker_active=%d lazy_active=%d rss_kb=%ld",
+               (int) thumb_status.warmup_active,
                (int) thumb_status.lazy_active,
                db_log_rss_kb());
     }

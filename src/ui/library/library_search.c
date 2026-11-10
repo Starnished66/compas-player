@@ -535,7 +535,7 @@ static void search_apply_results_to_list(search_binding_t * b, const metadata_db
             memcpy(owned_subtitles[i], result->subtitle, sizeof(owned_subtitles[i]));
             items[i] = (compact_list_item_t){
                 .label = labels[i], .subtitle = owned_subtitles[i][0] ? owned_subtitles[i] : NULL,
-                .is_action = result->kind == LIBRARY_GLOBAL_HEADING,
+                .is_section_header = result->kind == LIBRARY_GLOBAL_HEADING,
                 .identity = result->identity, .artwork_key = result->artwork_key,
                 .artwork_name = result->artwork_name[0] ? labels[i] : NULL
             };
@@ -869,7 +869,8 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
         search_restore_list_geometry(b->list);
     }
 
-    compact_list_set_empty_heading(b->list, NULL);
+    compact_list_set_empty_heading(b->list,
+        b->id == SEARCH_BINDING_GLOBAL ? TR("Type to search") : NULL);
 
     /* Eager search rows can point into filtered_labels. Drop those rows
      * before releasing the labels, including for a hidden overlay list. */

@@ -11,6 +11,7 @@ typedef struct {
     const char * trailing_asset;   /* optional theme-relative badge asset */
     const char * subtitle;         /* optional; same borrowed lifetime as label */
     bool is_action;                /* explicit action affordance, not a song */
+    bool is_section_header;
     uint64_t artwork_key;           /* optional stable thumbnail key, separate from row identity */
     const char * artwork_name;      /* optional artist name for artist-image resolution */
 } compact_list_item_t;
@@ -26,6 +27,7 @@ typedef struct {
     char trailing_asset[64];
     char subtitle[256];
     bool is_action;
+    bool is_section_header;
     uint64_t artwork_key;
     char artwork_name[128];
     uint64_t aux_key;               /* provider-owned (0 by default): what compact_list_rederive_cached() needs to recompute the row */

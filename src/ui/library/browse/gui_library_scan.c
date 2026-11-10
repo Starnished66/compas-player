@@ -383,9 +383,9 @@ static void report_library_cache_load(void) {
     }
 }
 
-/* Keep the metadata scan worker at its existing background priority. The
- * thumbnail component has its own private copy for its three independent
- * worker lifetimes. */
+/* Keep scans behind interactive UI and playback work. The thumbnail
+ * component has its own private copy for its three independent worker
+ * lifetimes. */
 static void library_worker_lower_priority(int nice_value) {
 #ifdef __linux__
     errno = 0;
@@ -402,7 +402,7 @@ static void * library_rescan_thread_func(void * arg) {
 #ifdef __linux__
     struct sched_param sp = { 0 };
     sched_setscheduler(0, SCHED_BATCH, &sp);
-    library_worker_lower_priority(5);
+    library_worker_lower_priority(19);
 #endif
     (void)arg;
     uint64_t started_ms = db_log_enabled() ? db_log_now_ms() : 0;

@@ -70,6 +70,10 @@ void quick_drawer_mark_snapshot_dirty(void);
 void gui_shell_refresh_theme_colors(void);
 /* The drawer's control-row surface, shared with the volume popup. */
 lv_style_t * gui_shell_drawer_row_style(void);
+/* Bluetooth icon when audio goes to Bluetooth, otherwise wired_src. */
+const char * gui_shell_output_icon_src(const char * wired_src);
+/* Status-bar icon path for name in the active icon set. */
+const char * topbar_icon(const char * name);
 /* Frees the drawer's cached full-screen frames; quick_drawer_mark_snapshot_dirty()
  * rebuilds them. Used before an emulator runs. */
 void gui_shell_release_memory_for_external_session(void);

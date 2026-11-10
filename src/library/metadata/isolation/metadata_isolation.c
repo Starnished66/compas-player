@@ -162,6 +162,9 @@ bool metadata_read_isolated(const char * path, track_metadata_t * out, int timeo
 
     if (pid == 0) {
         close(pipefd[0]);
+        /* Parser children do substantial decoder work. Explicitly retain the
+         * scan's background priority even if this API is called elsewhere. */
+        (void)setpriority(PRIO_PROCESS, 0, 19);
         track_metadata_t result;
         metadata_read_scan_tags(path, &result);
         size_t written = 0;

@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include "../db/metadata_db.h"
 
 typedef enum {
@@ -77,3 +78,6 @@ void library_scan_reset_progress(void);
 void library_scan_request_cancel(void);
 void library_scan_reset_cancel(void);
 bool library_scan_cancel_pending(void);
+
+/* Monotonic milliseconds, published by the UI thread during interaction. */
+extern _Atomic uint32_t library_scan_last_ui_activity_ms;

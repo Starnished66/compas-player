@@ -479,69 +479,29 @@ static void quick_drawer_build_car_mode_toggle(int32_t x, int32_t row_y) {
 }
 
 static void quick_drawer_output_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     quick_drawer_dismiss_for_navigation();
     gui_network_bt_open_output_menu();
 }
 
-static void quick_drawer_build_output_tile(void) {
-    quick_drawer_output_icon = lv_image_create(quick_drawer_expansion_box);
-    quick_drawer_set_toggle_image(quick_drawer_output_icon, topbar_icon("audio_lines"));
-    lv_obj_add_flag(quick_drawer_output_icon, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(quick_drawer_output_icon, quick_drawer_output_event_cb, LV_EVENT_CLICKED, NULL);
-    quick_drawer_output_name = lv_label_create(quick_drawer_expansion_box);
-    lv_obj_add_style(quick_drawer_output_name, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(quick_drawer_output_name, fallback_font_ui_12(), 0);
-    lv_obj_set_style_text_align(quick_drawer_output_name, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(quick_drawer_output_name, TR("Output"));
-    lv_obj_add_flag(quick_drawer_output_name, LV_OBJ_FLAG_HIDDEN);
-    quick_drawer_output_state = lv_label_create(quick_drawer_expansion_box);
-    lv_obj_add_style(quick_drawer_output_state, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(quick_drawer_output_state, fallback_font_ui_12(), 0);
-    lv_obj_set_style_text_color(quick_drawer_output_state, shell_drawer_off_color, 0);
-    lv_obj_set_style_text_align(quick_drawer_output_state, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(quick_drawer_output_state, LV_LABEL_LONG_DOT);
-    lv_obj_add_flag(quick_drawer_output_state, LV_OBJ_FLAG_HIDDEN);
-    quick_drawer_refresh_output_state();
-}
-
-void quick_drawer_refresh_output_state(void) {
-    if (!quick_drawer_output_state) return;
+const char * gui_shell_output_icon_src(const char * wired_src) {
 #ifdef HOST_BUILD
     bool bluetooth_route = gui_shell_is_bt_audio_connected();
-    const char * text = bluetooth_route ? TR("Bluetooth") : TR("Wired");
 #else
     audio_output_info_t info;
     audio_output_get_info(&info);
     audio_output_route_t route = info.active ? info.route : info.requested_route;
     bool bluetooth_route = route == AUDIO_OUTPUT_ROUTE_BLUETOOTH;
-    const char * text = route == AUDIO_OUTPUT_ROUTE_USB ? TR("USB output") :
-                        bluetooth_route ? TR("Bluetooth") : TR("Wired");
 #endif
-    char bluetooth_name[64] = "";
-    if (bluetooth_route) {
-        char active_mac[18];
-        gui_shell_bt_output_device_t devices[32];
-        if (gui_shell_get_bt_audio_device_mac(active_mac, sizeof(active_mac))) {
-            int count = gui_shell_get_bt_output_devices(devices, 32);
-            for (int i = 0; i < count; ++i) {
-                if (strcmp(devices[i].mac, active_mac) == 0 && devices[i].name[0]) {
-                    snprintf(bluetooth_name, sizeof(bluetooth_name), "%s", devices[i].name);
-                    text = bluetooth_name;
-                    break;
-                }
-            }
-        }
-    }
-    if (!ui_label_text_matches(quick_drawer_output_state, text))
-        lv_label_set_text(quick_drawer_output_state, text);
+    return bluetooth_route ? topbar_icon("bluetooth") : wired_src;
 }
 
-void quick_drawer_request_output_name_snapshot_if_needed(void) {
-    if (!gui_shell_is_bt_audio_connected()) return;
-    gui_shell_bt_output_device_t device;
-    if (gui_shell_get_bt_output_devices(&device, 1) < 0)
-        gui_shell_request_bt_output_devices();
+void quick_drawer_refresh_output_state(void) {
+    if (!quick_drawer_volume_icon) return;
+    const char * src = gui_shell_output_icon_src(asset_path("volume/vol.png"));
+    const char * current = lv_image_get_src(quick_drawer_volume_icon);
+    if (!current || strcmp(current, src) != 0)
+        lv_image_set_src(quick_drawer_volume_icon, src);
 }
 
 static void quick_drawer_build_plugin_toggle(int plugin_index, int32_t x, int32_t row_y) {
@@ -569,7 +529,6 @@ static void quick_drawer_build_expansion_row3(void) {
         if (i == 0) quick_drawer_build_car_mode_toggle(x, row_y);
         else quick_drawer_build_plugin_toggle(i - 1, x, row_y);
     }
-    quick_drawer_build_output_tile();
 }
 
 static void quick_drawer_set_expansion_full_height(void) {
@@ -683,6 +642,8 @@ static void quick_drawer_build_volume_row(int32_t brightness_track_w, int32_t sl
         asset_path("volume/vol.png"), BOARD_SCALE_PY(375), BOARD_SCALE_PY(346));
     lv_obj_add_flag(quick_drawer_volume_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(quick_drawer_volume_icon, quick_drawer_open_eq_cb, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(quick_drawer_volume_icon, quick_drawer_output_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    quick_drawer_refresh_output_state();
     quick_drawer_volume_track = quick_drawer_create_slider(
         brightness_track_w, BOARD_SCALE_PY(388), BOARD_SCALE_PY(354));
     lv_obj_add_event_cb(quick_drawer_volume_track, quick_drawer_volume_event_cb, LV_EVENT_ALL, NULL);

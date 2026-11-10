@@ -48,6 +48,18 @@ static atomic_int scan_progress_done = 0;
 static atomic_int scan_progress_walk_items = 0;
 static atomic_int scan_progress_phase = LIBRARY_SCAN_PHASE_WALK;
 static atomic_bool scan_cancel_requested = false;
+_Atomic uint32_t library_scan_last_ui_activity_ms = 0;
+
+/* Leave SD I/O quiet until interaction settles; cancellation waits at most 20 ms. */
+static bool scan_wait_for_ui(void) {
+    while (!atomic_load_explicit(&scan_cancel_requested, memory_order_acquire)) {
+        uint32_t last = atomic_load_explicit(&library_scan_last_ui_activity_ms, memory_order_relaxed);
+        if (!last || (uint32_t)((uint32_t)db_log_now_ms() - last) >= 300) return true;
+        usleep(20000);
+    }
+    return false;
+}
+
 
 /* Written before parsing each song so main.c's signal handler can include the
  * current path in crash diagnostics. This stays a plain global because the
@@ -247,6 +259,7 @@ static bool library_scan_unchanged_fast_path(int spool_fd, int root_fd, int disc
     bool unchanged = true;
     char path[PATH_MAX];
     for (int i = 0; i < discovered_count; i++) {
+        if (!scan_wait_for_ui()) { unchanged = false; break; }
         struct stat st;
         cached_tags_t cached;
         char actual[PATH_MAX];
@@ -372,6 +385,7 @@ static scan_song_result_t scan_song_stat_into_db(const char * path, const char *
      * can report the specific file being parsed if an unhandled signal occurs. */
     snprintf(g_scan_last_path, sizeof(g_scan_last_path), "%s", path);
 
+    if (!scan_wait_for_ui()) return SCAN_SONG_FAILED;
     track_metadata_t meta;
     if (!metadata_read_isolated(path, &meta, LIBRARY_SCAN_FILE_TIMEOUT_MS)) return SCAN_SONG_FAILED;
 
@@ -551,7 +565,7 @@ static void library_scan_targeted_once(void) {
     bool row_inserted = false;
     char actual_path[PATH_MAX];
     for (int done = 0; done < target_count; done++) {
-        if (atomic_load_explicit(&scan_cancel_requested, memory_order_acquire)) break;
+        if (!scan_wait_for_ui()) break;
         if (!sd_card_root_is_mounted() || !metadata_db_storage_current()) {
             update_ok = false;
             storage_lost = true;
@@ -664,7 +678,7 @@ static bool scan_spool_songs(FILE * spool, int root_fd, int count, bool force, b
     bool complete = true;
     char path[PATH_MAX];
     while (*done < count) {
-        if (atomic_load_explicit(&scan_cancel_requested, memory_order_acquire)) {
+        if (!scan_wait_for_ui()) {
             complete = false;
             break;
         }
