@@ -646,6 +646,7 @@ lv_obj_t * add_pill_letter_toggle_row(lv_obj_t * parent, const char * label_text
 typedef void (*gui_option_selected_cb_t)(unsigned selected);
 lv_obj_t * add_pill_option_menu_row(lv_obj_t * parent, const char * title,
     const char * options, unsigned selected, gui_option_selected_cb_t callback);
+void gui_option_menu_open(lv_obj_t * row);
 void gui_option_menu_set_selected(lv_obj_t * row, unsigned selected);
 bool gui_option_menu_close(void);
 

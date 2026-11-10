@@ -254,7 +254,11 @@ lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, 
     /* Some screens add their action after the shared header was built. */
     lv_obj_t * title = screen_header_title(scr);
     if (title) {
-        lv_obj_set_width(title, screen_builders_active_display_width() - BUILD_TITLE_LEFT_INSET - HEADER_BUTTON_WIDTH - V1_SCALE_PX(12));
+        int32_t available = screen_builders_active_display_width() - BUILD_TITLE_LEFT_INSET - HEADER_BUTTON_WIDTH - V1_SCALE_PX(12);
+        int32_t reserved = lv_obj_get_style_width(title, LV_PART_MAIN);
+        if (LV_COORD_IS_PX(reserved) && reserved > 0 && reserved < available)
+            available = reserved;
+        lv_obj_set_width(title, available);
         screen_title_fit(title);
     }
     return btn;

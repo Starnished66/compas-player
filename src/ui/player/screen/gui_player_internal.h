@@ -87,7 +87,6 @@ void player_count_row_reset(void);
 
 /* More menu and delete-song popup in gui_player_more_menu.c. */
 void build_delete_song_popup(void);
-void build_more_menu_popup(void);
 void more_icon_event_cb(lv_event_t * e);
 void player_more_menu_teardown(void);
 bool player_delete_song_popup_is_visible(void);

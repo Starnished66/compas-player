@@ -5,6 +5,7 @@
 #include "gui_folder_actions.h"
 #include "../../network/subsonic/gui_subsonic.h"
 #include "gui_album_header.h"
+#include "gui_album_view.h"
 #include "../../widgets/builders/gui_play_bar.h"
 #include "gui_artist_data.h"
 #include "gui_artist_page.h"
@@ -357,6 +358,11 @@ void open_add_to_playlist_for(const char * path) {
 
 void on_cue_file_selected(const char * cue_path);
 
+static void files_sort_cb(lv_event_t * e) {
+    (void)e;
+    gui_settings_open_sorting(true);
+}
+
 static lv_obj_t * build_files_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
@@ -367,6 +373,11 @@ static lv_obj_t * build_files_screen(void) {
     files_title_label = build_screen_header(scr, TR("Files"), files_header_back_cb, NULL, NULL);
     files_options_btn = build_top_right_icon_button(scr, asset_path("navigation/more.png"),
                                                     files_current_folder_options_cb);
+    lv_obj_t * sort = build_top_right_icon_button(scr, asset_path("breeze_rows/library_sorting.png"), files_sort_cb);
+    lv_obj_align(sort, LV_ALIGN_TOP_RIGHT, -2 * HEADER_BUTTON_WIDTH,
+                 STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
+    reserve_title_width_before(files_title_label, sort);
+
 
     file_browser_set_sort_reverse(current_settings.file_sort_reverse);
     file_browser_set_sort_mode((file_browser_sort_mode_t) current_settings.file_sort_mode);
@@ -465,16 +476,12 @@ void format_music_submenu_identity(const song_row_t * song, char * out, size_t o
 }
 
 static int effective_disc_number(const song_row_t * song) {
-    return song && song->tags.disc_number > 0 ? song->tags.disc_number : 1;
+    return gui_album_view_disc_number(song ? song->tags.disc_number : 0);
 }
 
 bool album_songs_are_multi_disc(const song_row_t * songs, int count) {
-    if (!songs || count <= 1) return false;
-    int first = effective_disc_number(&songs[0]);
-    for (int i = 1; i < count; i++) {
-        if (effective_disc_number(&songs[i]) != first) return true;
-    }
-    return false;
+    return gui_album_view_has_multiple_discs(songs, count, sizeof(*songs),
+        offsetof(song_row_t, tags) + offsetof(cached_tags_t, disc_number));
 }
 
 int cmp_song_disc_track(const void * a, const void * b) {
@@ -504,11 +511,25 @@ void set_album_disc_headers(const song_row_t * songs, int count,
 void gui_library_format_song_identity(const song_row_t * row,
                                       char * title, size_t title_size,
                                       char * subtitle, size_t subtitle_size) {
-    char artist[121], album[121];
     metadata_db_song_display_title(row, title, title_size);
-    utf8_truncate_safe(artist, row->tags.artist[0] ? row->tags.artist : TR("Unknown artist"), sizeof(artist));
-    utf8_truncate_safe(album, row->tags.album[0] ? row->tags.album : TR("Unknown album"), sizeof(album));
+    gui_library_format_artist_album_subtitle(row->tags.artist, row->tags.album, subtitle, subtitle_size);
+}
+
+void gui_library_format_artist_album_subtitle(const char * artist_name, const char * album_name,
+                                              char * subtitle, size_t subtitle_size) {
+    if (!subtitle || subtitle_size == 0) return;
+    char artist[121], album[121];
+    utf8_truncate_safe(artist, artist_name && artist_name[0] ? artist_name : TR("Unknown artist"), sizeof(artist));
+    utf8_truncate_safe(album, album_name && album_name[0] ? album_name : TR("Unknown album"), sizeof(album));
     snprintf(subtitle, subtitle_size, "%s · %s", artist, album);
+}
+
+int gui_library_collection_start_index(int count, bool shuffle) {
+    if (count <= 0 || !shuffle) return 0;
+    unsigned int value = (unsigned int) time(NULL) ^ lv_tick_get();
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd >= 0) { ssize_t n = read(fd, &value, sizeof(value)); (void) n; close(fd); }
+    return (int) (value % (unsigned int) count);
 }
 
 void fill_song_page_visual(compact_list_page_row_t * out, const song_row_t * row) {
@@ -606,11 +627,16 @@ static void search_refresh_now_playing(void) {
 
 static library_search_group_item_t group_songs_search_item(int index) {
     if (index < 0 || index >= group_songs_count) return (library_search_group_item_t){0};
-    return (library_search_group_item_t){
+    library_search_group_item_t item = {
         .path = group_songs_entries[index].path,
         .song_id = group_songs_entries[index].song_id,
         .artwork_key = group_songs_entries[index].artwork_key,
     };
+    song_row_t song;
+    char title[COMPACT_LIST_LABEL_MAX];
+    if (metadata_db_try_get_cached_song_by_path(item.path, &song))
+        gui_library_format_song_identity(&song, title, sizeof(title), item.subtitle, sizeof(item.subtitle));
+    return item;
 }
 
 /* Kept as the legacy ABI: Subsonic registers before gui_library_init(), so

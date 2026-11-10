@@ -1,4 +1,5 @@
 #include "gui_artist_page.h"
+#include "gui_album_view.h"
 #include "../../assets/gui_image_dsc.h"
 #include "gui_artist_data.h"
 #include "../library_thumbnails.h"
@@ -242,13 +243,6 @@ static bool fill_tiles(page_t * p, lv_obj_t * list) {
 }
 
 /* ---- Header -------------------------------------------------------------- */
-static void format_total(char * text, size_t size, double seconds) {
-    int minutes = (int) ((seconds + 30.0) / 60.0);
-    if (minutes < 1) minutes = 1;
-    if (minutes >= 60) snprintf(text, size, TR("%d hr %d min"), minutes / 60, minutes % 60);
-    else snprintf(text, size, TR("%d min"), minutes);
-}
-
 /* Text of a chip or label as it should be shown, from the facts. */
 static void summary_texts(const gui_artist_summary_t * s, char * genre, size_t genre_size,
                           char * year, size_t year_size, char * total, size_t total_size) {
@@ -259,7 +253,8 @@ static void summary_texts(const gui_artist_summary_t * s, char * genre, size_t g
         if (s->year_max > s->year_min) snprintf(year, year_size, "%d\xE2\x80\x93%d", s->year_min, s->year_max);
         else snprintf(year, year_size, "%d", s->year_min);
     }
-    if (s->duration_known && s->total_seconds > 0.0) format_total(total, total_size, s->total_seconds);
+    if (s->duration_known && s->total_seconds > 0.0)
+        gui_album_view_total_text(s->total_seconds, total, total_size);
 }
 
 static void set_hidden(lv_obj_t * o, bool hidden) {

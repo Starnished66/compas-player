@@ -2,7 +2,6 @@
 #include "../../text/i18n/i18n.h"
 #include "gui_album_header.h"
 #include "gui_album_view.h"
-#include "../../widgets/builders/gui_play_bar.h"
 #include "../../assets/assets.h"
 #include "../../../hardware/indicators/backlight.h"
 #include "../../../core/ui/display/ui_wake.h"
@@ -191,8 +190,7 @@ static void group_songs_add_plain_entry(int i, bool album_layout, bool was_bare)
     if (detail && detail[0]) group_song_row_show_detail(row, detail); /* as apply_group_probe_row() does */
 
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &group_song_row_long_press_fired);
-    lv_obj_add_event_cb(row, group_song_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
+    lv_obj_add_event_cb(row, group_song_row_click_cb, LV_EVENT_SHORT_CLICKED, (void *) (intptr_t) i);
     lv_obj_add_event_cb(row, group_song_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
 }
 
@@ -542,10 +540,8 @@ static void group_songs_rows_header(bool editing, bool album_layout) {
         gui_album_header_build(group_songs_list, &header);
     } else if (show_bar) {
         /* The track count above a Play / Shuffle pill pair (the same buttons as an album page). */
-        char count_text[48];
-        snprintf(count_text, sizeof(count_text), TR_N("%d track", "%d tracks", group_songs_count),
-                 group_songs_count);
-        gui_play_bar_build(group_songs_list, LIST_ROW_WIDTH, count_text, group_play_cb, group_shuffle_cb);
+        gui_album_view_play_bar_build(group_songs_list, LIST_ROW_WIDTH, group_songs_count,
+                                      group_play_cb, group_shuffle_cb);
     }
     if (editing) {
         add_group_songs_select_all_row();
@@ -768,4 +764,3 @@ void group_songs_build_pause(void) {
 void group_songs_build_resume(void) {
     if (gsb.active && gsb.timer) lv_timer_resume(gsb.timer);
 }
-

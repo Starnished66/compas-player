@@ -1,6 +1,8 @@
 #include "../../application/gui.h"
 #include "../../text/i18n/i18n.h"
 #include "gui_subsonic.h"
+#include "../../player/screen/gui_queue.h"
+#include "../../player/screen/gui_player.h"
 #include "gui_subsonic_album.h"
 #include "gui_subsonic_internal.h"
 #include "../../../core/persistence/settings.h"
@@ -8,6 +10,7 @@
 #include "../../../network/services/subsonic_client.h"
 #include "../../widgets/builders/screen_builders.h"
 #include <stdint.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -67,6 +70,37 @@ static int subsonic_stream_quality_kbps(void) {
 
 static bool subsonic_streams_directly(const subsonic_song_t * song, int quality_kbps) {
     return quality_kbps > 0 || strcasecmp(song->suffix, "mp3") == 0 || strcasecmp(song->suffix, "flac") == 0;
+}
+
+/* The popup owns a copy; opening or cancelling it never grows the stream catalog. */
+static subsonic_stream_song_meta_t context_song;
+
+static void subsonic_context_queue(bool next) {
+    size_t count = (size_t) subsonic_stream_meta_count + 1;
+    if (count > INT_MAX || count > SIZE_MAX / sizeof(*subsonic_stream_meta)) return;
+    subsonic_stream_song_meta_t * grown = realloc(subsonic_stream_meta, count * sizeof(*grown));
+    if (!grown) return;
+    subsonic_stream_meta = grown;
+    subsonic_stream_meta[subsonic_stream_meta_count++] = context_song;
+    uint64_t revision = gui_player_queue_revision();
+    if (next) gui_player_queue_play_next(context_song.url);
+    else gui_player_queue_add(context_song.url);
+    if (revision == gui_player_queue_revision()) --subsonic_stream_meta_count;
+}
+
+void gui_subsonic_open_song_context(int index) {
+    if (index < 0 || index >= subsonic_songs_count) return;
+    subsonic_song_t * song = &subsonic_songs_cache[index];
+    int quality_kbps = subsonic_stream_quality_kbps();
+    if (!subsonic_streams_directly(song, quality_kbps)) return;
+    subsonic_server_t server = subsonic_server_from_settings();
+    char * entry = NULL;
+    subsonic_fill_stream_queue_entry(&server, song, NULL, quality_kbps, &entry, &context_song, 0);
+    if (!entry) return;
+    free(entry);
+    /* The shared queue and current-track path buffers are 600 bytes. */
+    if (!context_song.url[0] || strlen(context_song.url) >= 600) return;
+    open_song_context_menu_stream(context_song.url, subsonic_context_queue);
 }
 
 static void subsonic_start_stream_queue(const subsonic_server_t * server, int index, int quality_kbps) {

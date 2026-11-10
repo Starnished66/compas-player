@@ -42,7 +42,6 @@ static playlist_name_target_mode_t playlist_name_target_mode;
 static uint64_t playlist_name_target_generation;
 static char **playlists_m3u_paths;
 static int playlists_m3u_count;
-static bool playlist_row_long_press_fired;
 static gui_popup_t playlist_delete_popup;
 static lv_obj_t *playlist_context_menu_popup;
 static lv_obj_t *playlist_context_menu_backdrop;
@@ -180,7 +179,6 @@ static void build_playlist_context_menu_popup(void) {
 
 static void playlist_row_long_press_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
-    playlist_row_long_press_fired = true;
     int i = (int) (intptr_t) lv_event_get_user_data(e);
     if (i < 0 || i >= playlists_m3u_count) return;
     snprintf(playlist_action_path, sizeof(playlist_action_path), "%s", playlists_m3u_paths[i]);
@@ -196,7 +194,6 @@ static void playlist_row_long_press_cb(lv_event_t * e) {
 static void add_system_playlist_row(const char * label, int index) {
     lv_obj_t * row = build_wide_list_row(playlists_list, label, true);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &playlist_row_long_press_fired);
     lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) index);
 }
 
@@ -218,8 +215,7 @@ static void add_user_playlist_row(int i) {
         lv_obj_add_flag(lv_obj_get_child(row, 1), LV_OBJ_FLAG_FLOATING);
     }
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, ui_clear_flag_on_press_cb, LV_EVENT_PRESSED, &playlist_row_long_press_fired);
-    lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) (4 + i));
+    lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_SHORT_CLICKED, (void *) (intptr_t) (4 + i));
     lv_obj_add_event_cb(row, playlist_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
 }
 
@@ -386,8 +382,8 @@ static void existing_playlist_row_cb(lv_event_t *event) {
 }
 
 static void playlist_row_click_cb(lv_event_t *event) {
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
-    if (playlist_row_long_press_fired) { playlist_row_long_press_fired = false; return; }
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED) return;
     int index = (int)(intptr_t)lv_event_get_user_data(event);
     if (index < 0) return;
     if (index < 4) {

@@ -1342,7 +1342,6 @@ static void gui_player_init_internal(uint32_t screen_width, uint32_t screen_heig
         favorite_writer_start();
         player_volume_popup_init();
         build_delete_song_popup();
-        build_more_menu_popup();
         gui_track_info_init();
     }
     player_screen = build_player_screen(screen_width, screen_height, !reuse_playback_state);
@@ -1715,4 +1714,3 @@ void gui_player_refresh_font_geometry(void) {
 lv_obj_t * gui_player_get_dismiss_btn(void) {
     return player_dismiss_btn;
 }
-

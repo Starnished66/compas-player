@@ -14,9 +14,27 @@ typedef struct {
     bool verify_tls;
 } subsonic_server_t;
 
+typedef enum {
+    SUBSONIC_ERROR_NONE,
+    SUBSONIC_ERROR_REQUEST_TOO_LONG,
+    SUBSONIC_ERROR_REQUEST_FAILED,
+    SUBSONIC_ERROR_HTTP_STATUS,
+    SUBSONIC_ERROR_EMPTY_RESPONSE,
+    SUBSONIC_ERROR_INVALID_JSON,
+    SUBSONIC_ERROR_NOT_SUBSONIC_JSON,
+    SUBSONIC_ERROR_SERVER,
+    SUBSONIC_ERROR_INVALID_STATUS
+} subsonic_error_kind_t;
+
+typedef struct {
+    subsonic_error_kind_t kind;
+    int number;
+    char detail[128];
+} subsonic_error_t;
+
 /* Safe diagnostic for the most recent API request on the calling thread.
  * Copy before leaving a worker; never includes URLs or credentials. */
-const char * subsonic_last_error(void);
+subsonic_error_t subsonic_last_error(void);
 
 /* The server's own error code from the same request, 0 when it sent none
  * (network failure, bad JSON). 70 means the item no longer exists. */

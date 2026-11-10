@@ -1,4 +1,6 @@
 #pragma once
+#include <stdbool.h>
+#include <stddef.h>
 #include <lvgl/lvgl.h>
 #include "../../../library/remote/subsonic/subsonic_cache.h"
 
@@ -42,3 +44,6 @@ void gui_subsonic_cancel_background_work(void);
 
 /* Moves the now-playing marker on Subsonic song lists; call when the track changes. */
 void gui_subsonic_refresh_now_playing(void);
+
+/* Prepare one directly streamable song for the shared queue context menu. */
+void gui_subsonic_open_song_context(int index);

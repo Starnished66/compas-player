@@ -46,6 +46,7 @@ void gui_track_info_teardown(void);
 lv_obj_t * gui_track_info_get_screen(void);
 void gui_track_info_set_current(const gui_track_info_context_t * context);
 void gui_track_info_open(void);
+void gui_track_info_open_for_context(const gui_track_info_context_t * context);
 void gui_track_info_poll(void);
 
 #endif

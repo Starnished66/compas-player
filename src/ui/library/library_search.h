@@ -24,6 +24,7 @@ typedef struct {
     const char *path; /* borrowed for this synchronous item lookup only */
     int64_t song_id;
     uint64_t artwork_key;
+    char subtitle[256];
 } library_search_group_item_t;
 
 typedef library_search_group_item_t (*library_search_group_item_cb_t)(int index);

@@ -926,19 +926,9 @@ static void open_artist_collection_menu_at(metadata_db_group_kind_t kind,
         open_artist_collection_menu(&group, kind);
 }
 
-void artist_collection_more_click_cb(int index) {
-    if (library_rescan_active) return;
-    open_artist_collection_menu_at(METADATA_DB_GROUP_ARTIST, SEARCH_BINDING_ARTISTS, index);
-}
-
 void artist_collection_long_press_cb(int index) {
     if (library_rescan_active) return;
     open_artist_collection_menu_at(METADATA_DB_GROUP_ARTIST, SEARCH_BINDING_ARTISTS, index);
-}
-
-void album_artist_collection_more_click_cb(int index) {
-    if (library_rescan_active) return;
-    open_artist_collection_menu_at(METADATA_DB_GROUP_ALBUM_ARTIST, SEARCH_BINDING_ALBUM_ARTIST, index);
 }
 
 void album_artist_collection_long_press_cb(int index) {
@@ -957,11 +947,6 @@ void gui_library_open_album_menu(const char * name, const char * album_artist) {
     group_row_t group;
     if (library_rescan_active || !album_group_resolve(name, album_artist, &group)) return;
     open_album_collection_menu(&group, NULL);
-}
-
-void album_more_click_cb(int index) {
-    if (library_rescan_active) return;
-    open_album_collection_menu_at(index);
 }
 
 void album_row_long_press_cb(int index) {

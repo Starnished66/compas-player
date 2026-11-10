@@ -21,8 +21,37 @@ bool gui_subsonic_wifi_connected_guard(void) {
 }
 
 void subsonic_copy_request_error(char * dest, size_t size, const char * fallback) {
-    const char * error = subsonic_last_error();
-    snprintf(dest, size, "%s", error && error[0] ? error : fallback);
+    subsonic_error_t error = subsonic_last_error();
+    switch (error.kind) {
+    case SUBSONIC_ERROR_REQUEST_TOO_LONG:
+        snprintf(dest, size, "%s", TR("Request is too long"));
+        break;
+    case SUBSONIC_ERROR_REQUEST_FAILED:
+        snprintf(dest, size, TR("Server request failed: %s"),
+                 error.detail[0] ? error.detail : TR("network error"));
+        break;
+    case SUBSONIC_ERROR_HTTP_STATUS:
+        snprintf(dest, size, TR("Server returned HTTP %d"), error.number);
+        break;
+    case SUBSONIC_ERROR_EMPTY_RESPONSE:
+        snprintf(dest, size, "%s", TR("Server returned an empty response"));
+        break;
+    case SUBSONIC_ERROR_INVALID_JSON:
+        snprintf(dest, size, "%s", TR("Server returned invalid JSON"));
+        break;
+    case SUBSONIC_ERROR_NOT_SUBSONIC_JSON:
+        snprintf(dest, size, "%s", TR("Server response is not Subsonic JSON"));
+        break;
+    case SUBSONIC_ERROR_SERVER:
+        snprintf(dest, size, TR("Subsonic error %d"), error.number);
+        break;
+    case SUBSONIC_ERROR_INVALID_STATUS:
+        snprintf(dest, size, "%s", TR("Invalid Subsonic response status"));
+        break;
+    default:
+        snprintf(dest, size, "%s", fallback ? fallback : TR("Unexpected library response"));
+        break;
+    }
 }
 
 /* A foreground request owns the network and the busy screen. */
@@ -110,4 +139,3 @@ void gui_subsonic_cancel_background_work(void) {
     gui_subsonic_downloads_join();
     gui_subsonic_browse_join();
 }
-

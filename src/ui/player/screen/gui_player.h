@@ -119,6 +119,8 @@ bool gui_player_play_folder_index(file_browser_index_t * index, unsigned playabl
                                   int play_mode);
 /* Reloads the now-playing heart after Remote Control changed a favorite. */
 void gui_player_refresh_favorite(void);
+bool gui_player_favorite_path_is_set(const char * path);
+bool gui_player_toggle_favorite_path(const char * path);
 bool gui_player_queue_edit(uint64_t revision, int from, int to);
 bool gui_player_queue_select(uint64_t revision, int index);
 void gui_player_queue_clear_all(void);

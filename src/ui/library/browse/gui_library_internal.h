@@ -213,10 +213,8 @@ extern gui_popup_t sd_mount_failed_popup;
 
 /* gui_library_artist.c */
 void album_artist_collection_long_press_cb(int index);
-void album_artist_collection_more_click_cb(int index);
 extern lv_obj_t * album_collection_menu_backdrop;
 extern lv_obj_t * album_collection_menu_popup;
-void album_more_click_cb(int index);
 void album_row_long_press_cb(int index);
 bool artist_album_rederive_row(int index, compact_list_page_row_t * row, void * ctx);
 void artist_album_row_click_cb(int index);
@@ -226,7 +224,6 @@ bool artist_albums_show_all_songs_internal(bool push_screen, const char * artist
                                                     metadata_db_group_kind_t artist_kind);
 void artist_albums_snapshot(metadata_db_group_kind_t * kind, char * name, size_t name_size, int * group_count);
 void artist_collection_long_press_cb(int index);
-void artist_collection_more_click_cb(int index);
 extern int artist_open_song_hint;
 bool artist_songs_busy(void);
 void artist_songs_ready_timer(void);

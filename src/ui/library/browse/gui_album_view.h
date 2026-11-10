@@ -5,6 +5,7 @@
  * (gui_album_header.c) and the Subsonic album page both build on it. UI thread only. */
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <lvgl/lvgl.h>
 
 typedef struct {
@@ -27,6 +28,11 @@ void gui_album_view_build(gui_album_view_t * v, lv_obj_t * list, const gui_album
 void gui_album_view_set_chips(gui_album_view_t * v, const char * format, bool hires, const char * total);
 /* "H hr M min" or "M min" for a total of `seconds`; empty when there is no time. */
 void gui_album_view_total_text(double seconds, char * out, size_t size);
+lv_obj_t * gui_album_view_play_bar_build(lv_obj_t * parent, int32_t row_width, int64_t track_count,
+                                         lv_event_cb_t play_cb, lv_event_cb_t shuffle_cb);
+void gui_album_view_uppercase_suffix(const char * suffix, char * out, size_t size);
+bool gui_album_view_has_multiple_discs(const void * rows, int count, size_t stride, size_t disc_offset);
+int32_t gui_album_view_disc_number(int32_t disc_number);
 /* "year · genre" (either may be missing). */
 void gui_album_view_meta_text(int year, const char * genre, char * out, size_t size);
 

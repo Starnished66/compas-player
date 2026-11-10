@@ -130,6 +130,36 @@ void gui_player_refresh_favorite(void) {
     track_metadata_submit(TRACK_METADATA_FAVORITE, &request);
 }
 
+/* The heart's state for the playing song, the saved state for any other. */
+bool gui_player_favorite_path_is_set(const char * path) {
+    const char * current = gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
+    if (current && path && strcmp(current, path) == 0) return favorite_is_set;
+    return favorite_writer_is_set(path);
+}
+
+/* Flips a song's favorite, keeping the heart in step when it is the playing song. */
+bool gui_player_toggle_favorite_path(const char * path) {
+    if (!path || !path[0]) return false;
+    const char * current = gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
+    bool is_current = current && strcmp(current, path) == 0;
+    if (is_current && !favorite_track_known) {
+        favorite_toggle_pending = !favorite_toggle_pending;
+        show_favorite_state(!favorite_is_set);
+        return favorite_is_set;
+    }
+
+    bool next = is_current && favorite_track_known
+        ? !favorite_is_set : !favorite_writer_is_set(path);
+    favorite_writer_submit(path, next);
+    if (is_current) {
+        ++favorite_ui_revision;
+        favorite_track_known = true;
+        favorite_toggle_pending = false;
+        show_favorite_state(next);
+    }
+    return next;
+}
+
 void favorite_icon_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (!gui_player_has_active_track()) return;
@@ -137,15 +167,7 @@ void favorite_icon_event_cb(lv_event_t * e) {
     const char * path = gui_player_get_current_track_path();
     if (!path) return;
 
-    if (!favorite_track_known) {
-        favorite_toggle_pending = !favorite_toggle_pending;
-        show_favorite_state(!favorite_is_set);
-        return;
-    }
-    ++favorite_ui_revision;
-    show_favorite_state(!favorite_is_set);
-
-    favorite_writer_submit(path, favorite_is_set);
+    (void) gui_player_toggle_favorite_path(path);
 }
 
 static void meta_set_text(char * dst, size_t size, bool * has, const char * text) {

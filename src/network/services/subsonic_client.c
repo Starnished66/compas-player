@@ -1,5 +1,4 @@
 #include "subsonic_client.h"
-#include "../../ui/text/i18n/i18n.h"
 #include "../http/client/http_client.h"
 
 #include "mbedtls/md5.h"
@@ -28,13 +27,17 @@
  * that support it answer with just the lastModified timestamp. */
 #define SUBSONIC_FAR_FUTURE_MS "4102444800000"
 
-static _Thread_local char api_error[128];
+static _Thread_local subsonic_error_t api_error;
 static _Thread_local int api_error_code; /* the server's error code, 0 when none */
 
 int subsonic_last_error_code(void) { return api_error_code; }
 
-const char * subsonic_last_error(void) {
-    return api_error[0] ? api_error : TR("Unexpected library response");
+subsonic_error_t subsonic_last_error(void) { return api_error; }
+
+static void api_error_set(subsonic_error_kind_t kind, int number, const char * detail) {
+    api_error.kind = kind;
+    api_error.number = number;
+    snprintf(api_error.detail, sizeof(api_error.detail), "%s", detail ? detail : "");
 }
 
 /* False when out is too small for the whole encoding (out is then cut). */
@@ -119,7 +122,7 @@ void subsonic_normalize_base_url(const char * input, char * out, size_t out_size
 }
 
 static void api_error_clear(void) {
-    api_error[0] = '\0';
+    memset(&api_error, 0, sizeof(api_error));
     api_error_code = 0;
 }
 
@@ -133,7 +136,7 @@ static bool api_build_request(const subsonic_server_t * server, const char * end
     int url_len = extra_params ? snprintf(request->url, sizeof(request->url), "%s/rest/%s?%s&%s", base_url, endpoint, auth, extra_params)
                                : snprintf(request->url, sizeof(request->url), "%s/rest/%s?%s", base_url, endpoint, auth);
     if (url_len < 0 || (size_t) url_len >= sizeof(request->url)) { /* never send a clipped URL */
-        snprintf(api_error, sizeof(api_error), "Request is too long");
+        api_error_set(SUBSONIC_ERROR_REQUEST_TOO_LONG, 0, NULL);
         return false;
     }
     request->method = HTTP_METHOD_GET;
@@ -152,12 +155,11 @@ static cJSON * api_fetch_json(const http_request_t * request, http_cancel_token_
     bool ok = http_request_ex(request, cancel, &http_response);
     if (!ok || http_response.status != 200 || !http_response.body) {
         if (!ok)
-            snprintf(api_error, sizeof(api_error), "Server request failed: %s",
-                     http_response.error ? http_response.error : "network error");
+            api_error_set(SUBSONIC_ERROR_REQUEST_FAILED, 0, http_response.error);
         else if (http_response.status != 200)
-            snprintf(api_error, sizeof(api_error), "Server returned HTTP %d", http_response.status);
+            api_error_set(SUBSONIC_ERROR_HTTP_STATUS, http_response.status, NULL);
         else
-            snprintf(api_error, sizeof(api_error), "Server returned an empty response");
+            api_error_set(SUBSONIC_ERROR_EMPTY_RESPONSE, 0, NULL);
         http_response_free(&http_response);
         return NULL;
     }
@@ -165,7 +167,7 @@ static cJSON * api_fetch_json(const http_request_t * request, http_cancel_token_
     cJSON * root = cJSON_ParseWithLength((const char *) http_response.body, http_response.body_len);
     http_response_free(&http_response);
     if (!root) {
-        snprintf(api_error, sizeof(api_error), "Server returned invalid JSON");
+        api_error_set(SUBSONIC_ERROR_INVALID_JSON, 0, NULL);
         return NULL;
     }
 
@@ -176,7 +178,7 @@ static cJSON * api_fetch_json(const http_request_t * request, http_cancel_token_
 static cJSON * api_response_ok(cJSON * root) {
     cJSON * resp = cJSON_GetObjectItemCaseSensitive(root, "subsonic-response");
     if (!resp) {
-        snprintf(api_error, sizeof(api_error), "Server response is not Subsonic JSON");
+        api_error_set(SUBSONIC_ERROR_NOT_SUBSONIC_JSON, 0, NULL);
         cJSON_Delete(root);
         return NULL;
     }
@@ -187,9 +189,9 @@ static cJSON * api_response_ok(cJSON * root) {
         cJSON * code = cJSON_GetObjectItemCaseSensitive(error, "code");
         if (cJSON_IsNumber(code)) {
             api_error_code = code->valueint;
-            snprintf(api_error, sizeof(api_error), "Subsonic error %d", code->valueint);
+            api_error_set(SUBSONIC_ERROR_SERVER, code->valueint, NULL);
         } else
-            snprintf(api_error, sizeof(api_error), "Invalid Subsonic response status");
+            api_error_set(SUBSONIC_ERROR_INVALID_STATUS, 0, NULL);
         cJSON_Delete(root);
         return NULL;
     }
@@ -219,7 +221,7 @@ static bool id_params(const char * id, char * out, size_t size) {
         if (n >= 0 && (size_t) n < size) return true;
     }
     if (size) out[0] = '\0';
-    snprintf(api_error, sizeof(api_error), "Request is too long");
+    api_error_set(SUBSONIC_ERROR_REQUEST_TOO_LONG, 0, NULL);
     return false;
 }
 

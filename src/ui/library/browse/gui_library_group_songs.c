@@ -10,12 +10,9 @@
 #include "../../../core/ui/display/ui_wake.h"
 #include "../../../library/playlists/playlist_files.h"
 #include <limits.h>
-#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include "gui_group_songs_internal.h"
 
 static void refresh_group_songs_search_now_playing(void);
@@ -164,10 +161,6 @@ int group_songs_visible_count(void) {
     return visible_count > GROUP_SONGS_PAGE_SIZE ? GROUP_SONGS_PAGE_SIZE : visible_count;
 }
 
-/* Suppresses the follow-up LV_EVENT_CLICKED event when a long press has
- * already triggered the context menu on a group song row. */
-bool group_song_row_long_press_fired = false;
-
 static void group_play_at(int pos) {
     if (library_rescan_active) return;
     if (pos < 0 || pos >= group_songs_count) return;
@@ -198,8 +191,7 @@ static void group_play_at(int pos) {
 }
 
 void group_song_row_click_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (group_song_row_long_press_fired) { group_song_row_long_press_fired = false; return; }
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     group_play_at((int) (intptr_t) lv_event_get_user_data(e));
 }
 
@@ -222,13 +214,7 @@ void playlist_start_selected(bool shuffle) {
     int count = playlist_start_source == PLAY_ALL_SOURCE_GROUP ? group_songs_count
                                                                : (int) metadata_db_get_song_count();
     if (count <= 0) { show_info_toast(TR("Playlist is empty")); return; }
-    int index = 0;
-    if (shuffle) {
-        unsigned int value = (unsigned int) time(NULL) ^ lv_tick_get();
-        int fd = open("/dev/urandom", O_RDONLY);
-        if (fd >= 0) { ssize_t n = read(fd, &value, sizeof(value)); (void) n; close(fd); }
-        index = (int) (value % (unsigned int) count);
-    }
+    int index = gui_library_collection_start_index(count, shuffle);
     gui_player_set_play_mode(collection_play_mode(shuffle ? PLAY_MODE_SHUFFLE : PLAY_MODE_SEQUENTIAL));
     if (playlist_start_source == PLAY_ALL_SOURCE_RECENTLY_ADDED) {
         set_player_source_recently_added(index);
@@ -261,7 +247,6 @@ bool group_songs_album_layout(void) {
 void group_song_row_long_press_cb(lv_event_t * e) {
     if (library_rescan_active) return;
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
-    group_song_row_long_press_fired = true;
     int pos = (int) (intptr_t) lv_event_get_user_data(e);
     open_song_context_menu(group_songs_entries[pos].path);
 }

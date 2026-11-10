@@ -13,9 +13,11 @@
 #include "../../widgets/builders/screen_builders.h"
 #include "../../assets/assets.h"
 #include "../../../hardware/device/device_config.h"
-#include <ctype.h>
 #include "../../player/screen/gui_player_internal.h"
+#include "../../player/screen/gui_queue.h"
 #include "../../player/queue/player_queue_model.h"
+#include "../../library/browse/gui_album_view.h"
+#include "../../library/browse/gui_library.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,7 +50,8 @@ static bool subsonic_albums_is_all = false; /* the full library, not one artist'
 subsonic_song_t * subsonic_songs_cache = NULL;
 
 int subsonic_songs_count = 0;
-static char (*subsonic_song_subtitles)[64];
+#define SUBSONIC_SONG_SUBTITLE_SIZE 256
+static char (*subsonic_song_subtitles)[SUBSONIC_SONG_SUBTITLE_SIZE];
 
 subsonic_playlist_t * subsonic_playlists_cache = NULL;
 
@@ -464,16 +467,12 @@ void subsonic_clear_songs(void) {
 /* Installs songs as the cache behind the Songs screen. Takes ownership of items;
  * on failure frees them and keeps the old list. */
 bool subsonic_install_songs(subsonic_song_t * items, int count, bool keep_scroll) {
-    char (*subtitles)[64] = calloc((size_t) (count > 0 ? count : 1), sizeof(*subtitles));
+    char (*subtitles)[SUBSONIC_SONG_SUBTITLE_SIZE] =
+        calloc((size_t) (count > 0 ? count : 1), sizeof(*subtitles));
     if (!subtitles) { free(items); return false; }
-    for (int i = 0; i < count; i++) {
-        char format[sizeof(items[i].suffix)];
-        snprintf(format, sizeof(format), "%s", items[i].suffix);
-        for (size_t j = 0; format[j]; j++) format[j] = (char) toupper((unsigned char) format[j]);
-        gui_song_format_detail(subtitles[i], sizeof(subtitles[i]),
-            items[i].duration_seconds > 0 ? items[i].duration_seconds : -1, format);
-    }
-    char (*old_subtitles)[64] = subsonic_song_subtitles;
+    for (int i = 0; i < count; i++)
+        gui_library_format_artist_album_subtitle(items[i].artist, items[i].album, subtitles[i], sizeof(subtitles[i]));
+    char (*old_subtitles)[SUBSONIC_SONG_SUBTITLE_SIZE] = subsonic_song_subtitles;
     subsonic_song_subtitles = subtitles;
     subsonic_song_t * old = subsonic_songs_cache;
     int old_count = subsonic_songs_count;
@@ -721,7 +720,7 @@ void gui_subsonic_views_build(void) {
     finalize_screen_navigation(subsonic_artists_screen);
     finalize_screen_navigation(subsonic_albums_screen);
     subsonic_songs_screen = build_compact_list_screen(TR("Songs"), generic_back_cb, NULL, 0, gui_subsonic_play_from,
-                                                        NULL, &subsonic_songs_list, &subsonic_songs_title_label,
+                                                        gui_subsonic_open_song_context, &subsonic_songs_list, &subsonic_songs_title_label,
                                                         LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     gui_subsonic_album_list_build(subsonic_songs_screen); /* shown instead of the compact list for an album */
     lv_obj_add_event_cb(subsonic_songs_screen, gui_subsonic_album_screen_event_cb, LV_EVENT_SCREEN_LOADED, NULL);

@@ -51,8 +51,6 @@ typedef struct {
     int item_count;
     compact_list_click_cb_t on_click;
     compact_list_click_cb_t on_long_press; /* NULL for a list with no long-press action (e.g. Artists/Albums name rows) */
-    /* Tracks whether a long press fired so the subsequent release click can be suppressed. */
-    bool long_press_fired;
     int32_t row_height;
     int32_t requested_row_height;
     int32_t row_stride;
@@ -191,13 +189,10 @@ static bool compact_list_press_settle(compact_list_virtual_data_t * data, int in
 }
 
 static void compact_list_row_click_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     compact_list_row_ctx_t * ctx = (compact_list_row_ctx_t *) lv_event_get_user_data(e);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != (ctx->data->on_long_press ? LV_EVENT_SHORT_CLICKED : LV_EVENT_CLICKED)) return;
     bool press_valid = compact_list_press_settle(ctx->data, ctx->logical_index);
-    if (ctx->data->long_press_fired) { /* see compact_list_row_long_press_cb()'s own comment */
-        ctx->data->long_press_fired = false;
-        return;
-    }
     if (!press_valid) return; /* rebound between press and release: do not open the replacement */
     int index = ctx->logical_index;
     if (index < 0 || index >= ctx->data->item_count) return; /* this pool slot is currently a hidden, contentless row (list shorter than the pool) -- shouldn't be reachable, guarded anyway */
@@ -252,7 +247,6 @@ static void compact_list_row_press_cb(lv_event_t * e) {
     compact_list_row_ctx_t * ctx = (compact_list_row_ctx_t *) lv_event_get_user_data(e);
     compact_list_virtual_data_t * data = ctx->data;
     if (code == LV_EVENT_PRESSED) {
-        data->long_press_fired = false; /* a long press that scrolled never got its CLICKED */
         compact_list_press_record(data, ctx->logical_index);
         if (data->press_index < 0 || !data->on_press) return;
         if (data->scrolled && lv_tick_elaps(data->last_scroll_tick) < COMPACT_LIST_PRESS_AFTER_SCROLL_MS)
@@ -300,7 +294,6 @@ static void compact_list_scroll_begin_cb(lv_event_t * e) {
 static void compact_list_row_long_press_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
     compact_list_row_ctx_t * ctx = (compact_list_row_ctx_t *) lv_event_get_user_data(e);
-    ctx->data->long_press_fired = true;
     int index = ctx->logical_index;
     if (index < 0 || index >= ctx->data->item_count) return;
     if (!compact_list_press_matches(ctx->data, index)) { /* rebound under the finger: not this item */
@@ -308,6 +301,15 @@ static void compact_list_row_long_press_cb(lv_event_t * e) {
         return;
     }
     ctx->data->on_long_press(index);
+}
+
+/* CLICKED follows both SHORT_CLICKED and LONG_PRESSED on rows with a menu.
+ * The short handler has already settled its press; a long press still has
+ * to withdraw its recorded press without activating the row a second time. */
+static void compact_list_row_menu_release_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    compact_list_row_ctx_t * ctx = (compact_list_row_ctx_t *) lv_event_get_user_data(e);
+    compact_list_press_cancel(ctx->data);
 }
 
 static void compact_list_trailing_click_cb(lv_event_t * e) {
@@ -1093,7 +1095,6 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
     data->item_count = item_count;
     data->on_click = on_click;
     data->on_long_press = on_long_press;
-    data->long_press_fired = false;
     data->row_height = ui_list_row_height();
     data->requested_row_height = GUI_ROW_HEIGHT;
     data->row_stride = data->row_height + GUI_ROW_GAP;
@@ -1168,14 +1169,18 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
         ctx->pool_slot = slot;
         ctx->logical_index = -1;
         data->row_ctx[slot] = ctx;
-        lv_obj_add_event_cb(row, compact_list_row_click_cb, LV_EVENT_CLICKED, ctx);
+        lv_obj_add_event_cb(row, compact_list_row_click_cb,
+                            on_long_press ? LV_EVENT_SHORT_CLICKED : LV_EVENT_CLICKED, ctx);
         lv_obj_add_event_cb(row, compact_list_row_press_cb, LV_EVENT_PRESSED, ctx);
         lv_obj_add_event_cb(row, compact_list_row_press_cb, LV_EVENT_PRESS_LOST, ctx);
         lv_obj_add_event_cb(row, compact_list_row_press_cb, LV_EVENT_LONG_PRESSED, ctx);
         lv_obj_add_event_cb(trailing, compact_list_trailing_press_cb, LV_EVENT_PRESSED, ctx);
         lv_obj_add_event_cb(trailing, compact_list_trailing_press_cb, LV_EVENT_PRESS_LOST, ctx);
         lv_obj_add_event_cb(trailing, compact_list_trailing_click_cb, LV_EVENT_CLICKED, ctx);
-        if (on_long_press) lv_obj_add_event_cb(row, compact_list_row_long_press_cb, LV_EVENT_LONG_PRESSED, ctx);
+        if (on_long_press) {
+            lv_obj_add_event_cb(row, compact_list_row_long_press_cb, LV_EVENT_LONG_PRESSED, ctx);
+            lv_obj_add_event_cb(row, compact_list_row_menu_release_cb, LV_EVENT_CLICKED, ctx);
+        }
     }
 
     /* 1x1 invisible spacer at the bottom of the FULL virtual list -- not

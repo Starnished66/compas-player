@@ -1,7 +1,10 @@
+#include "../../settings/gui_settings.h"
 /* The Music lists: All Songs, Recently Added, Artists, Albums, Album Artist and Genres, with the album and genre loaders. */
 #include "../../text/i18n/i18n.h"
 #include "gui_library_internal.h"
 #include "gui_album_header.h"
+#include "gui_album_view.h"
+#include "gui_library.h"
 #include "../../widgets/builders/gui_play_bar.h"
 #include "gui_artist_data.h"
 #include "../../../core/process/worker_thread.h"
@@ -220,11 +223,9 @@ void songs_play_bar_refresh(lv_obj_t * list, songs_bar_t * bar, int source) {
     }
     bar->tracks = tracks;
     if (tracks <= 0) return;
-    char count_text[48];
-    snprintf(count_text, sizeof(count_text), TR_N("%lld track", "%lld tracks", (long) tracks), (long long) tracks);
     bool all = source == PLAY_ALL_SOURCE_ALL_SONGS;
-    bar->obj = gui_play_bar_build(list, LIST_ROW_WIDTH_WIDE, count_text, all ? all_songs_play_cb : recent_play_cb,
-                                  all ? all_songs_shuffle_cb : recent_shuffle_cb);
+    bar->obj = gui_album_view_play_bar_build(list, LIST_ROW_WIDTH_WIDE, tracks,
+        all ? all_songs_play_cb : recent_play_cb, all ? all_songs_shuffle_cb : recent_shuffle_cb);
     lv_obj_update_layout(bar->obj);
     compact_list_set_paged_header(list, bar->obj, lv_obj_get_height(bar->obj));
 }
@@ -806,16 +807,26 @@ lv_obj_t * build_artists_screen(void) {
     library_thumbnails_resize_alias_cache();
     compact_list_set_paged_provider(artists_list, artists_fetch_page, NULL, artist_count);
     library_thumbnails_bind_list(scr, artists_list, LIBRARY_THUMB_LIST_ARTISTS);
-    compact_list_set_trailing_click(artists_list, artist_collection_more_click_cb);
+    compact_list_set_trailing_click(artists_list, artist_collection_long_press_cb);
     compact_list_set_press_cb(artists_list, artist_row_press_cb);
     finalize_screen_navigation(scr);
     return scr;
 }
 
+static void albums_sort_cb(lv_event_t * e) {
+    (void)e;
+    gui_settings_open_sorting(false);
+}
+
 lv_obj_t * build_albums_screen(void) {
+    lv_obj_t * title;
     lv_obj_t * scr = build_compact_list_screen(TR("Albums"), generic_back_cb, NULL, 0, album_row_click_cb,
-                                                album_row_long_press_cb, &albums_list, NULL,
+                                                album_row_long_press_cb, &albums_list, &title,
                                                 LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
+    lv_obj_t * sort = build_top_right_icon_button(scr, asset_path("breeze_rows/library_sorting.png"), albums_sort_cb);
+    lv_obj_align(sort, LV_ALIGN_TOP_RIGHT, -HEADER_BUTTON_WIDTH,
+                 STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
+    reserve_title_width_before(title, sort);
     compact_list_set_row_height(albums_list, MUSIC_LIST_ROW_HEIGHT);
     int artist_count = 0, album_artist_count = 0, album_count = 0;
     metadata_db_get_group_counts(&artist_count, &album_artist_count, &album_count);
@@ -827,7 +838,7 @@ lv_obj_t * build_albums_screen(void) {
      * window fill already has the thumbnail pad_left and cover slot; names
      * then lay out to the right of the art instead of under it. */
     library_thumbnails_bind_list(scr, albums_list, LIBRARY_THUMB_LIST_ALBUMS);
-    compact_list_set_trailing_click(albums_list, album_more_click_cb);
+    compact_list_set_trailing_click(albums_list, album_row_long_press_cb);
     compact_list_set_press_cb(albums_list, album_row_press_cb);
     compact_list_set_paged_provider(albums_list, albums_fetch_page, NULL, album_count);
     finalize_screen_navigation(scr);
@@ -860,7 +871,7 @@ lv_obj_t * build_album_artist_screen(void) {
     library_thumbnails_resize_alias_cache();
     compact_list_set_paged_provider(album_artist_list, album_artists_fetch_page, NULL, album_artist_count);
     library_thumbnails_bind_list(scr, album_artist_list, LIBRARY_THUMB_LIST_ALBUM_ARTISTS);
-    compact_list_set_trailing_click(album_artist_list, album_artist_collection_more_click_cb);
+    compact_list_set_trailing_click(album_artist_list, album_artist_collection_long_press_cb);
     compact_list_set_press_cb(album_artist_list, album_artist_row_press_cb);
     finalize_screen_navigation(scr);
     return scr;

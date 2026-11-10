@@ -1,22 +1,23 @@
 #include "gui_subsonic_album.h"
+#include "gui_subsonic.h"
 #include "gui_subsonic_album_cover.h"
 #include "gui_subsonic_internal.h"
 #include "../../appearance/gui_theme.h"
 #include "../../library/browse/gui_album_view.h"
+#include "../../library/browse/gui_library.h"
 #include "../../library/browse/gui_library_internal.h"
 #include "../../player/screen/gui_player.h"
+#include "../../player/screen/gui_queue.h"
 #include "../../text/i18n/i18n.h"
-#include "../../widgets/builders/gui_play_bar.h"
 #include "../../widgets/builders/screen_builders.h"
 #include "../../widgets/lists/compact_list.h"
 #include "../../widgets/builders/screen_builders_internal.h"
 #include "../../../core/system/runtime/board_config.h"
-#include <ctype.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <time.h>
 
 /* The page on screen. The server and cover id are copied: the caches that
  * the caller borrowed them from may be replaced while the page stays. */
@@ -52,8 +53,7 @@ static void facts_of(const subsonic_song_t * songs, int count, facts_t * f) {
         if (s->bit_depth <= 16 && s->sample_rate <= 48000) f->hires = false;
     }
     if (mixed) snprintf(f->format, sizeof(f->format), "%s", TR("Mixed"));
-    else for (size_t i = 0; songs[0].suffix[i] && i + 1 < sizeof(f->format); i++)
-        f->format[i] = (char) toupper((unsigned char) songs[0].suffix[i]);
+    else gui_album_view_uppercase_suffix(songs[0].suffix, f->format, sizeof(f->format));
 }
 
 
@@ -74,21 +74,21 @@ static int shuffle_count; /* tracks on the page: where Shuffle may start */
 static void shuffle_cb(lv_event_t * e) {
     (void) e;
     if (shuffle_count <= 0) return;
-    play_from((int) (((unsigned) time(NULL) ^ lv_tick_get()) % (unsigned) shuffle_count), true);
+    play_from(gui_library_collection_start_index(shuffle_count, true), true);
 }
 
 static void row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     gui_subsonic_play_from((int) (intptr_t) lv_event_get_user_data(e));
+}
+
+static void row_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    gui_subsonic_open_song_context((int) (intptr_t) lv_event_get_user_data(e));
 }
 
 /* ---- Rows ------------------------------------------------------------------ */
 static int shown_number(const subsonic_song_t * songs, int i) { return songs[i].track > 0 ? songs[i].track : i + 1; }
-
-static bool multi_disc(const subsonic_song_t * songs, int count) {
-    for (int i = 1; i < count; i++) if (songs[i].disc != songs[0].disc) return true;
-    return false;
-}
 
 static void add_row(const subsonic_song_t * songs, int i) {
     lv_obj_t * row = build_music_list_row(list, songs[i].title, NULL, BOARD_SCALE_PX(70));
@@ -96,15 +96,19 @@ static void add_row(const subsonic_song_t * songs, int i) {
     gui_album_view_decorate_row(row, shown_number(songs, i), view.num_w,
                                 songs[i].duration_seconds > 0 ? songs[i].duration_seconds : -1);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, row_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
+    lv_obj_add_event_cb(row, row_cb, LV_EVENT_SHORT_CLICKED, (void *) (intptr_t) i);
+    lv_obj_add_event_cb(row, row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
 }
 
 static void add_rows(const subsonic_song_t * songs, int count) {
-    bool discs = multi_disc(songs, count);
+    bool discs = gui_album_view_has_multiple_discs(songs, count, sizeof(*songs),
+                                                    offsetof(subsonic_song_t, disc));
     for (int i = 0; i < count; i++) {
-        if (discs && (i == 0 || songs[i].disc != songs[i - 1].disc)) {
+        int disc = gui_album_view_disc_number(songs[i].disc);
+        int previous_disc = i > 0 ? gui_album_view_disc_number(songs[i - 1].disc) : 0;
+        if (discs && (i == 0 || disc != previous_disc)) {
             char header[32];
-            snprintf(header, sizeof(header), TR("Disc %d"), songs[i].disc > 0 ? songs[i].disc : 1);
+            snprintf(header, sizeof(header), TR("Disc %d"), disc);
             add_section_header(list, header);
         }
         add_row(songs, i);
@@ -194,9 +198,7 @@ void gui_subsonic_songs_bar_set(lv_obj_t * compact, int count) {
     }
     shuffle_count = count;
     if (count <= 0) return;
-    char text[48];
-    snprintf(text, sizeof(text), TR_N("%d track", "%d tracks", count), count);
-    bar = gui_play_bar_build(compact, LIST_ROW_WIDTH_WIDE, text, play_cb, shuffle_cb);
+    bar = gui_album_view_play_bar_build(compact, LIST_ROW_WIDTH_WIDE, count, play_cb, shuffle_cb);
     lv_obj_update_layout(bar);
     compact_list_set_header(compact, bar, lv_obj_get_height(bar) + BOARD_SCALE_PX(8));
 }

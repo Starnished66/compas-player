@@ -17,6 +17,8 @@ static lv_obj_t * info_screen;
 static lv_obj_t * info_list;
 static lv_obj_t * info_title;
 static gui_track_info_context_t current_context;
+static gui_track_info_context_t saved_context;
+static bool temporary_context_active;
 static uint64_t context_generation;
 static uint64_t rendered_context_generation;
 static audio_current_format_info_t rendered_runtime;
@@ -26,6 +28,8 @@ static uint64_t local_facts_generation;
 static bool local_stat_ok;
 static uint64_t local_file_size;
 static int info_line_count;
+
+static void gui_track_info_context_restore_cb(lv_event_t * e);
 
 static const char * codec_name(audio_codec_t codec) {
     if (codec == AUDIO_CODEC_APE) return "Monkey's Audio";
@@ -344,6 +348,8 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
  * call unless info_screen is deleted AND nulled first here. */
 void gui_track_info_teardown(void) {
     if (!info_screen) return;
+    if (temporary_context_active) { current_context = saved_context; context_generation++; }
+    temporary_context_active = false;
     lv_obj_delete(info_screen);
     info_screen = NULL;
     info_list = NULL;
@@ -353,6 +359,7 @@ void gui_track_info_teardown(void) {
 void gui_track_info_init(void) {
     if (info_screen) return;
     info_screen = build_subsonic_list_screen(TR("Information"), &info_title, &info_list);
+    lv_obj_add_event_cb(info_screen, gui_track_info_context_restore_cb, LV_EVENT_SCREEN_UNLOADED, NULL);
     /* Plain left-aligned Name: value labels, same pattern as Wi-Fi Info.
      * No pill rows, no marquee.  The list stays vertically scrollable for a
      * long local path or a larger font size. */
@@ -368,8 +375,20 @@ lv_obj_t * gui_track_info_get_screen(void) {
 }
 
 void gui_track_info_set_current(const gui_track_info_context_t * context) {
+    if (temporary_context_active) {
+        if (context) saved_context = *context;
+        else memset(&saved_context, 0, sizeof(saved_context));
+        return;
+    }
     if (context) current_context = *context;
     else memset(&current_context, 0, sizeof(current_context));
+    context_generation++;
+}
+
+static void gui_track_info_context_restore_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_SCREEN_UNLOADED || !temporary_context_active) return;
+    temporary_context_active = false;
+    current_context = saved_context;
     context_generation++;
 }
 
@@ -383,6 +402,16 @@ void gui_track_info_open(void) {
     if (valid) rendered_runtime = runtime;
     else memset(&rendered_runtime, 0, sizeof(rendered_runtime));
     nav_push(info_screen);
+}
+
+void gui_track_info_open_for_context(const gui_track_info_context_t * context) {
+    if (!context) return;
+    if (!info_screen) gui_track_info_init();
+    if (!temporary_context_active) saved_context = current_context;
+    temporary_context_active = true;
+    current_context = *context;
+    context_generation++;
+    gui_track_info_open();
 }
 
 void gui_track_info_poll(void) {

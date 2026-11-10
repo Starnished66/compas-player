@@ -447,8 +447,8 @@ static void option_label_resized(lv_event_t * e) {
     lv_obj_set_height(lv_obj_get_parent(label),
         LV_MAX(ui_list_row_height(), lv_obj_get_height(label) + BOARD_SCALE_PX(32)));
 }
-static void option_open(lv_event_t * e) {
-    option_menu_row_t * ctx = lv_event_get_user_data(e);
+void gui_option_menu_open(lv_obj_t * row) {
+    option_menu_row_t * ctx = lv_obj_get_user_data(row);
     if (lv_obj_has_state(ctx->row, LV_STATE_DISABLED)) return;
     gui_option_menu_close();
     option_owner = ctx;
@@ -480,6 +480,9 @@ static void option_open(lv_event_t * e) {
     gui_popup_show(&option_popup);
     lv_obj_update_layout(option_popup.popup);
     if (checked) lv_obj_scroll_to_view(checked, LV_ANIM_OFF);
+}
+static void option_open(lv_event_t * e) {
+    gui_option_menu_open(lv_event_get_current_target(e));
 }
 static void option_row_deleted(lv_event_t * e) {
     option_menu_row_t * ctx = lv_event_get_user_data(e);

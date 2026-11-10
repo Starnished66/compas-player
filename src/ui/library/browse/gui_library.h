@@ -113,6 +113,9 @@ void gui_library_poll_now_playing_indicators(void);
 void gui_library_format_song_identity(const song_row_t * row,
                                       char * title, size_t title_size,
                                       char * subtitle, size_t subtitle_size);
+void gui_library_format_artist_album_subtitle(const char * artist, const char * album,
+                                              char * subtitle, size_t subtitle_size);
+int gui_library_collection_start_index(int count, bool shuffle);
 
 void poll_search_job(void);
 void play_remote_control_song(const char * song_path, const char * playlist_name, const char * artist_filter,

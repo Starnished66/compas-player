@@ -83,7 +83,15 @@ static void * download_thread_func(void * arg) {
     return NULL;
 }
 
+static void subsonic_download_cancel_cb(void * user) {
+    http_cancel_token_cancel((http_cancel_token_t *) user);
+}
+
 void gui_subsonic_download_track(const char * url, bool verify_tls, const char * dest_path, const char * display_title) {
+    if (gui_subsonic_downloads_active()) {
+        show_info_toast(TR("Previous request still finishing"));
+        return;
+    }
     snprintf(download_dest_path, sizeof(download_dest_path), "%s", dest_path);
 
     subsonic_track_download_request_t * req = malloc(sizeof(*req));
@@ -98,9 +106,11 @@ void gui_subsonic_download_track(const char * url, bool verify_tls, const char *
     download_active = true;
 
     download_token = gui_busy_show(TR("Downloading"), display_title);
+    gui_busy_set_cancel(download_token, subsonic_download_cancel_cb, &download_cancel);
 
     if (pthread_create(&download_thread, NULL, download_thread_func, req) != 0) {
         download_active = false;
+        gui_busy_set_cancel(download_token, NULL, NULL);
         http_cancel_token_destroy(&download_cancel);
         free(req);
         gui_busy_hide(download_token);
@@ -110,24 +120,27 @@ void gui_subsonic_download_track(const char * url, bool verify_tls, const char *
 
 void poll_subsonic_download(void) {
     if (!download_active || !atomic_load_explicit(&download_done_flag, memory_order_acquire)) return;
+    if (gui_navigation_transition_in_progress()) return;
 
     download_active = false;
     pthread_join(download_thread, NULL);
     bool cancelled = http_cancel_token_is_cancelled(&download_cancel); /* Wi-Fi off, shutdown or the user */
+    gui_busy_set_cancel(download_token, NULL, NULL);
     http_cancel_token_destroy(&download_cancel);
     bool success = download_success_flag;
+    gui_busy_hide_immediate(download_token);
 
-    /* If playback started and pushed the player screen, remove the downloading
-     * screen slot from the navigation stack so navigating back returns directly
-     * to the song list rather than the transient downloading screen. */
-    int depth_before = gui_navigation_get_depth();
-    if (success) {
+    /* Dismiss the busy screen before playback can push another screen. */
+    if (success && !cancelled) {
         char ** playlist = malloc(sizeof(char *));
-        playlist[0] = strdup(download_dest_path);
-        clear_player_source(); /* a streamed-then-downloaded single track has no on-device list to go back to */
-        on_file_selected(playlist, 1, 0);
+        if (playlist) {
+            playlist[0] = strdup(download_dest_path);
+            if (playlist[0]) {
+                clear_player_source(); /* a streamed-then-downloaded single track has no on-device list to go back to */
+                on_file_selected(playlist, 1, 0);
+            } else free(playlist);
+        }
     }
-    subsonic_dismiss_busy(depth_before, download_token);
     if (!success && !cancelled) show_error_toast(TR("Download failed"));
 }
 
@@ -472,7 +485,7 @@ static atomic_int subsonic_library_download_progress = 0; /* songs completed so 
 static atomic_int subsonic_library_download_total = 0;    /* 0 while still expanding an artist's albums (Mode B) -- see poll_subsonic_library_download() */
 
 static int subsonic_library_download_success_count = 0;
-
+static bool subsonic_library_expansion_failed;
 static void free_id_list(char ** ids, int count) {
     for (int i = 0; ids && i < count; i++) free(ids[i]);
     free(ids);
@@ -508,7 +521,7 @@ bool gui_subsonic_append_songs(subsonic_song_t ** songs, int * count, int * capa
     return true;
 }
 
-static bool subsonic_expand_albums(subsonic_library_download_request_t * req,
+static void subsonic_expand_albums(subsonic_library_download_request_t * req,
                                     subsonic_song_t ** songs, int * song_count) {
     int capacity = 0, count = 0;
     bool expansion_failed = false;
@@ -516,17 +529,24 @@ static bool subsonic_expand_albums(subsonic_library_download_request_t * req,
         if (http_cancel_token_is_cancelled(&subsonic_library_download_cancel)) break;
         subsonic_song_t * album_songs = NULL;
         int album_song_count = 0;
-        if (subsonic_get_album_songs(&req->server, req->album_ids[i], &album_songs,
-                                      &album_song_count, &subsonic_library_download_cancel))
-            expansion_failed = !gui_subsonic_append_songs(songs, &count, &capacity, album_songs, album_song_count);
+        bool fetched = subsonic_get_album_songs(&req->server, req->album_ids[i], &album_songs,
+                                                 &album_song_count, &subsonic_library_download_cancel);
+        if (fetched) {
+            if (!gui_subsonic_append_songs(songs, &count, &capacity, album_songs, album_song_count)) {
+                expansion_failed = true;
+                free(album_songs);
+                break;
+            }
+        } else if (!http_cancel_token_is_cancelled(&subsonic_library_download_cancel)) {
+            expansion_failed = true;
+        }
         free(album_songs);
-        if (expansion_failed) break;
     }
-    *song_count = expansion_failed ? 0 : count;
+    *song_count = count;
+    subsonic_library_expansion_failed = expansion_failed;
     subsonic_library_download_total = *song_count; /* Keep the original plain atomic store. */
     free_id_list(req->album_ids, req->album_to_expand_count);
     req->album_ids = NULL;
-    return !expansion_failed;
 }
 
 static bool subsonic_download_one_song(const subsonic_library_download_request_t * req,
@@ -595,10 +615,7 @@ static void * subsonic_library_download_thread_func(void * arg) {
     subsonic_library_download_request_t * req = arg;
     subsonic_song_t * songs = req->songs;
     int song_count = req->song_count;
-    if (req->album_ids && !subsonic_expand_albums(req, &songs, &song_count)) {
-        subsonic_library_download_done(req, songs, 0, NULL);
-        return NULL;
-    }
+    if (req->album_ids) subsonic_expand_albums(req, &songs, &song_count);
     char playlist_m3u_path[512] = "";
     bool playlist_first = true;
     int success_count = 0;
@@ -652,6 +669,12 @@ static subsonic_library_download_request_t * subsonic_library_request_new(
 void gui_subsonic_download_library(subsonic_song_t * songs, int song_count,
                                               char ** album_ids, int album_to_expand_count,
                                               const char * playlist_name, const char * progress_label) {
+    if (gui_subsonic_downloads_active()) {
+        free(songs);
+        free_id_list(album_ids, album_to_expand_count);
+        show_info_toast(TR("Previous request still finishing"));
+        return;
+    }
     subsonic_library_download_request_t * req = subsonic_library_request_new(
         songs, song_count, album_ids, album_to_expand_count, playlist_name);
     if (!req) return;
@@ -659,15 +682,19 @@ void gui_subsonic_download_library(subsonic_song_t * songs, int song_count,
     atomic_store_explicit(&subsonic_library_download_progress, 0, memory_order_relaxed);
     atomic_store_explicit(&subsonic_library_download_total, album_ids ? 0 : song_count, memory_order_relaxed); /* 0 = "still figuring out the total," see poll_subsonic_library_download() */
     subsonic_library_download_success_count = 0;
+    subsonic_library_expansion_failed = false;
     atomic_store_explicit(&subsonic_library_download_done_flag, false, memory_order_relaxed);
     http_cancel_token_init(&subsonic_library_download_cancel);
     subsonic_library_download_active = true;
 
     subsonic_library_download_token = gui_busy_show(progress_label, "");
     gui_busy_set_progress(subsonic_library_download_token, 0);
+    gui_busy_set_cancel(subsonic_library_download_token, subsonic_download_cancel_cb,
+                        &subsonic_library_download_cancel);
 
     if (pthread_create(&subsonic_library_download_thread, NULL, subsonic_library_download_thread_func, req) != 0) {
         subsonic_library_download_active = false;
+        gui_busy_set_cancel(subsonic_library_download_token, NULL, NULL);
         http_cancel_token_destroy(&subsonic_library_download_cancel);
         subsonic_library_request_free(req);
         gui_busy_hide(subsonic_library_download_token);
@@ -677,7 +704,6 @@ void gui_subsonic_download_library(subsonic_song_t * songs, int song_count,
 
 void poll_subsonic_library_download(void) {
     if (!subsonic_library_download_active) return;
-
     if (!atomic_load_explicit(&subsonic_library_download_done_flag, memory_order_acquire)) {
         int total = atomic_load_explicit(&subsonic_library_download_total, memory_order_relaxed);
         if (total > 0) {
@@ -686,19 +712,28 @@ void poll_subsonic_library_download(void) {
         return;
     }
 
+    if (gui_navigation_transition_in_progress()) return;
+
     subsonic_library_download_active = false;
     pthread_join(subsonic_library_download_thread, NULL);
+    bool cancelled = http_cancel_token_is_cancelled(&subsonic_library_download_cancel);
+    gui_busy_set_cancel(subsonic_library_download_token, NULL, NULL);
     http_cancel_token_destroy(&subsonic_library_download_cancel);
 
-    /* Close the download's shared busy screen before
-     * start_library_auto_rescan() opens it for the rescan. */
-    nav_pop();
+    gui_busy_hide_immediate(subsonic_library_download_token);
 
-    if (subsonic_library_download_success_count > 0) {
+    if (!cancelled && subsonic_library_download_success_count > 0) {
         /* Automatically rescan downloaded files, preserving recovered
          * snapshots and libraries that failed to load. */
         start_library_auto_rescan();
-    } else {
+    }
+    if (!cancelled &&
+        (subsonic_library_download_success_count <
+             atomic_load_explicit(&subsonic_library_download_total, memory_order_relaxed) ||
+         subsonic_library_expansion_failed)) {
+        show_error_toast(TR("Some songs could not be downloaded"));
+    } else if (!cancelled && subsonic_library_download_success_count == 0 &&
+               atomic_load_explicit(&subsonic_library_download_total, memory_order_relaxed) == 0) {
         show_error_toast(TR("Download failed"));
     }
 }
@@ -717,12 +752,14 @@ void gui_subsonic_downloads_join(void) {
     if (download_active) {
         pthread_join(download_thread, NULL);
         download_active = false;
+        gui_busy_set_cancel(download_token, NULL, NULL);
         http_cancel_token_destroy(&download_cancel);
         gui_busy_hide(download_token);
     }
     if (subsonic_library_download_active) {
         pthread_join(subsonic_library_download_thread, NULL);
         subsonic_library_download_active = false;
+        gui_busy_set_cancel(subsonic_library_download_token, NULL, NULL);
         http_cancel_token_destroy(&subsonic_library_download_cancel);
         gui_busy_hide(subsonic_library_download_token);
     }

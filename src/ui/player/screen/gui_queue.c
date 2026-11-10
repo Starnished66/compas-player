@@ -2,6 +2,8 @@
 #include "../../text/i18n/i18n.h"
 #include "../../application/gui.h"
 #include "gui_player.h"
+#include "gui_player_internal.h" /* is_http_url */
+#include "gui_track_info.h"
 #include "../../appearance/gui_theme.h"
 #include "../../shell/gui_notifications.h"
 #include "../../library/browse/gui_library.h"
@@ -24,6 +26,11 @@ static lv_obj_t * queue_list = NULL;
 static lv_obj_t * song_context_menu_popup = NULL;
 static lv_obj_t * song_context_menu_popup_backdrop = NULL;
 static char song_context_menu_target_path[600] = "";
+static unsigned int song_context_menu_capabilities;
+static void (*song_context_queue_cb)(bool next);
+static const menu_popup_row_t * song_context_menu_extra_rows;
+static int song_context_menu_extra_row_count;
+static void build_song_context_menu_popup(void);
 
 extern lv_style_t list_row_style;
 extern lv_style_t list_row_pressed_style;
@@ -136,9 +143,21 @@ bool gui_queue_boot_prompt_blocked(void) {
             !lv_obj_has_flag(song_context_menu_popup_backdrop, LV_OBJ_FLAG_HIDDEN));
 }
 
+bool gui_queue_song_context_menu_visible(void) {
+    return (song_context_menu_popup && !lv_obj_has_flag(song_context_menu_popup, LV_OBJ_FLAG_HIDDEN)) ||
+           (song_context_menu_popup_backdrop && !lv_obj_has_flag(song_context_menu_popup_backdrop, LV_OBJ_FLAG_HIDDEN));
+}
+
 static void queue_row_click_cb(lv_event_t * e) {
     if (!gui_player_queue_select(displayed_revision, (int) (intptr_t) lv_event_get_user_data(e)))
         show_error_toast(TR("Queue changed. Try again."));
+}
+
+/* The row owns a copy of its path for the song menu, freed with the row. */
+static void queue_row_long_press_cb(lv_event_t * e) {
+    const char * path = lv_event_get_user_data(e);
+    if (lv_event_get_code(e) == LV_EVENT_DELETE) lv_free((void *) path);
+    else if (path && path[0]) open_song_context_menu(path);
 }
 
 static void queue_edit_cb(lv_event_t * e) {
@@ -356,7 +375,10 @@ void populate_queue_screen(void) {
                 lv_obj_set_style_border_color(row, accent_lv_color(), 0);
             }
             lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_event_cb(row, queue_row_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) i);
+            char * row_path = lv_strdup(path ? path : "");
+            lv_obj_add_event_cb(row, queue_row_click_cb, LV_EVENT_SHORT_CLICKED, (void *) (intptr_t) i);
+            lv_obj_add_event_cb(row, queue_row_long_press_cb, LV_EVENT_LONG_PRESSED, row_path);
+            lv_obj_add_event_cb(row, queue_row_long_press_cb, LV_EVENT_DELETE, row_path);
         }
     }
     if (end < count) {
@@ -495,12 +517,14 @@ static void song_context_menu_popup_backdrop_cb(lv_event_t * e) {
 static void song_context_menu_add_to_queue_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_song_context_menu_popup();
-    if (song_context_menu_target_path[0] != '\0') gui_player_queue_add(song_context_menu_target_path);
+    if (song_context_queue_cb) song_context_queue_cb(false);
+    else if (song_context_menu_target_path[0]) gui_player_queue_add(song_context_menu_target_path);
 }
 
 static void song_context_menu_play_next_cb(lv_event_t * e) {
     hide_song_context_menu_popup();
-    if (song_context_menu_target_path[0]) gui_player_queue_play_next(song_context_menu_target_path);
+    if (song_context_queue_cb) song_context_queue_cb(true);
+    else if (song_context_menu_target_path[0]) gui_player_queue_play_next(song_context_menu_target_path);
 }
 
 static void song_context_menu_add_to_playlist_cb(lv_event_t * e) {
@@ -517,13 +541,84 @@ static void song_context_menu_refresh_metadata_cb(lv_event_t * e) {
     start_library_metadata_refresh_paths(paths, 1);
 }
 
+static void song_context_menu_favorite_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !song_context_menu_target_path[0]) return;
+    hide_song_context_menu_popup();
+    (void) gui_player_toggle_favorite_path(song_context_menu_target_path);
+}
+
+static void song_context_menu_album_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    hide_song_context_menu_popup();
+    if (song_context_menu_target_path[0])
+        (void) gui_library_open_now_playing_group(song_context_menu_target_path, true);
+}
+
+static void song_context_menu_artist_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    hide_song_context_menu_popup();
+    if (song_context_menu_target_path[0])
+        (void) gui_library_open_now_playing_group(song_context_menu_target_path, false);
+}
+
+static void song_context_menu_information_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    hide_song_context_menu_popup();
+    const char * current = gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
+    if (current && strcmp(current, song_context_menu_target_path) == 0) {
+        gui_track_info_open();
+        return;
+    }
+    if (is_http_url(song_context_menu_target_path) || remote_track_path_is_remote(song_context_menu_target_path)) return;
+    gui_track_info_context_t context = { .source = GUI_TRACK_SOURCE_LOCAL };
+    snprintf(context.path, sizeof(context.path), "%s", song_context_menu_target_path);
+    const char * suffix = strrchr(context.path, '.');
+    if (suffix) snprintf(context.container, sizeof(context.container), "%s", suffix + 1);
+    song_row_t song;
+    if (metadata_db_try_get_cached_song_by_path(context.path, &song)) {
+        context.track_number = song.tags.track_number;
+        context.disc_number = song.tags.disc_number;
+        context.has_track_number = context.track_number > 0;
+        context.has_disc_number = context.disc_number > 0;
+    }
+    gui_track_info_open_for_context(&context);
+}
+
 static void song_context_menu_cancel_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_song_context_menu_popup();
 }
 
 void open_song_context_menu(const char * path) {
+    open_song_context_menu_for(path, SONG_MENU_ALL);
+}
+
+void open_song_context_menu_for(const char * path, unsigned int capabilities) {
+    open_song_context_menu_with_rows(path, capabilities, NULL, 0);
+}
+
+void open_song_context_menu_stream(const char * path, void (*queue_cb)(bool next)) {
+    open_song_context_menu_for(path, SONG_MENU_PLAYBACK);
+    song_context_queue_cb = queue_cb;
+}
+
+static unsigned int song_menu_supported_capabilities(const char * path) {
+    if (!path || (!is_http_url(path) && !remote_track_path_is_remote(path)))
+        return SONG_MENU_ALL;
+    const char * current = gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
+    return current && strcmp(current, path) == 0 ? SONG_MENU_PLAYBACK | SONG_MENU_INFORMATION : SONG_MENU_PLAYBACK;
+}
+
+void open_song_context_menu_with_rows(const char * path, unsigned int capabilities,
+                                      const menu_popup_row_t * extra_rows, int extra_row_count) {
     snprintf(song_context_menu_target_path, sizeof(song_context_menu_target_path), "%s", path ? path : "");
+    song_context_menu_capabilities = capabilities & song_menu_supported_capabilities(path);
+    song_context_queue_cb = NULL;
+    song_context_menu_extra_rows = extra_rows;
+    song_context_menu_extra_row_count = extra_row_count > 0 ? extra_row_count : 0;
+    build_song_context_menu_popup();
+    song_context_menu_extra_rows = NULL;
+    song_context_menu_extra_row_count = 0;
     if (song_context_menu_popup_backdrop) lv_obj_remove_flag(song_context_menu_popup_backdrop, LV_OBJ_FLAG_HIDDEN);
     if (song_context_menu_popup) lv_obj_remove_flag(song_context_menu_popup, LV_OBJ_FLAG_HIDDEN);
     if (song_context_menu_popup_backdrop) lv_obj_move_foreground(song_context_menu_popup_backdrop);
@@ -531,20 +626,41 @@ void open_song_context_menu(const char * path) {
 }
 
 static void build_song_context_menu_popup(void) {
-    const menu_popup_row_t rows[] = {
-        { TR("Play Next"), song_context_menu_play_next_cb, false },
-        { TR("Add to Queue"), song_context_menu_add_to_queue_cb, false },
-        { TR("Add to Playlist"), song_context_menu_add_to_playlist_cb, false },
-        { TR("Refresh metadata"), song_context_menu_refresh_metadata_cb, false },
-        { TR("Cancel"), song_context_menu_cancel_cb, false, true },
-    };
-    song_context_menu_popup = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])),
+    if (song_context_menu_popup) { lv_obj_delete(song_context_menu_popup); song_context_menu_popup = NULL; }
+    if (song_context_menu_popup_backdrop) { lv_obj_delete(song_context_menu_popup_backdrop); song_context_menu_popup_backdrop = NULL; }
+    menu_popup_row_t rows[24];
+    int count = 0;
+    if (song_context_menu_capabilities & SONG_MENU_PLAYBACK) {
+        rows[count++] = (menu_popup_row_t) { TR("Play Next"), song_context_menu_play_next_cb, false };
+        rows[count++] = (menu_popup_row_t) { TR("Add to Queue"), song_context_menu_add_to_queue_cb, false };
+    }
+    if (song_context_menu_capabilities & SONG_MENU_PLAYLIST)
+        rows[count++] = (menu_popup_row_t) { TR("Add to Playlist"), song_context_menu_add_to_playlist_cb, false };
+    if (song_context_menu_capabilities & SONG_MENU_FAVORITE) {
+        bool favorite = gui_player_favorite_path_is_set(song_context_menu_target_path);
+        rows[count++] = (menu_popup_row_t) { TR(favorite ? "Remove from Favorites" : "Add to Favorites"), song_context_menu_favorite_cb, false };
+    }
+    if (song_context_menu_capabilities & SONG_MENU_NAVIGATION) {
+        rows[count++] = (menu_popup_row_t) { TR("Go to Album"), song_context_menu_album_cb, false };
+        rows[count++] = (menu_popup_row_t) { TR("Go to Artist"), song_context_menu_artist_cb, false };
+    }
+    if (song_context_menu_capabilities & SONG_MENU_INFORMATION)
+        rows[count++] = (menu_popup_row_t) { TR("Information"), song_context_menu_information_cb, false };
+    if (song_context_menu_capabilities & SONG_MENU_REFRESH)
+        rows[count++] = (menu_popup_row_t) { TR("Refresh metadata"), song_context_menu_refresh_metadata_cb, false };
+    int extras = song_context_menu_extra_row_count;
+    if (extras > (int) (sizeof(rows) / sizeof(rows[0])) - count - 1)
+        extras = (int) (sizeof(rows) / sizeof(rows[0])) - count - 1;
+    for (int i = 0; i < extras; i++) rows[count++] = song_context_menu_extra_rows[i];
+    rows[count++] = (menu_popup_row_t) { TR("Cancel"), song_context_menu_cancel_cb, false, true };
+    song_context_menu_popup = build_menu_popup(rows, count,
                                                 song_context_menu_popup_backdrop_cb,
                                                 &song_context_menu_popup_backdrop);
 }
 
 void gui_queue_init(void) {
     queue_screen = build_queue_screen();
+    song_context_menu_capabilities = SONG_MENU_ALL;
     build_song_context_menu_popup();
 }
 

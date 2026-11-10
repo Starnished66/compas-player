@@ -2,7 +2,9 @@
 #include "../text/i18n/i18n.h"
 #include "library_thumbnails.h"
 #include "library_az_index.h"
+#include "browse/gui_library.h"
 #include "../../core/process/worker_thread.h"
+#include "../../core/text/utf8_util.h"
 #include "../text/rendering/gui_text_input.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../appearance/gui_theme.h"
@@ -68,8 +70,9 @@ typedef struct {
     int filtered_count; /* only meaningful while filtered_indices != NULL */
     metadata_db_az_kind_t db_kind; /* only meaningful when db_backed */
     compact_list_fetch_page_cb_t restore_fetch_page; /* restored on ordinary close; only meaningful when db_backed */
-    char (*filtered_labels)[128]; /* Owned label storage backing eager list row pointers. The DB results have no
+    char (*filtered_labels)[COMPACT_LIST_LABEL_MAX]; /* Owned label storage backing eager list row pointers. The DB results have no
                                   * other long-lived home, so list rows must be cleared/replaced before this is freed. */
+    char (*filtered_subtitles)[256]; /* Owned subtitles backing eager music search rows. */
     lv_obj_t *files_title, *files_options, *restore_thumbnail_list;
     bool inset_search_beside_options;
     library_search_group_item_cb_t group_item;
@@ -159,6 +162,8 @@ static int search_job_result_count;
 static metadata_db_search_hit_t search_job_result_hits[SEARCH_RESULTS_MAX];
 static int64_t search_job_result_identity[SEARCH_RESULTS_MAX];
 static uint64_t search_job_result_artwork_key[SEARCH_RESULTS_MAX];
+static char search_job_result_titles[SEARCH_RESULTS_MAX][COMPACT_LIST_LABEL_MAX];
+static char search_job_result_subtitles[SEARCH_RESULTS_MAX][256];
 
 static bool search_job_pending_valid = false;
 static search_job_request_t search_job_pending_request;
@@ -173,6 +178,8 @@ typedef struct {
     metadata_db_search_hit_t hit;
     int64_t identity;
     uint64_t artwork_key;
+    char title[COMPACT_LIST_LABEL_MAX];
+    char subtitle[256];
 } search_result_sort_item_t;
 
 static int cmp_search_result_recency(const void * a, const void * b) {
@@ -190,6 +197,8 @@ static void * search_job_thread_func(void * arg) {
     for (int i = 0; i < search_job_result_count; i++) {
         search_job_result_identity[i] = 0;
         search_job_result_artwork_key[i] = 0;
+        search_job_result_titles[i][0] = '\0';
+        search_job_result_subtitles[i][0] = '\0';
         if (req->db_kind == METADATA_DB_AZ_ARTIST || req->db_kind == METADATA_DB_AZ_ALBUM_ARTIST) {
             group_row_t group;
             metadata_db_group_kind_t kind = req->db_kind == METADATA_DB_AZ_ARTIST
@@ -214,6 +223,9 @@ static void * search_job_thread_func(void * arg) {
                     search_job_result_hits[i].offset, 1, &song) == 1) {
                 search_job_result_identity[i] = song.id;
                 search_job_result_artwork_key[i] = song_album_thumbnail_key(&song);
+                gui_library_format_song_identity(&song, search_job_result_titles[i],
+                    sizeof(search_job_result_titles[i]), search_job_result_subtitles[i],
+                    sizeof(search_job_result_subtitles[i]));
                 if (req->binding_id == SEARCH_BINDING_RECENTLY_ADDED) {
                     int64_t rec_offset = metadata_db_get_song_recency_offset(song.path);
                     search_job_result_hits[i].offset = (rec_offset >= 0 && rec_offset <= INT_MAX) ? (int) rec_offset : INT_MAX;
@@ -228,12 +240,16 @@ static void * search_job_thread_func(void * arg) {
                 sort_items[i].hit = search_job_result_hits[i];
                 sort_items[i].identity = search_job_result_identity[i];
                 sort_items[i].artwork_key = search_job_result_artwork_key[i];
+                memcpy(sort_items[i].title, search_job_result_titles[i], sizeof(sort_items[i].title));
+                memcpy(sort_items[i].subtitle, search_job_result_subtitles[i], sizeof(sort_items[i].subtitle));
             }
             qsort(sort_items, (size_t) search_job_result_count, sizeof(search_result_sort_item_t), cmp_search_result_recency);
             for (int i = 0; i < search_job_result_count; i++) {
                 search_job_result_hits[i] = sort_items[i].hit;
                 search_job_result_identity[i] = sort_items[i].identity;
                 search_job_result_artwork_key[i] = sort_items[i].artwork_key;
+                memcpy(search_job_result_titles[i], sort_items[i].title, sizeof(search_job_result_titles[i]));
+                memcpy(search_job_result_subtitles[i], sort_items[i].subtitle, sizeof(search_job_result_subtitles[i]));
             }
             free(sort_items);
         }
@@ -277,20 +293,27 @@ static void launch_search_job(search_binding_t * b, const char * query) {
  * finished search job's hits and applies them to b->list. */
 static void search_apply_results_to_list(search_binding_t * b, const metadata_db_search_hit_t * hits,
                                          const int64_t * identities, const uint64_t * artwork_keys,
+                                         const char titles[][COMPACT_LIST_LABEL_MAX],
+                                         const char subtitles[][256],
                                          int matched) {
     compact_list_item_t * items = malloc(sizeof(compact_list_item_t) * (size_t) (matched > 0 ? matched : 1));
     int * indices = malloc(sizeof(int) * (size_t) (matched > 0 ? matched : 1));
-    char(*labels)[128] = malloc(sizeof(*labels) * (size_t) (matched > 0 ? matched : 1));
-    if (!items || !indices || !labels) {
+    char(*labels)[COMPACT_LIST_LABEL_MAX] = malloc(sizeof(*labels) * (size_t) (matched > 0 ? matched : 1));
+    char(*owned_subtitles)[256] = malloc(sizeof(*owned_subtitles) * (size_t) (matched > 0 ? matched : 1));
+    if (!items || !indices || !labels || !owned_subtitles) {
         free(items);
         free(indices);
         free(labels);
+        free(owned_subtitles);
         return;
     }
     for (int i = 0; i < matched; i++) {
-        snprintf(labels[i], sizeof(labels[i]), "%.127s", hits[i].label);
+        const char * title = titles[i][0] ? titles[i] : hits[i].label;
+        utf8_truncate_safe(labels[i], title, sizeof(labels[i]));
+        memcpy(owned_subtitles[i], subtitles[i], sizeof(owned_subtitles[i]));
         items[i] = (compact_list_item_t) {
             .label = labels[i],
+            .subtitle = owned_subtitles[i][0] ? owned_subtitles[i] : NULL,
             .identity = identities[i],
             .artwork_key = artwork_keys[i],
             .artwork_name = (b->db_kind == METADATA_DB_AZ_ARTIST ||
@@ -304,8 +327,10 @@ static void search_apply_results_to_list(search_binding_t * b, const metadata_db
 
     free(b->filtered_indices);
     free(b->filtered_labels);
+    free(b->filtered_subtitles);
     b->filtered_indices = indices;
     b->filtered_labels = labels;
+    b->filtered_subtitles = owned_subtitles;
     b->filtered_count = matched;
     b->refresh_now_playing();
 }
@@ -324,6 +349,7 @@ void poll_search_job(void) {
         find_search_binding_for_screen(lv_screen_active()) == search_job_for_binding) {
         search_apply_results_to_list(search_job_for_binding, search_job_result_hits,
                                      search_job_result_identity, search_job_result_artwork_key,
+                                     search_job_result_titles, search_job_result_subtitles,
                                      search_job_result_count);
     }
 
@@ -353,6 +379,8 @@ static void search_apply_filter(search_binding_t * b, const char * query) {
             b->filtered_count = 0;
             free(b->filtered_labels);
             b->filtered_labels = NULL;
+            free(b->filtered_subtitles);
+            b->filtered_subtitles = NULL;
             b->refresh_now_playing();
             return;
         }
@@ -365,16 +393,18 @@ static void search_apply_filter(search_binding_t * b, const char * query) {
         return;
     }
 
-    free(b->filtered_indices);
-    b->filtered_indices = NULL;
-    b->filtered_count = 0;
-    free(b->filtered_labels);
-    b->filtered_labels = NULL;
-
     int count = have_query ? *b->count_ptr : 0;
     int cap = count < SEARCH_RESULTS_MAX ? count : SEARCH_RESULTS_MAX;
     compact_list_item_t * items = malloc(sizeof(compact_list_item_t) * (size_t) (cap > 0 ? cap : 1));
     int * indices = malloc(sizeof(int) * (size_t) (cap > 0 ? cap : 1));
+    char(*subtitles)[256] = b->id == SEARCH_BINDING_GROUP_SONGS
+        ? calloc((size_t) (cap > 0 ? cap : 1), sizeof(*subtitles)) : NULL;
+    if (!items || !indices || (b->id == SEARCH_BINDING_GROUP_SONGS && !subtitles)) {
+        free(items);
+        free(indices);
+        free(subtitles);
+        return;
+    }
     int matched = 0;
 
     for (int i = 0; i < count && matched < cap; i++) {
@@ -398,6 +428,10 @@ static void search_apply_filter(search_binding_t * b, const char * query) {
                 .identity = item.song_id,
                 .artwork_key = item.artwork_key,
             };
+            if (subtitles && item.subtitle[0]) {
+                snprintf(subtitles[matched], sizeof(subtitles[matched]), "%s", item.subtitle);
+                items[matched].subtitle = subtitles[matched];
+            }
         } else {
             items[matched] = b->item_of ? b->item_of(i) : (compact_list_item_t){ .label = name };
         }
@@ -408,13 +442,22 @@ static void search_apply_filter(search_binding_t * b, const char * query) {
     compact_list_set_items(b->list, items, matched);
     free(items);
 
+    free(b->filtered_indices);
+    free(b->filtered_labels);
+    free(b->filtered_subtitles);
+    b->filtered_labels = NULL;
+    b->filtered_count = 0;
+
     if (have_query) {
         b->filtered_indices = indices;
         b->filtered_count = matched;
+        b->filtered_subtitles = subtitles;
     } else {
         /* Unfiltered -- display index already equals the real index, no
          * remap table needed (also covers count == 0 cleanly). */
         free(indices);
+        free(subtitles);
+        b->filtered_subtitles = NULL;
     }
     b->refresh_now_playing();
 }
@@ -565,6 +608,8 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
     b->filtered_count = 0;
     free(b->filtered_labels);
     b->filtered_labels = NULL;
+    free(b->filtered_subtitles);
+    b->filtered_subtitles = NULL;
 
     if (b->db_backed) {
         if (restore_provider) {
@@ -622,7 +667,7 @@ void library_search_invalidate_bindings(void) {
         search_binding_t * b = &search_bindings[i];
         if ((!b->db_backed && b->id != SEARCH_BINDING_GROUP_SONGS) || !b->list) continue;
         if (b->active) search_close_internal(b, false);
-        else if (b->filtered_labels || b->filtered_indices) {
+        else if (b->filtered_labels || b->filtered_indices || b->filtered_subtitles) {
             /* Files results can be hidden while their eager items still
              * point into filtered_labels, so clear the list before freeing.
              * A binding without results is left alone: clearing a paged
@@ -634,6 +679,8 @@ void library_search_invalidate_bindings(void) {
             b->filtered_count = 0;
             free(b->filtered_labels);
             b->filtered_labels = NULL;
+            free(b->filtered_subtitles);
+            b->filtered_subtitles = NULL;
         }
     }
 }
@@ -659,6 +706,7 @@ void library_search_register(search_binding_id_t id, const library_search_config
     search_binding_t * b = &search_bindings[id];
     free(b->filtered_indices); /* A rebuild replaces the fixed id after the old screen is gone. */
     free(b->filtered_labels);
+    free(b->filtered_subtitles);
     lv_obj_t *screen = config->screen;
     lv_obj_t *list = config->list;
     lv_obj_t *search_btn = build_top_right_icon_button(screen, asset_path("navigation/search.png"), NULL);
@@ -669,7 +717,7 @@ void library_search_register(search_binding_id_t id, const library_search_config
          * at the right edge. The title ends before Search. */
         lv_obj_align(search_btn, LV_ALIGN_TOP_RIGHT, -HEADER_BUTTON_WIDTH,
                      STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
-        if (config->files_title) reserve_title_width_before(config->files_title, search_btn);
+        /* Files reserves its title before the sort button, left of Search. */
     }
 
     /* Cover the full title row at the active display width, including any

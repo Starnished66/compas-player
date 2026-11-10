@@ -8,6 +8,15 @@ static lv_style_t accent;
 lv_font_t lv_font_montserrat_16;
 uint32_t gui_anim_ms(uint32_t ms) { return ms; }
 int32_t ui_list_row_width(void) { return 460; }
+void gui_album_view_total_text(double seconds, char * out, size_t size) {
+    if (size == 0) return;
+    out[0] = '\0';
+    if (seconds <= 0.0) return;
+    int minutes = (int) ((seconds + 30.0) / 60.0);
+    if (minutes < 1) minutes = 1;
+    if (minutes >= 60) snprintf(out, size, "%d hr %d min", minutes / 60, minutes % 60);
+    else snprintf(out, size, "%d min", minutes);
+}
 static bool glyph(const lv_font_t * font, lv_font_glyph_dsc_t * dsc, uint32_t letter, uint32_t next) {
     (void) font; (void) letter; (void) next;
     memset(dsc, 0, sizeof(*dsc)); dsc->adv_w = 8; return true;

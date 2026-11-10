@@ -7,6 +7,8 @@
 #include "../../assets/assets.h"
 #include "../../../core/system/runtime/board_config.h"
 #include <stdio.h>
+#include <ctype.h>
+#include <stdint.h>
 #include <string.h>
 
 static char dur_marker;
@@ -100,6 +102,41 @@ void gui_album_view_total_text(double seconds, char * out, size_t size) {
     if (minutes < 1) minutes = 1;
     if (minutes >= 60) snprintf(out, size, TR("%d hr %d min"), minutes / 60, minutes % 60);
     else snprintf(out, size, TR("%d min"), minutes);
+}
+
+lv_obj_t * gui_album_view_play_bar_build(lv_obj_t * parent, int32_t row_width, int64_t track_count,
+                                         lv_event_cb_t play_cb, lv_event_cb_t shuffle_cb) {
+    if (track_count <= 0) return NULL;
+    char text[48];
+    snprintf(text, sizeof(text), TR_N("%lld track", "%lld tracks", (long) track_count), (long long) track_count);
+    return gui_play_bar_build(parent, row_width, text, play_cb, shuffle_cb);
+}
+
+void gui_album_view_uppercase_suffix(const char * suffix, char * out, size_t size) {
+    if (!out || size == 0) return;
+    size_t i = 0;
+    for (; suffix && suffix[i] && i + 1 < size; i++)
+        out[i] = (char) toupper((unsigned char) suffix[i]);
+    out[i] = '\0';
+}
+
+int32_t gui_album_view_disc_number(int32_t disc_number) {
+    return disc_number > 0 ? disc_number : 1;
+}
+
+bool gui_album_view_has_multiple_discs(const void * rows, int count, size_t stride, size_t disc_offset) {
+    if (!rows || count <= 1 || stride == 0 || disc_offset > stride ||
+        sizeof(int32_t) > stride - disc_offset) return false;
+    int32_t first;
+    memcpy(&first, (const char *) rows + disc_offset, sizeof(first));
+    first = gui_album_view_disc_number(first);
+    for (int i = 1; i < count; i++) {
+        int32_t disc;
+        memcpy(&disc, (const char *) rows + (size_t) i * stride + disc_offset, sizeof(disc));
+        disc = gui_album_view_disc_number(disc);
+        if (disc != first) return true;
+    }
+    return false;
 }
 
 void gui_album_view_meta_text(int year, const char * genre, char * out, size_t size) {
