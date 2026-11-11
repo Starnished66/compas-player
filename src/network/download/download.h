@@ -30,6 +30,7 @@ typedef struct {
     const char *transport_error;
     uint64_t bytes_written;
     char content_type[128];
+    char host[256]; /* of the last hop reached, for diagnostics */
     bool committed;
     bool durable;
 } download_result_t;

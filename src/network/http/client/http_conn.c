@@ -460,8 +460,10 @@ bool http_conn_reader_line(http_conn_reader_t * r, char * out, size_t out_size) 
     return http_conn_reader_line_ex(r, out, out_size, NULL);
 }
 
-bool http_conn_reader_line_strict(http_conn_reader_t *r, char *out, size_t out_size) {
+/* CRLF-only lines; a line past out_size is consumed to its end and flagged. */
+static bool reader_line_strict_ex(http_conn_reader_t *r, char *out, size_t out_size, bool *truncated) {
     size_t used = 0;
+    *truncated = false;
     for (;;) {
         uint8_t c;
         if (!http_conn_reader_read_exact(r, &c, 1)) return false;
@@ -470,9 +472,15 @@ bool http_conn_reader_line_strict(http_conn_reader_t *r, char *out, size_t out_s
             out[used] = '\0';
             return true;
         }
-        if (c == '\n' || !c || used + 1 >= out_size) return false;
-        out[used++] = (char)c;
+        if (c == '\n' || !c) return false;
+        if (used + 1 < out_size) out[used++] = (char)c;
+        else *truncated = true;
     }
+}
+
+bool http_conn_reader_line_strict(http_conn_reader_t *r, char *out, size_t out_size) {
+    bool truncated;
+    return reader_line_strict_ex(r, out, out_size, &truncated) && !truncated;
 }
 
 static bool parse_content_length(const char * value, uint64_t * out) {
@@ -488,27 +496,34 @@ static bool parse_content_length(const char * value, uint64_t * out) {
     return true;
 }
 
+/* Reads one head line; *truncated marks a line longer than size. */
 static http_head_result_t read_head_line(http_conn_reader_t *r, bool strict,
-                                         char *line, size_t size) {
+                                         char *line, size_t size, bool *truncated) {
     if (strict) {
-        if (http_conn_reader_line_strict(r, line, size)) return HTTP_HEAD_OK;
+        if (reader_line_strict_ex(r, line, size, truncated)) return HTTP_HEAD_OK;
         return r->conn->last_read_timed_out ? HTTP_HEAD_IO : HTTP_HEAD_MALFORMED;
     }
-    bool truncated;
-    if (!http_conn_reader_line_ex(r, line, size, &truncated)) return HTTP_HEAD_IO;
-    return truncated ? HTTP_HEAD_MALFORMED : HTTP_HEAD_OK;
+    return http_conn_reader_line_ex(r, line, size, truncated) ? HTTP_HEAD_OK : HTTP_HEAD_IO;
+}
+
+/* Headers whose value frames the message; a cut value cannot be ignored. */
+static bool framing_header(const char * name) {
+    return strcasecmp(name, "Content-Length") == 0 || strcasecmp(name, "Transfer-Encoding") == 0 ||
+           strcasecmp(name, "Location") == 0;
 }
 
 http_head_result_t http_conn_read_head(http_conn_reader_t * r, http_head_t * h,
                                        http_header_fn fn, void * ctx) {
-    char line[4096];
+    char line[8192];
+    bool truncated;
     h->status = 0;
     h->chunked = false;
     h->has_length = false;
     h->content_length = 0;
     if (h->location && h->location_size) h->location[0] = '\0';
-    http_head_result_t result = read_head_line(r, h->strict, line, sizeof(line));
+    http_head_result_t result = read_head_line(r, h->strict, line, sizeof(line), &truncated);
     if (result != HTTP_HEAD_OK) return result;
+    if (truncated) return HTTP_HEAD_MALFORMED;
     const char * sp = strchr(line, ' ');
     if (!sp) return HTTP_HEAD_MALFORMED;
     if (h->strict && (strncmp(line, "HTTP/1.1 ", 9) != 0 && strncmp(line, "HTTP/1.0 ", 9) != 0))
@@ -519,13 +534,15 @@ http_head_result_t http_conn_read_head(http_conn_reader_t * r, http_head_t * h,
     h->status = atoi(sp + 1);
 
     for (;;) {
-        result = read_head_line(r, h->strict, line, sizeof(line));
+        result = read_head_line(r, h->strict, line, sizeof(line), &truncated);
         if (result != HTTP_HEAD_OK)
             return !h->strict && h->allow_header_eof && result == HTTP_HEAD_IO ? HTTP_HEAD_OK : result;
         if (!line[0]) return h->strict && h->chunked && h->has_length ? HTTP_HEAD_MALFORMED : HTTP_HEAD_OK;
         char * colon = strchr(line, ':');
         if (!colon) { if (h->strict) return HTTP_HEAD_MALFORMED; continue; }
         *colon = '\0';
+        /* GitHub's Content-Security-Policy runs past 4 KB; it is not ours to read. */
+        if (truncated) { if (framing_header(line)) return HTTP_HEAD_MALFORMED; continue; }
         char * value = colon + 1;
         while (*value == ' ' || *value == '\t') value++;
         size_t len = strlen(value);

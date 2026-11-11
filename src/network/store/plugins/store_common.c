@@ -3,6 +3,7 @@
 
 #include "../../download/download.h"
 #include "../../../core/files/file_integrity.h"
+#include "../../../core/system/logging/db_log.h"
 
 #include <pthread.h>
 #include <stdio.h>
@@ -204,7 +205,12 @@ bool store_download_verified(const char * url, const char * dest, uint32_t size,
         .connect_timeout_ms = STORE_TIMEOUT_CONNECT, .read_timeout_ms = STORE_TIMEOUT_READ };
     download_result_t result;
     /* Real directory I/O errors remain failures even after commit. */
-    return download_to_file(&request, NULL, progress, context, &result) == DOWNLOAD_OK;
+    download_error_t error = download_to_file(&request, NULL, progress, context, &result);
+    if (error != DOWNLOAD_OK) {
+        reload_diag_log("store: download failed host=%s error=%s status=%d download_error=%d",
+                        result.host, result.transport_error ? result.transport_error : "", result.http_status, error);
+    }
+    return error == DOWNLOAD_OK;
 }
 
 static const char * connection_error(const char * e, const char * generic) {
@@ -234,15 +240,11 @@ bool store_fetch_index(const char * url, size_t limit, const char * generic_erro
     req.max_response_bytes = limit;
     req.redirect_limit = 5;
     bool ok = http_request_ex(&req, NULL, response);
-    if (!ok || !response->body) {
-        *error = connection_error(ok ? NULL : response->error, generic_error);
-        http_response_free(response);
-        return false;
-    }
-    if (response->status != 200) {
-        *error = generic_error;
-        http_response_free(response);
-        return false;
-    }
-    return true;
+    if (ok && response->body && response->status == 200) return true;
+    /* The UI text stays generic; the cause goes to the diagnostics log. */
+    reload_diag_log("store: index fetch failed host=%s error=%s status=%d", response->host,
+                    response->error ? response->error : "", response->status);
+    *error = connection_error(ok ? NULL : response->error, generic_error);
+    http_response_free(response);
+    return false;
 }

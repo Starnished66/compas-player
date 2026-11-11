@@ -729,6 +729,7 @@ static bool http_request_ex_internal(http_request_t * req, http_cancel_token_t *
         resp->error = HTTP_ERR_INVALID_URL;
         return false;
     }
+    memcpy(resp->host, host, sizeof(host));
 
     http_conn_t conn;
     http_conn_error_t conn_error = HTTP_CONN_OK;
@@ -1003,6 +1004,7 @@ static bool file_get_hop(file_transfer_t *t, const char *url, char *location, si
         t->result->error = HTTP_ERR_INVALID_URL;
         return false;
     }
+    memcpy(t->result->host, host, sizeof(host));
     http_conn_t conn;
     http_conn_error_t error;
     uint32_t connect_ms = http_effective_timeout_ms(t->request->connect_timeout_ms, t->deadline);

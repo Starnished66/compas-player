@@ -65,6 +65,11 @@ bool db_log_flush(void);
         DB_LOG((area), __VA_ARGS__); \
     } while (0)
 
+/* Appends one "[pid=N] ..." line to .logs/reload_diag.log on the SD card:
+ * the always-on trace the diagnostics zip collects. Opens, fsyncs and
+ * closes per line, so only for rare events such as a failed download. */
+void reload_diag_log(const char * fmt, ...) __attribute__((format(printf, 1, 2)));
+
 /* Monotonic milliseconds, for elapsed-time fields between two DB_LOG calls. */
 uint64_t db_log_now_ms(void);
 

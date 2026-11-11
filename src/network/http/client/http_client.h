@@ -91,6 +91,7 @@ typedef struct {
     uint8_t * body;
     size_t body_len;
     const char * error;
+    char host[256]; /* of the last hop reached, for diagnostics */
 } http_response_t;
 
 bool http_request_ex(const http_request_t * req_in, http_cancel_token_t * cancel, http_response_t * resp);
@@ -130,6 +131,7 @@ typedef struct {
     int system_errno;
     uint64_t bytes_written;
     char content_type[128];
+    char host[256]; /* of the last hop reached, for diagnostics */
 } http_file_result_t;
 
 bool http_get_to_open_file(const http_file_request_t *request, FILE *file,

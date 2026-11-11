@@ -121,28 +121,10 @@
 /* The optional cover flow module: absent when src/ui/widgets/cover_flow is removed. */
 extern void cover_flow_shutdown(void) __attribute__((weak));
 
-/* Diagnostic logging for UI reload steps. Append-only with fsync per line
- * to ensure entries are flushed to storage immediately to identify the
- * failure point if a crash occurs during reload. */
-#ifdef HOST_BUILD
-  #define RELOAD_DIAG_DIR "./music/.logs"
-#else
-  #define RELOAD_DIAG_DIR "/data/mnt/sd_0/.logs"
-#endif
-#define RELOAD_DIAG_PATH RELOAD_DIAG_DIR "/reload_diag.log"
+/* Reload steps go to reload_diag.log (fsync per line) when debug logging is
+ * on, so a crash mid-reload shows its last step. */
 static void reload_diag(const char * step) {
-    if (!db_log_enabled()) return;
-    (void) mkdir(RELOAD_DIAG_DIR, 0755);
-    int fd = open(RELOAD_DIAG_PATH, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
-    if (fd < 0) return;
-    char line[160];
-    int len = snprintf(line, sizeof(line), "[pid=%ld] %s\n", (long) getpid(), step);
-    if (len > 0) {
-        if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
-        write(fd, line, (size_t) len);
-        fsync(fd);
-    }
-    close(fd);
+    if (db_log_enabled()) reload_diag_log("%s", step);
 }
 
 static int32_t reload_display_width(void) {

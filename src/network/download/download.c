@@ -89,6 +89,7 @@ static download_error_t transfer(const download_request_t *r, download_file_t *f
     out->system_errno = response.system_errno;
     out->bytes_written = response.bytes_written;
     snprintf(out->content_type, sizeof(out->content_type), "%s", response.content_type);
+    memcpy(out->host, response.host, sizeof(out->host));
     if (!ok) return transport_error(&response);
     if (response.status == 206 || (r->required_status ? response.status != r->required_status :
         response.status < 200 || response.status >= 300)) return DOWNLOAD_ERR_HTTP_STATUS;

@@ -3,7 +3,7 @@
 #include "../builders/gui_play_bar.h"
 #include "../../assets/assets.h"
 #include "../../../core/process/worker_thread.h"
-#include "../../../core/system/logging/debug_log.h"
+#include "../../../core/system/logging/db_log.h"
 #include "../../shell/gui_navigation.h"
 #include "lvgl/src/display/lv_display_private.h"
 #include "scroll_blit.h"
@@ -888,13 +888,7 @@ static void unregister_active_compact_list(compact_list_virtual_data_t * data) {
  * address instead of crashing, so the stale call site can be found with
  * addr2line. Same log the crash handler uses. */
 static void compact_list_report_stale(const char * api, void * caller) {
-    int fd = open("/data/mnt/sd_0/.logs/reload_diag.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd < 0) return;
-    char line[160];
-    int n = snprintf(line, sizeof(line), "[pid=%ld] *** STALE compact_list api=%s caller=%p ***\n",
-                     (long) getpid(), api, caller);
-    if (n > 0) { ssize_t w = write(fd, line, (size_t) n); (void) w; }
-    close(fd);
+    reload_diag_log("*** STALE compact_list api=%s caller=%p ***", api, caller);
 }
 
 /* Liveness comes from the intrusive registry: only data blocks that are

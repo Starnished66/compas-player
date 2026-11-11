@@ -8,6 +8,7 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #ifdef HOST_BUILD
@@ -17,6 +18,24 @@
 #endif
 #define DB_LOG_PATH DB_LOG_DIR "/database_artwork.log"
 #define DB_LOG_ROTATED_PATH DB_LOG_DIR "/database_artwork.log.1"
+#define RELOAD_DIAG_PATH DB_LOG_DIR "/reload_diag.log"
+
+void reload_diag_log(const char * fmt, ...) {
+    (void) mkdir(DB_LOG_DIR, 0755);
+    int fd = open(RELOAD_DIAG_PATH, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+    if (fd < 0) return;
+    char line[256];
+    int len = snprintf(line, sizeof(line) - 1, "[pid=%ld] ", (long) getpid());
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(line + len, sizeof(line) - 1 - (size_t) len, fmt, args);
+    va_end(args);
+    if (n > 0) len += n;
+    if (len > (int) sizeof(line) - 2) len = (int) sizeof(line) - 2;
+    line[len++] = '\n';
+    if (write(fd, line, (size_t) len) > 0) fsync(fd);
+    close(fd);
+}
 
 /* A full library scan can emit thousands of lines (two-plus per song). A
  * write()/fsync-equivalent syscall to the SD card on every single line would
