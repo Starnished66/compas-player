@@ -470,6 +470,14 @@ void remote_control_refresh_pin_label(void) {
     lv_label_set_text(remote_control_pin_label, pin[0] ? pin : TR("Unavailable"));
     snprintf(remote_control_displayed_pin, sizeof(remote_control_displayed_pin), "%s", pin);
     remote_control_displayed_pin_valid = true;
+    lv_obj_t * pin_row = lv_obj_get_parent(remote_control_pin_label);
+    lv_obj_update_layout(pin_row);
+    lv_obj_update_layout(remote_control_pin_label);
+    lv_obj_t * pin_title = lv_obj_get_child(pin_row, 0);
+    int32_t title_width = lv_obj_get_x(remote_control_pin_label) - lv_obj_get_x(pin_title) - BOARD_SCALE_PX(12);
+    if (title_width < 0) title_width = 0;
+    configure_scrolling_row_label(pin_title, title_width);
+    lv_obj_set_width(pin_title, title_width);
 }
 
 /* Bluetooth route line of the Remote Control screen. */
@@ -665,10 +673,10 @@ static lv_obj_t * build_remote_control_screen(void) {
     remote_control_pin_label = lv_label_create(pin_row);
     lv_obj_add_style(remote_control_pin_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(remote_control_pin_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_align(remote_control_pin_label, LV_ALIGN_RIGHT_MID, -20 - icon_width - BOARD_SCALE_PX(16), 0);
+    lv_obj_align(remote_control_pin_label, LV_ALIGN_RIGHT_MID,
+                 -BOARD_SCALE_PX(20) - icon_width - BOARD_SCALE_PX(16), 0);
     remote_control_displayed_pin_valid = false;
     remote_control_refresh_pin_label();
-
     lv_obj_t * explanation = lv_label_create(list);
     lv_label_set_text(explanation,
                       TR("Connect over Wi-Fi or Bluetooth to see what's playing, control playback, and browse "

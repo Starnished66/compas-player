@@ -423,10 +423,13 @@ bool gui_plugin_show_progress(const char * title, const char * message, int perc
     lv_obj_add_style(plugin_progress_title, &style_theme_text_primary, 0);
     const lv_font_t * title_font = gui_theme_font(GUI_FONT_ROLE_TITLE);
     lv_obj_set_style_text_font(plugin_progress_title, title_font, 0);
-    lv_obj_set_height(plugin_progress_title, title_font->line_height + BOARD_SCALE_PX(2));
+    lv_obj_set_height(plugin_progress_title, LV_SIZE_CONTENT);
+    int32_t title_line_space = lv_obj_get_style_text_line_space(plugin_progress_title, LV_PART_MAIN);
+    lv_obj_set_style_max_height(plugin_progress_title,
+                                2 * title_font->line_height + title_line_space + BOARD_SCALE_PX(2), 0);
     lv_obj_set_width(plugin_progress_title, 0);
     lv_obj_set_flex_grow(plugin_progress_title, 1);
-    lv_label_set_long_mode(plugin_progress_title, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(plugin_progress_title, LV_LABEL_LONG_WRAP);
     char bounded_title[256];
     snprintf(bounded_title, sizeof(bounded_title), "%s", title ? title : "");
     lv_label_set_text(plugin_progress_title, bounded_title);

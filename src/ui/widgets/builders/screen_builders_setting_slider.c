@@ -70,6 +70,8 @@ static void build_toggle_row(lv_obj_t * card, const setting_slider_cfg_t * cfg, 
         lv_obj_set_flex_grow(label, 0);
         lv_obj_set_width(label, available);
     }
+    set_wrapped_label_two_line_height(label);
+    lv_obj_add_flag(label, LV_OBJ_FLAG_USER_2);
     *out_switch = sw;
 }
 
@@ -134,25 +136,6 @@ lv_obj_t * build_setting_toggle_card(lv_obj_t * parent, const char * label, cons
     return card;
 }
 
-#if defined(BOARD_TEMPOTEC_V1)
-/* Keep pill tap handling while allowing long slider-toggle captions to wrap. */
-static void wrap_slider_toggle_row(lv_obj_t * row) {
-    lv_obj_t * label = lv_obj_get_child(row, 0);
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_left(row, GUI_TEXT_INSET, 0);
-    lv_obj_set_style_pad_right(row, BOARD_SCALE_PX(20), 0);
-    lv_obj_set_style_pad_column(row, BOARD_SCALE_PX(20), 0);
-    lv_obj_set_style_pad_ver(row, BOARD_SCALE_PX(16), 0);
-    lv_obj_remove_flag(label, LV_OBJ_FLAG_USER_3);
-    lv_obj_set_style_pad_top(label, 0, 0);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_height(label, LV_SIZE_CONTENT);
-}
-
-#endif
-
 setting_slider_t build_setting_slider(lv_obj_t * parent, const setting_slider_cfg_t * cfg) {
     setting_slider_t s = { .steps = cfg->steps, .fmt = cfg->fmt };
     s.card = plain_box(parent);
@@ -160,16 +143,12 @@ setting_slider_t build_setting_slider(lv_obj_t * parent, const setting_slider_cf
     lv_obj_set_flex_flow(s.card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s.card, GUI_ROW_GAP, 0);
     if (cfg->toggle_label) {
-        lv_obj_t * row;
         pill_list_item_t toggle = {
             .label = cfg->toggle_label, .accessory = PILL_ACCESSORY_TOGGLE,
             .toggle_initial_state = cfg->checked, .on_toggle_change = cfg->switch_cb,
-            .out_toggle_img = &s.toggle, .out_row = &row,
+            .out_toggle_img = &s.toggle,
         };
         add_pill_list_rows(s.card, &toggle, 1);
-#if defined(BOARD_TEMPOTEC_V1)
-        wrap_slider_toggle_row(row);
-#endif
     }
     fill_slider_t fill = build_fill_slider(s.card, &(fill_slider_cfg_t) {
         .width = lv_pct(100), .height = FILL_SLIDER_HEIGHT, .radius = FILL_SLIDER_RADIUS,

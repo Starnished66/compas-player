@@ -207,8 +207,7 @@ static void populate_player_layout_picker(lv_obj_t * list) {
     if (!list) return;
     lv_obj_clean(list);
     player_layouts_rescan();
-    lv_obj_t * download = add_pill_chevron_row(list, TR("Download"), player_layout_download_cb);
-    lv_obj_set_width(download, lv_pct(100));
+    add_pill_chevron_row(list, TR("Download"), player_layout_download_cb);
     const char * active = player_layouts_effective_id();
     lv_obj_t * grid = lv_obj_create(list);
     lv_obj_remove_style_all(grid);

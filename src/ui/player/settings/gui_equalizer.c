@@ -1031,7 +1031,8 @@ static lv_obj_t * build_eq_band_options_screen(void) {
     lv_obj_align(content, LV_ALIGN_TOP_MID, 0, content_top);
     lv_obj_add_style(content, &style_theme_screen_bg, 0);
     lv_obj_set_style_border_width(content, 0, 0);
-    lv_obj_set_style_pad_all(content, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_hor(content, GUI_LIST_SIDE_MARGIN, 0);
+    lv_obj_set_style_pad_ver(content, BOARD_SCALE_PX(12), 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_gap(content, BOARD_SCALE_PY(16), 0);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
@@ -1040,23 +1041,16 @@ static lv_obj_t * build_eq_band_options_screen(void) {
     lv_obj_set_style_pad_bottom(content, BOARD_SCALE_PY(64), 0);
     eq_type_menu = add_pill_option_menu_row(content, TR("Filter type"),
         TR("Peaking\nLow shelf\nHigh shelf"), 0, eq_type_menu_event_cb);
-    lv_obj_t * enable_row = lv_obj_create(content);
-    lv_obj_set_width(enable_row, lv_pct(100));
-    lv_obj_set_height(enable_row, GUI_SETTINGS_ROW_HEIGHT);
-    lv_obj_add_style(enable_row, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(enable_row, 0, 0);
-    lv_obj_set_style_radius(enable_row, BOARD_SCALE_PX(12), 0);
-    lv_obj_set_style_pad_all(enable_row, BOARD_SCALE_PX(16), 0);
-    lv_obj_set_flex_flow(enable_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(enable_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_t * enable = lv_label_create(enable_row);
-    lv_label_set_text(enable, TR("Enable band"));
-    lv_obj_add_style(enable, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(enable, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    eq_band_enabled_switch = lv_switch_create(enable_row);
-    lv_obj_add_style(eq_band_enabled_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    const peq_band_t * band = peq_get_band(current_eq_band);
+    pill_list_item_t enabled_item = {
+        .label = TR("Enable band"),
+        .accessory = PILL_ACCESSORY_TOGGLE,
+        .toggle_initial_state = band && band->enabled,
+        .on_toggle_change = eq_band_enabled_switch_event_cb,
+        .out_toggle_img = &eq_band_enabled_switch,
+    };
+    add_pill_list_rows(content, &enabled_item, 1);
     refresh_all_eq_widgets();
-    lv_obj_add_event_cb(eq_band_enabled_switch, eq_band_enabled_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -1072,14 +1066,14 @@ static lv_obj_t * build_crossfeed_screen(void) {
     lv_obj_align(content, LV_ALIGN_TOP_MID, 0, content_top);
     lv_obj_add_style(content, &style_theme_screen_bg, 0);
     lv_obj_set_style_border_width(content, 0, 0);
-    lv_obj_set_style_pad_all(content, BOARD_SCALE_PX(12), 0);
+    lv_obj_set_style_pad_hor(content, GUI_LIST_SIDE_MARGIN, 0);
+    lv_obj_set_style_pad_ver(content, BOARD_SCALE_PX(12), 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_gap(content, BOARD_SCALE_PY(16), 0);
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_pad_bottom(content, BOARD_SCALE_PY(64), 0);
     lv_obj_t * crossfeed = eq_make_fill_card(content, EQ_FIELD_CROSSFEED, TR("Crossfeed"), &eq_crossfeed_value_label, &eq_crossfeed_slider, 0, 100);
-    lv_obj_set_width(crossfeed, lv_pct(100));
     eq_crossfeed_angle_menu = add_pill_option_menu_row(content, TR("Crossfeed angle"),
         TR("No delay\n30°\n45°\n60°\n90°"), 0, eq_crossfeed_angle_menu_event_cb);
     lv_obj_t * help = lv_label_create(content);
@@ -1329,8 +1323,9 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_flex_align(eq_footer, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_remove_flag(eq_footer, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t * flat = lv_btn_create(eq_footer);
-    lv_obj_set_flex_grow(flat, 1);
+    lv_obj_set_width(flat, LV_SIZE_CONTENT);
     lv_obj_set_height(flat, BOARD_SCALE_PX(66));
+    lv_obj_set_style_pad_hor(flat, BOARD_SCALE_PX(16), 0);
     lv_obj_add_style(flat, &pill_row_bg_style, 0);
     lv_obj_add_style(flat, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_shadow_width(flat, 0, 0);
@@ -1341,7 +1336,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_style_text_font(fl, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_center(fl);
     lv_obj_t * profiles = lv_btn_create(eq_footer);
-    lv_obj_set_flex_grow(profiles, 2);
+    lv_obj_set_flex_grow(profiles, 1);
     lv_obj_set_height(profiles, BOARD_SCALE_PX(66));
     /* A Breeze combo box: a plain framed button, not an accent one. */
     lv_obj_add_style(profiles, &pill_row_bg_style, 0);
@@ -1368,8 +1363,9 @@ static lv_obj_t * build_eq_screen(void) {
     lv_label_set_text(profile_chevron, LV_SYMBOL_DOWN);
     lv_obj_add_style(profile_chevron, &style_theme_text_primary, 0);
     lv_obj_t * save = lv_btn_create(eq_footer);
-    lv_obj_set_flex_grow(save, 1);
+    lv_obj_set_width(save, LV_SIZE_CONTENT);
     lv_obj_set_height(save, BOARD_SCALE_PX(66));
+    lv_obj_set_style_pad_hor(save, BOARD_SCALE_PX(16), 0);
     lv_obj_add_style(save, &pill_row_bg_style, 0);
     lv_obj_add_style(save, &list_row_pressed_style, LV_STATE_PRESSED);
     lv_obj_set_style_shadow_width(save, 0, 0);

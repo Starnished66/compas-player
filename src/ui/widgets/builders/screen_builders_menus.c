@@ -407,7 +407,7 @@ static void pill_row_add_accessory(lv_obj_t * row, const pill_list_item_t * item
         lv_obj_remove_flag(toggle_sw, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
         lv_obj_t * label = lv_obj_get_child(row, 0);
-        configure_scrolling_row_label(label, pill_row_toggle_label_width(row, label, toggle_sw));
+        configure_pill_toggle_row_wrap(row, label, toggle_sw);
         if (item->toggle_initial_state) lv_obj_add_state(toggle_sw, LV_STATE_CHECKED);
         if (toggle_accent_style) lv_obj_add_style(toggle_sw, toggle_accent_style, LV_PART_INDICATOR | LV_STATE_CHECKED);
 
@@ -453,7 +453,8 @@ static int32_t pill_list_add_row(lv_obj_t * list, const pill_list_item_t * item,
 
     pill_row_add_label(row, item, width, icon_px);
     pill_row_add_accessory(row, item, toggle_accent_style);
-    return height;
+    lv_obj_update_layout(row);
+    return lv_obj_get_height(row);
 }
 
 void add_pill_list_rows(lv_obj_t * list, const pill_list_item_t * items, int count) {

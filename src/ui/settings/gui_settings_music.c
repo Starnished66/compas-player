@@ -235,6 +235,9 @@ static void wrapped_label_size_changed(lv_event_t * e) {
 /* Wraps the first-child label of a pill row at 78% width so a long option
  * never runs under the row's accessory. */
 void wrap_row_label(lv_obj_t * row) {
+    /* Toggle builders already wrap around the measured switch width. */
+    for (uint32_t i = 0; i < lv_obj_get_child_count(row); ++i)
+        if (lv_obj_check_type(lv_obj_get_child(row, (int32_t)i), &lv_switch_class)) return;
     lv_obj_t * label = lv_obj_get_child(row, 0);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label, lv_pct(78));

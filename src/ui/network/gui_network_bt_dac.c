@@ -234,8 +234,14 @@ static void build_transport(lv_obj_t * hero) {
 
 static void build_action(void) {
     if (!showing_enabled) {
-        gui_pill_button(bt_dac_content, BOARD_SCALE_PX(320), BOARD_SCALE_PX(56),
-                        TR("Enable Bluetooth DAC"), true, enable_cb, NULL);
+        const char * label = TR("Enable Bluetooth DAC");
+        lv_point_t text_size;
+        lv_text_get_size(&text_size, label, gui_theme_font(GUI_FONT_ROLE_ROW), 0, 0,
+                         LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        int32_t width = LV_MAX(BOARD_SCALE_PX(320), text_size.x + BOARD_SCALE_PX(48));
+        width = LV_MIN(width, ui_list_row_width());
+        gui_pill_button(bt_dac_content, width, BOARD_SCALE_PX(56),
+                        label, true, enable_cb, NULL);
         return;
     }
     lv_obj_t * stop = centered_label(bt_dac_content, TR("Stop Bluetooth DAC"), GUI_FONT_ROLE_BODY);

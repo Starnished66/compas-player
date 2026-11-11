@@ -217,6 +217,35 @@ int32_t pill_row_toggle_label_width(lv_obj_t * row, lv_obj_t * label, lv_obj_t *
     return width - reserved;
 }
 
+int32_t set_wrapped_label_two_line_height(lv_obj_t * label) {
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_height(label, LV_SIZE_CONTENT);
+    lv_obj_update_layout(label);
+    int32_t natural_height = lv_obj_get_height(label);
+    const lv_font_t * font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+    int32_t max_height = 2 * lv_font_get_line_height(font) +
+                         lv_obj_get_style_text_line_space(label, LV_PART_MAIN);
+    int32_t height = LV_MIN(natural_height, max_height);
+    lv_obj_set_height(label, height);
+    lv_obj_update_layout(label);
+    return height;
+}
+
+int32_t configure_pill_toggle_row_wrap(lv_obj_t * row, lv_obj_t * label, lv_obj_t * toggle) {
+    lv_obj_update_layout(row);
+    int32_t label_left = lv_obj_get_x(label);
+    lv_obj_add_flag(label, LV_OBJ_FLAG_USER_2);
+    lv_obj_set_user_data(row, (void *)(intptr_t)lv_obj_get_height(row));
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_USER_3);
+    lv_obj_set_style_pad_top(label, 0, 0);
+    lv_obj_set_width(label, pill_row_toggle_label_width(row, label, toggle));
+    int32_t label_height = set_wrapped_label_two_line_height(label);
+    int32_t row_height = LV_MAX(lv_obj_get_height(row), label_height + BOARD_SCALE_PX(32));
+    lv_obj_set_height(row, row_height);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, label_left, 0);
+    return row_height;
+}
+
 lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool checked, lv_event_cb_t on_click) {
     lv_obj_t * row = add_pill_row_base(parent, label_text);
 
@@ -227,7 +256,7 @@ lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool 
     if (checked) lv_obj_add_state(toggle_sw, LV_STATE_CHECKED);
     lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
     lv_obj_t * label = lv_obj_get_child(row, 0);
-    configure_scrolling_row_label(label, pill_row_toggle_label_width(row, label, toggle_sw));
+    configure_pill_toggle_row_wrap(row, label, toggle_sw);
 
     return pill_row_clickable(row, on_click, NULL);
 }

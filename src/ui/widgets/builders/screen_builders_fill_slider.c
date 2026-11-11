@@ -74,6 +74,7 @@ fill_slider_t build_fill_slider(lv_obj_t * parent, const fill_slider_cfg_t * cfg
         lv_obj_set_style_pad_left(caption, BOARD_SCALE_PX(18), 0);
         lv_obj_set_width(caption, 0);
         lv_obj_set_flex_grow(caption, 1);
+        row_label_apply_bounded_height(caption, gui_theme_font(GUI_FONT_ROLE_ROW));
         lv_label_set_long_mode(caption, LV_LABEL_LONG_DOT);
         lv_obj_remove_flag(caption, LV_OBJ_FLAG_CLICKABLE);
     }

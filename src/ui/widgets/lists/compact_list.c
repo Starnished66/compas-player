@@ -919,6 +919,18 @@ static compact_list_virtual_data_t * compact_list_live_data(lv_obj_t * list, con
     compact_list_virtual_data_t * data = compact_list_live_data(list, api, __builtin_return_address(0)); \
     if (!data) return __VA_ARGS__
 
+lv_obj_t * compact_list_row_trailing_image(lv_obj_t * row) {
+    for (compact_list_virtual_data_t * data = s_live_compact_lists; row && data;
+         data = (compact_list_virtual_data_t *) data->next_live) {
+        if (data->magic != COMPACT_LIST_MAGIC) continue;
+        for (int slot = 0; slot < COMPACT_LIST_POOL_SIZE; ++slot) {
+            if (data->rows[slot] == row && !lv_obj_has_flag(data->trailing_images[slot], LV_OBJ_FLAG_HIDDEN))
+                return data->trailing_images[slot];
+        }
+    }
+    return NULL;
+}
+
 bool compact_list_any_fetch_pending(void) {
     for (compact_list_virtual_data_t * d = s_live_compact_lists; d;
          d = (compact_list_virtual_data_t *) d->next_live)

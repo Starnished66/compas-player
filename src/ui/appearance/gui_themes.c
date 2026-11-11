@@ -1345,8 +1345,7 @@ static void populate_theme_picker_grid(lv_obj_t * list) {
 
     s_picker_entry_count = gui_themes_scan(s_picker_entries, cap);
 
-    lv_obj_t * download = add_pill_chevron_row(list, TR("Download"), download_row_click_cb);
-    lv_obj_set_width(download, lv_pct(100));
+    add_pill_chevron_row(list, TR("Download"), download_row_click_cb);
 
     lv_obj_t * grid = lv_obj_create(list);
     lv_obj_remove_style_all(grid);

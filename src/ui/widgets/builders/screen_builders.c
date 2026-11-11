@@ -412,6 +412,16 @@ static void refresh_icon_caption_geometry_recursive(lv_obj_t * obj) {
     if (lv_obj_check_type(obj, &lv_label_class) && lv_obj_has_flag(obj, LV_OBJ_FLAG_USER_3)) {
         row_label_apply_bounded_height(obj, lv_obj_get_style_text_font(obj, LV_PART_MAIN));
     }
+    if (lv_obj_check_type(obj, &lv_label_class) && lv_obj_has_flag(obj, LV_OBJ_FLAG_USER_2)) {
+        int32_t label_height = set_wrapped_label_two_line_height(obj);
+        lv_obj_t * row = lv_obj_get_parent(obj);
+        if (row && lv_obj_get_user_data(row)) {
+            int32_t label_left = lv_obj_get_x(obj);
+            int32_t base_height = (int32_t)(intptr_t)lv_obj_get_user_data(row);
+            lv_obj_set_height(row, LV_MAX(base_height, label_height + BOARD_SCALE_PX(32)));
+            lv_obj_align(obj, LV_ALIGN_LEFT_MID, label_left, 0);
+        }
+    }
     if (lv_obj_check_type(obj, &lv_label_class) &&
         lv_obj_get_user_data(obj) == &music_list_row_badge_marker)
         layout_music_list_badge(obj);

@@ -595,6 +595,10 @@ void build_titled_popup(gui_popup_t * popup, lv_event_cb_t backdrop_cb, lv_obj_t
 lv_obj_t * add_pill_row_base(lv_obj_t * parent, const char * label_text);
 lv_obj_t * add_pill_summary_label(lv_obj_t * row);
 int32_t pill_row_toggle_label_width(lv_obj_t * row, lv_obj_t * label, lv_obj_t * toggle);
+/* Set a wrapped label's natural height, capped to two lines. */
+int32_t set_wrapped_label_two_line_height(lv_obj_t * label);
+/* Wrap a pill toggle label and grow its row while reserving the measured switch width. */
+int32_t configure_pill_toggle_row_wrap(lv_obj_t * row, lv_obj_t * label, lv_obj_t * toggle);
 lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool checked, lv_event_cb_t on_click);
 lv_obj_t * add_pill_chevron_row(lv_obj_t * parent, const char * label_text, lv_event_cb_t on_click);
 lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool selected,

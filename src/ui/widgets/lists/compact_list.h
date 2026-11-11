@@ -168,6 +168,8 @@ typedef void (*compact_list_press_cb_t)(int index, bool pressed);
 void compact_list_set_press_cb(lv_obj_t * list, compact_list_press_cb_t cb);
 void compact_list_refresh_visible(lv_obj_t * list);
 void compact_list_refresh_all(void);
+/* Returns the visible row accessory for a recycled compact-list row. */
+lv_obj_t * compact_list_row_trailing_image(lv_obj_t * row);
 /* Re-runs only the visible row decorators and image alignment for already
  * bound compact-list rows. Does not fetch a paged provider, move the virtual
  * window, or rewrite row labels/identity; use for artwork/cache changes. */

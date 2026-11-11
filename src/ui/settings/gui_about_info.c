@@ -21,7 +21,7 @@ extern lv_style_t style_theme_text_muted;
 #define SD_PATH "/usr/data/mnt/sd_0"
 #define ABOUT_STR_(x) #x
 #define ABOUT_STR(x) ABOUT_STR_(x)
-#define KEY_MAX_PCT 40
+#define KEY_MAX_PCT 60
 
 enum { ROW_MEMORY, ROW_INTERNAL, ROW_SD, ROW_COUNT };
 
@@ -229,23 +229,36 @@ static lv_obj_t * add_line(lv_obj_t * parent, const char * name, const char * va
     return row;
 }
 
-/* Sizes every key label to the widest key, so values stay aligned and short
- * keys never break mid-word; the max width keeps wrapping for very long ones.
- * Measured once, when the rows are built. */
+/* Keep words whole where possible, while leaving room for values. */
 static void fit_key_column(lv_obj_t * info) {
     const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_BODY);
-    int32_t widest = 0;
+    int32_t widest = 0, widest_word = 0;
+    lv_obj_update_layout(info);
+    int32_t width = lv_obj_get_content_width(info);
     uint32_t n = lv_obj_get_child_count(info);
     for (uint32_t i = 0; i < n; i++) {
         lv_obj_t * key = lv_obj_get_child(lv_obj_get_child(info, (int32_t) i), 0);
         lv_point_t size;
         lv_text_get_size(&size, lv_label_get_text(key), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         if (size.x > widest) widest = size.x;
+        char * words = lv_strdup(lv_label_get_text(key));
+        if (!words) continue;
+        char * next = words;
+        while (*next) {
+            next += strspn(next, " \t\n");
+            char * word = next;
+            next += strcspn(next, " \t\n");
+            if (*next) *next++ = '\0';
+            int32_t word_width = text_width(word, font);
+            if (word_width > widest_word) widest_word = word_width;
+        }
+        lv_free(words);
     }
+    int32_t key_width = LV_MAX(LV_MIN(widest + 1, width * 40 / 100), widest_word + 1);
+    key_width = LV_MIN(key_width, width * KEY_MAX_PCT / 100);
     for (uint32_t i = 0; i < n; i++) {
         lv_obj_t * key = lv_obj_get_child(lv_obj_get_child(info, (int32_t) i), 0);
-        lv_obj_set_width(key, widest + 1);
-        lv_obj_set_style_max_width(key, lv_pct(KEY_MAX_PCT), 0);
+        lv_obj_set_width(key, key_width);
     }
 }
 
