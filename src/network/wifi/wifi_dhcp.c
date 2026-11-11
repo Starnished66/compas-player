@@ -40,15 +40,16 @@ static void client_stop(void) {
     unlink(DHCP_PIDFILE);
 }
 
-/* Long-lived foreground client: renews, re-discovers after a NAK, and asks
- * for broadcast replies, which some mesh and extender access points need. */
+/* Long-lived foreground client: renews, re-discovers after a NAK, asks for
+ * broadcast replies (some mesh and extender access points need them) and
+ * declines an offered address another device already answers for (-a). */
 static void client_start(void) {
     client_stop();
     char name[64], hostname_opt[80];
     hostname_device_name(name, sizeof(name));
     snprintf(hostname_opt, sizeof(hostname_opt), "hostname:%s", name);
     char * argv[] = { (char *) "udhcpc", (char *) "-f", (char *) "-i", (char *) WIFI_INTERFACE, (char *) "-B",
-                      (char *) "-x", hostname_opt, (char *) "-p", (char *) DHCP_PIDFILE, NULL };
+                      (char *) "-a", (char *) "-x", hostname_opt, (char *) "-p", (char *) DHCP_PIDFILE, NULL };
     if (subprocess_start(argv, &client_pid)) return;
     client_pid = 0;
     retry_ticks = RETRY_TICKS;
