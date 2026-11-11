@@ -307,7 +307,12 @@ static void quick_drawer_build_toggle_name(int i, int32_t x, const char * text) 
     lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
     quick_drawer_size_toggle_caption(name);
     lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(name, LV_ALIGN_TOP_LEFT, x,
+#if BOARD_COMPACT_UI && !defined(BOARD_TEMPOTEC_V1)
+    int32_t label_x = x - (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
+#else
+    int32_t label_x = x;
+#endif
+    lv_obj_align(name, LV_ALIGN_TOP_LEFT, label_x,
                  QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_height(name, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
@@ -319,13 +324,18 @@ static void quick_drawer_build_toggle_state(int i, int32_t x) {
     lv_obj_t * state = lv_label_create(quick_drawer);
     quick_drawer_toggle_state[i] = state;
     lv_obj_set_width(state, QUICK_DRAWER_TOGGLE_CELL_W);
-#if defined(BOARD_TEMPOTEC_V1)
+#if BOARD_COMPACT_UI
     lv_obj_set_height(state, lv_font_get_line_height(&lv_font_montserrat_12));
     lv_label_set_long_mode(state, LV_LABEL_LONG_DOT);
 #endif
     lv_obj_set_style_text_align(state, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_font(state, fallback_font_ui_12(), 0);
-    lv_obj_align(state, LV_ALIGN_TOP_LEFT, x, quick_drawer_toggle_state_y(QUICK_DRAWER_ROW1_TOP));
+#if BOARD_COMPACT_UI && !defined(BOARD_TEMPOTEC_V1)
+    int32_t label_x = x - (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
+#else
+    int32_t label_x = x;
+#endif
+    lv_obj_align(state, LV_ALIGN_TOP_LEFT, label_x, quick_drawer_toggle_state_y(QUICK_DRAWER_ROW1_TOP));
     lv_label_set_text(state, TR("Off"));
     lv_obj_set_style_text_color(state, shell_drawer_off_color, 0);
 }

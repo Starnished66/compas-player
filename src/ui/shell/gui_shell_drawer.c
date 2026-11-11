@@ -55,11 +55,12 @@ lv_obj_t * quick_drawer_toggle_name[QUICK_DRAWER_TOGGLE_SLOTS];
 const int quick_drawer_column_label_x[] = { 39, 143, 251, 358 };
 #endif
 void quick_drawer_size_toggle_caption(lv_obj_t * label) {
-#if defined(BOARD_TEMPOTEC_V1)
-    /* Keep the four primary controls on one caption line; long translations
+#if BOARD_COMPACT_UI
+    /* Keep compact controls on one caption line; long translations
      * scroll within their own cell instead of colliding with the state row. */
     lv_obj_set_style_text_letter_space(label, -1, 0);
-    lv_obj_set_height(label, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
+    lv_obj_set_height(label, lv_font_get_line_height(
+        lv_obj_get_style_text_font(label, LV_PART_MAIN)));
     row_label_enable_marquee(label);
 #else
     (void) label;
@@ -692,12 +693,19 @@ void quick_drawer_brightness_changed_cb(lv_event_t * e) {
  * inside the expansion box. State text and color are left to the caller. */
 void quick_drawer_make_toggle_labels(int slot, int32_t x, int32_t row_y,
                                             const char * name_text) {
+    int32_t label_w = QUICK_DRAWER_TOGGLE_CELL_W;
+#if BOARD_COMPACT_UI && !defined(BOARD_TEMPOTEC_V1)
+    /* Initial plugin rows can have five columns before customization reflow. */
+    if (slot >= QD_TOGGLE_CAR_MODE && 1 + quick_drawer_plugin_toggle_count > 4)
+        label_w = BOARD_SCALE_PX(90);
+    x -= (label_w - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
+#endif
     lv_obj_t * name = lv_label_create(quick_drawer_expansion_box);
     quick_drawer_toggle_name[slot] = name;
     lv_label_set_text(name, name_text);
     lv_obj_add_style(name, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(name, fallback_font_ui_12(), 0);
-    lv_obj_set_width(name, QUICK_DRAWER_TOGGLE_CELL_W);
+    lv_obj_set_width(name, label_w);
     quick_drawer_size_toggle_caption(name);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_height(name, 2 * lv_font_get_line_height(&lv_font_montserrat_12));
@@ -708,8 +716,8 @@ void quick_drawer_make_toggle_labels(int slot, int32_t x, int32_t row_y,
 
     lv_obj_t * state = lv_label_create(quick_drawer_expansion_box);
     quick_drawer_toggle_state[slot] = state;
-    lv_obj_set_width(state, QUICK_DRAWER_TOGGLE_CELL_W);
-#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_width(state, label_w);
+#if BOARD_COMPACT_UI
     lv_obj_set_height(state, lv_font_get_line_height(&lv_font_montserrat_12));
     lv_label_set_long_mode(state, LV_LABEL_LONG_DOT);
 #endif
@@ -818,7 +826,8 @@ void quick_drawer_reflow_customization(void) {
         lv_obj_set_width(items[i].name, row > 0 ? compact_label_w : QUICK_DRAWER_TOGGLE_CELL_W);
         /* One scrolling caption and, in expanded rows, a close status line
          * without reserving an empty second caption line. */
-        int32_t caption_h = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+        int32_t caption_h = lv_font_get_line_height(
+            lv_obj_get_style_text_font(items[i].name, LV_PART_MAIN));
         lv_obj_set_height(items[i].name, caption_h);
         row_label_enable_marquee(items[i].name);
         if (row > 0) state_y = caption_y + caption_h + BOARD_SCALE_PY(5);
@@ -826,11 +835,24 @@ void quick_drawer_reflow_customization(void) {
         lv_obj_set_height(items[i].state, lv_font_get_line_height(&lv_font_montserrat_12));
         lv_label_set_long_mode(items[i].state, LV_LABEL_LONG_DOT);
         int32_t label_x = x + label_inset;
+#elif BOARD_COMPACT_UI
+        int32_t compact_label_w = QUICK_DRAWER_TOGGLE_CELL_W;
+        int32_t label_x = x - (compact_label_w - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
+        lv_obj_set_width(items[i].name, compact_label_w);
+        lv_obj_set_width(items[i].state, compact_label_w);
+        quick_drawer_size_toggle_caption(items[i].name);
+        lv_obj_set_height(items[i].state,
+            lv_font_get_line_height(lv_obj_get_style_text_font(items[i].state, LV_PART_MAIN)));
+        lv_label_set_long_mode(items[i].state, LV_LABEL_LONG_DOT);
 #endif
 #if defined(BOARD_TEMPOTEC_V1)
         int32_t icon_x = x + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
         quick_drawer_place_widget(items[i].icon, parent, icon_x, y, true);
         quick_drawer_place_widget(items[i].name, parent, row > 0 ? label_x : x, caption_y, true);
+        quick_drawer_place_widget(items[i].state, parent, label_x, state_y, true);
+#elif BOARD_COMPACT_UI
+        quick_drawer_place_widget(items[i].icon, parent, x, y, true);
+        quick_drawer_place_widget(items[i].name, parent, label_x, caption_y, true);
         quick_drawer_place_widget(items[i].state, parent, label_x, state_y, true);
 #else
         quick_drawer_place_widget(items[i].icon, parent, x, y, true);
