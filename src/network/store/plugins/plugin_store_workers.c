@@ -5,6 +5,7 @@
 #include "../../http/client/http_client.h"
 #include "../../../plugins/manager/plugin_api_version.h"
 
+#include <dirent.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -357,16 +358,50 @@ static const char * uninstall_backup(uninstall_t * u) {
     return NULL;
 }
 
+/* Removes the empty folders inside dir, then dir itself if that leaves it
+ * empty. rmdir() only ever deletes empty folders, and symlinks are skipped. */
+static void prune_empty_dirs(const char * dir, int depth) {
+    DIR * d = depth < 8 ? opendir(dir) : NULL;
+    if (!d) return;
+    struct dirent * e;
+    while ((e = readdir(d))) {
+        char sub[PATH_MAX];
+        struct stat st;
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") ||
+            snprintf(sub, sizeof(sub), "%s/%s", dir, e->d_name) >= (int) sizeof(sub)) continue;
+        if (lstat(sub, &st) == 0 && S_ISDIR(st.st_mode)) prune_empty_dirs(sub, depth + 1);
+    }
+    closedir(d);
+    rmdir(dir);
+}
+
+/* Drops the folders an uninstalled file leaves empty, walking up to but never
+ * including the top-level folder it lives in (.plugins, Themes, ...). */
+static void uninstall_prune_folders(const char * dest) {
+    char rel[PATH_MAX], path[PATH_MAX];
+    snprintf(rel, sizeof(rel), "%s", dest);
+    char * slash = strrchr(rel, '/');
+    if (!slash || !ps_parent_dirs_safe(STORE_SD_ROOT, dest, false)) return;
+    *slash = '\0';
+    if (!strchr(rel, '/') || !ps_path_for(path, sizeof(path), STORE_SD_ROOT, rel)) return;
+    prune_empty_dirs(path, 0);
+    while ((slash = strrchr(rel, '/'))) {
+        *slash = '\0';
+        if (!strchr(rel, '/') || !ps_path_for(path, sizeof(path), STORE_SD_ROOT, rel) || rmdir(path) != 0) break;
+    }
+}
+
 /* The record no longer lists the plugin: the backups are not needed. */
 static void uninstall_drop_backups(const uninstall_t * u) {
+    if (!ps_storage_path_writable(STORE_SD_ROOT, NULL, 0) || !ps_card_still(&u->card)) return;
     for (int i = 0; i < u->rec[u->found].file_count; i++) {
-        if (u->backed[i] && ps_storage_path_writable(STORE_SD_ROOT, NULL, 0) && ps_card_still(&u->card)) {
-            char bak[PATH_MAX + 32];
-            ps_stage_file(bak, sizeof(bak), u->stage, (size_t) i, "backup");
-            unlink(bak);
-        }
+        if (!u->backed[i]) continue;
+        char bak[PATH_MAX + 32];
+        ps_stage_file(bak, sizeof(bak), u->stage, (size_t) i, "backup");
+        unlink(bak);
+        uninstall_prune_folders(u->rec[u->found].files[i].dest);
     }
-    if (ps_storage_path_writable(STORE_SD_ROOT, NULL, 0) && ps_card_still(&u->card)) rmdir(u->stage);
+    rmdir(u->stage);
 }
 
 /* Writes the record without the plugin, then drops or restores the backups. */
