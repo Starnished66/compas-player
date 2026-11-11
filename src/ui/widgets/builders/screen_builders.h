@@ -191,7 +191,7 @@ void gui_style_settings_dropdown(lv_obj_t * dropdown);
 typedef void (*setting_value_fmt_t)(char * buf, size_t size, int value);
 
 #if defined(BOARD_TEMPOTEC_V1)
-#define FILL_SLIDER_HEIGHT BOARD_SCALE_PY(55)
+#define FILL_SLIDER_HEIGHT BOARD_SCALE_PX(72)
 #else
 #define FILL_SLIDER_HEIGHT BOARD_SCALE_PY(72)
 #endif
@@ -409,9 +409,9 @@ typedef struct {
  * below 64px, the icon will be clipped to row bounds; rows without icons
  * are unaffected. PILL_ROW_HEIGHT_MAX prevents a single row from dominating
  * the screen. */
-#define PILL_ROW_HEIGHT_MIN 48
-#define PILL_ROW_HEIGHT_MAX 220
-#define PILL_ROW_WIDTH_MIN 240
+#define PILL_ROW_HEIGHT_MIN BOARD_SCALE_PX(48)
+#define PILL_ROW_HEIGHT_MAX BOARD_SCALE_PX(220)
+#define PILL_ROW_WIDTH_MIN BOARD_SCALE_PX(240)
 #define PILL_ROW_WIDTH_MAX (ui_list_row_width())
 
 /* Native width derived from the active display. */
@@ -594,6 +594,7 @@ void build_titled_popup(gui_popup_t * popup, lv_event_cb_t backdrop_cb, lv_obj_t
 
 lv_obj_t * add_pill_row_base(lv_obj_t * parent, const char * label_text);
 lv_obj_t * add_pill_summary_label(lv_obj_t * row);
+int32_t pill_row_toggle_label_width(lv_obj_t * row, lv_obj_t * label, lv_obj_t * toggle);
 lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool checked, lv_event_cb_t on_click);
 lv_obj_t * add_pill_chevron_row(lv_obj_t * parent, const char * label_text, lv_event_cb_t on_click);
 lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool selected,

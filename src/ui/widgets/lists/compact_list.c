@@ -549,14 +549,14 @@ static void compact_list_align_row_decoration(compact_list_virtual_data_t * data
         } else lv_obj_add_flag(data->action_circles[slot], LV_OBJ_FLAG_HIDDEN);
     }
     /* The only row decorator is the library thumbnail one, whose pad_left is
-     * BOARD_LIBRARY_THUMB_TEXT_X; other rows keep the fixed 14 px offset. */
+     * BOARD_LIBRARY_THUMB_TEXT_X; other rows use the scaled inset. */
     /* A decorator whose image extends past its box (the pre-rendered
      * placeholder) leaves that overhang in the image's user data, in px. */
     int32_t overhang = (int32_t) (intptr_t) lv_obj_get_user_data(data->leading_images[slot]);
     lv_idem_align(data->leading_images[slot], LV_ALIGN_LEFT_MID,
-                  (data->row_decorator ? BOARD_LIBRARY_THUMB_INSET : 14) - pad_left - overhang, (pad_top - pad_bottom) / -2);
+                  (data->row_decorator ? BOARD_LIBRARY_THUMB_INSET : BOARD_SCALE_PX(14)) - pad_left - overhang, (pad_top - pad_bottom) / -2);
     lv_idem_align(data->trailing_images[slot], LV_ALIGN_RIGHT_MID,
-                  pad_right - 14, (pad_top - pad_bottom) / -2);
+                  pad_right - BOARD_SCALE_PX(14), (pad_top - pad_bottom) / -2);
 }
 
 /* Repositions/relabels the row pool so it covers the range of items
@@ -713,8 +713,18 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
         lv_obj_t * trailing = data->trailing_images[slot];
         if (trailing_asset && trailing_asset[0]) {
             lv_idem_image_set_src(trailing, compact_trailing_src(trailing_asset));
+            /* Known width, no layout pass: this runs for every row while scrolling. */
+            int32_t trailing_w = lv_image_get_src_width(trailing);
+#if defined(BOARD_TEMPOTEC_V1)
+            /* Match the header's menu size; the native 44px box steals title space on V1. */
+            bool menu = strcmp(trailing_asset, "navigation/more.png") == 0;
+            int32_t size = menu ? BOARD_SCALE_PX(44) : LV_SIZE_CONTENT;
+            lv_idem_set_size(trailing, size, size);
+            lv_image_set_inner_align(trailing, menu ? LV_IMAGE_ALIGN_CONTAIN : LV_IMAGE_ALIGN_DEFAULT);
+            if (menu) trailing_w = size;
+#endif
             lv_obj_remove_flag(trailing, LV_OBJ_FLAG_HIDDEN);
-            lv_idem_set_pad_right(row, 70);
+            lv_idem_set_pad_right(row, trailing_w + 2 * BOARD_SCALE_PX(14));
         } else {
             lv_obj_add_flag(trailing, LV_OBJ_FLAG_HIDDEN);
             lv_idem_set_pad_right(row, LIST_ROW_LABEL_INSET);
@@ -1169,13 +1179,13 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
         data->row_logical_index[slot] = -1;
 
         lv_obj_t * leading = lv_image_create(row);
-        lv_obj_align(leading, LV_ALIGN_LEFT_MID, 14, 0);
+        lv_obj_align(leading, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(14), 0);
         lv_obj_remove_flag(leading, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(leading, LV_OBJ_FLAG_HIDDEN);
         data->leading_images[slot] = leading;
 
         lv_obj_t * trailing = lv_image_create(row);
-        lv_obj_align(trailing, LV_ALIGN_RIGHT_MID, -14, 0);
+        lv_obj_align(trailing, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(14), 0);
         lv_obj_add_flag(trailing, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_remove_flag(trailing, LV_OBJ_FLAG_EVENT_BUBBLE);
         lv_obj_set_ext_click_area(trailing, 18);

@@ -1316,12 +1316,10 @@ static void populate_plugin_settings_list_screen(int slot) {
             lv_obj_set_style_text_font(label, pill_row_resolve_text_size(text_size), 0);
             pill_row_apply_icon(row_obj, label, icon, BOARD_SCALE_PX(44), LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(28), 0);
             apply_plugin_pill_row_resize(row_obj, st->row_height, st->row_width);
-            int32_t row_width = st->row_width > 0 ? st->row_width : pill_row_default_width();
-            if (row_width < PILL_ROW_WIDTH_MIN) row_width = PILL_ROW_WIDTH_MIN;
-            if (row_width > PILL_ROW_WIDTH_MAX) row_width = PILL_ROW_WIDTH_MAX;
             int32_t left = icon ? BOARD_SCALE_PX(96) : BOARD_SCALE_PX(24);
             lv_obj_align(label, LV_ALIGN_LEFT_MID, left, 0);
-            configure_plugin_row_label(row_obj, label, row_width - left - BOARD_SCALE_PX(112), st->wrap);
+            int32_t label_width = pill_row_toggle_label_width(row_obj, label, lv_obj_get_child(row_obj, 1));
+            configure_plugin_row_label(row_obj, label, label_width, st->wrap);
         } else if (st->type == PLUGIN_SETTINGS_ROW_SLIDER) {
             lv_obj_t * card = add_pill_slider_row(list, st->label, st->slider_min, st->slider_max, st->slider_value,
                                                    plugin_settings_slider_event_cb, packed, icon, text_size);

@@ -616,7 +616,7 @@ void ui_marquee_init(void) {
 
 int32_t ui_list_row_height(void) {
     int32_t needed = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_ROW)) +
-                     lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) + 32;
+                     lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)) + BOARD_SCALE_PX(32);
     return needed > GUI_ROW_HEIGHT ? needed : GUI_ROW_HEIGHT;
 }
 

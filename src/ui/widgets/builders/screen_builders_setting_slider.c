@@ -39,7 +39,7 @@ static lv_obj_t * two_ends_row(lv_obj_t * parent) {
  * centres an inner label row in it (flex centres along the main axis even
  * when the height is content-sized). Returns the inner row; the caller adds
  * the control at its right end. */
-static lv_obj_t * build_label_row(lv_obj_t * card, const char * text) {
+static lv_obj_t * build_label_row(lv_obj_t * card, const char * text, lv_obj_t ** out_label) {
     lv_obj_t * outer = plain_box(card);
     lv_obj_set_size(outer, lv_pct(100), LV_SIZE_CONTENT);
     lv_obj_add_style(outer, &native_row_min_style, 0);
@@ -50,15 +50,26 @@ static lv_obj_t * build_label_row(lv_obj_t * card, const char * text) {
     lv_obj_t * label = styled_label(row, text, GUI_FONT_ROLE_ROW, &style_theme_text_primary);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_flex_grow(label, 1);
+    if (out_label) *out_label = label;
     return row;
 }
 
 static void build_toggle_row(lv_obj_t * card, const setting_slider_cfg_t * cfg, lv_obj_t ** out_switch) {
-    lv_obj_t * row = build_label_row(card, cfg->toggle_label);
+    lv_obj_t * label;
+    lv_obj_t * row = build_label_row(card, cfg->toggle_label, &label);
     lv_obj_t * sw = lv_switch_create(row);
     lv_obj_add_style(sw, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
     if (cfg->checked) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw, cfg->switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_update_layout(card);
+    int32_t available = lv_obj_get_width(row) -
+                        lv_obj_get_style_pad_left(row, LV_PART_MAIN) -
+                        lv_obj_get_style_pad_right(row, LV_PART_MAIN) -
+                        lv_obj_get_style_pad_column(row, LV_PART_MAIN) - lv_obj_get_width(sw);
+    if (available > 0) {
+        lv_obj_set_flex_grow(label, 0);
+        lv_obj_set_width(label, available);
+    }
     *out_switch = sw;
 }
 
@@ -102,7 +113,7 @@ static lv_obj_t * build_row_card(lv_obj_t * parent) {
 
 lv_obj_t * build_setting_label_card(lv_obj_t * parent, const char * label, lv_obj_t ** out_row) {
     lv_obj_t * card = build_row_card(parent);
-    *out_row = build_label_row(card, label);
+    *out_row = build_label_row(card, label, NULL);
     return card;
 }
 
@@ -123,6 +134,25 @@ lv_obj_t * build_setting_toggle_card(lv_obj_t * parent, const char * label, cons
     return card;
 }
 
+#if defined(BOARD_TEMPOTEC_V1)
+/* Keep pill tap handling while allowing long slider-toggle captions to wrap. */
+static void wrap_slider_toggle_row(lv_obj_t * row) {
+    lv_obj_t * label = lv_obj_get_child(row, 0);
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_left(row, GUI_TEXT_INSET, 0);
+    lv_obj_set_style_pad_right(row, BOARD_SCALE_PX(20), 0);
+    lv_obj_set_style_pad_column(row, BOARD_SCALE_PX(20), 0);
+    lv_obj_set_style_pad_ver(row, BOARD_SCALE_PX(16), 0);
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_USER_3);
+    lv_obj_set_style_pad_top(label, 0, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_height(label, LV_SIZE_CONTENT);
+}
+
+#endif
+
 setting_slider_t build_setting_slider(lv_obj_t * parent, const setting_slider_cfg_t * cfg) {
     setting_slider_t s = { .steps = cfg->steps, .fmt = cfg->fmt };
     s.card = plain_box(parent);
@@ -130,12 +160,16 @@ setting_slider_t build_setting_slider(lv_obj_t * parent, const setting_slider_cf
     lv_obj_set_flex_flow(s.card, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s.card, GUI_ROW_GAP, 0);
     if (cfg->toggle_label) {
+        lv_obj_t * row;
         pill_list_item_t toggle = {
             .label = cfg->toggle_label, .accessory = PILL_ACCESSORY_TOGGLE,
             .toggle_initial_state = cfg->checked, .on_toggle_change = cfg->switch_cb,
-            .out_toggle_img = &s.toggle,
+            .out_toggle_img = &s.toggle, .out_row = &row,
         };
         add_pill_list_rows(s.card, &toggle, 1);
+#if defined(BOARD_TEMPOTEC_V1)
+        wrap_slider_toggle_row(row);
+#endif
     }
     fill_slider_t fill = build_fill_slider(s.card, &(fill_slider_cfg_t) {
         .width = lv_pct(100), .height = FILL_SLIDER_HEIGHT, .radius = FILL_SLIDER_RADIUS,

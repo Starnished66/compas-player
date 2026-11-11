@@ -250,13 +250,14 @@ static lv_obj_t * build_clock_screen(void) {
 gui_theme_accent_style(), GUI_ROW_GAP, 100);
     if (clock_timezone_row) {
         lv_obj_t * title = lv_obj_get_child(clock_timezone_row, 0);
-        if (title) lv_obj_align(title, LV_ALIGN_LEFT_MID, 24, -18);
+        if (title) lv_obj_align(title, LV_ALIGN_LEFT_MID, BOARD_SCALE_PX(24), -BOARD_SCALE_PY(18));
         clock_timezone_value_label = lv_label_create(clock_timezone_row);
         lv_obj_add_style(clock_timezone_value_label, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(clock_timezone_value_label,
                                    gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-        configure_scrolling_row_label(clock_timezone_value_label, 370);
-        lv_obj_align(clock_timezone_value_label, LV_ALIGN_LEFT_MID, 24, 23);
+        configure_scrolling_row_label(clock_timezone_value_label, BOARD_SCALE_PX(370));
+        lv_obj_align(clock_timezone_value_label, LV_ALIGN_LEFT_MID,
+                     BOARD_SCALE_PX(24), BOARD_SCALE_PY(23));
         clock_timezone_indicator_update();
     }
     clock_update_set_time_enabled();

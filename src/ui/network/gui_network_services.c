@@ -652,7 +652,7 @@ static lv_obj_t * build_remote_control_screen(void) {
     lv_label_set_text(regenerate_icon, LV_SYMBOL_REFRESH);
     lv_obj_add_style(regenerate_icon, gui_theme_accent_style(), 0);
     lv_obj_set_style_text_font(regenerate_icon, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_align(regenerate_icon, LV_ALIGN_RIGHT_MID, -20, 0);
+    lv_obj_align(regenerate_icon, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
     lv_obj_add_flag(regenerate_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(regenerate_icon, BOARD_SCALE_PX(20));
     lv_obj_add_event_cb(regenerate_icon, remote_control_regenerate_pin_cb, LV_EVENT_CLICKED, NULL);

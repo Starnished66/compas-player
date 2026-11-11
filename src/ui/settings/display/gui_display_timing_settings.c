@@ -76,7 +76,7 @@ static lv_obj_t * build_screen_timeout_screen(void) {
         .fmt = format_screen_timeout,
         .slider_cb = screen_timeout_slider_event_cb,
     });
-    lv_obj_align(screen_timeout_ui.card, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20);
+    lv_obj_align(screen_timeout_ui.card, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + BOARD_SCALE_PY(20));
 
     finalize_screen_navigation(scr);
     return scr;
@@ -159,7 +159,7 @@ static lv_obj_t * build_screen_dimming_screen(void) {
         .fmt = format_screen_timeout,
         .slider_cb = screen_dim_delay_slider_event_cb,
     });
-    lv_obj_align(screen_dimming_ui.card, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + 20);
+    lv_obj_align(screen_dimming_ui.card, LV_ALIGN_TOP_MID, 0, STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT + BOARD_SCALE_PY(20));
 
     finalize_screen_navigation(scr);
     return scr;

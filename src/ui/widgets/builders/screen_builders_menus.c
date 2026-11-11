@@ -333,7 +333,7 @@ static lv_obj_t * screen_list_body(lv_obj_t * scr, int32_t header_h, int32_t bot
  * explicit plugin dimensions, which are clamped to the shared plugin range. */
 static void pill_row_size(const pill_list_item_t * item, int32_t * out_width, int32_t * out_height) {
     int32_t height = ui_list_row_height();
-    int32_t font_min = lv_font_get_line_height(pill_row_resolve_text_size(item->text_size)) + 32;
+    int32_t font_min = lv_font_get_line_height(pill_row_resolve_text_size(item->text_size)) + BOARD_SCALE_PX(32);
     if (height < font_min) height = font_min;
     int32_t width = pill_row_default_width();
     if (item->row_height > 0) {
@@ -406,6 +406,8 @@ static void pill_row_add_accessory(lv_obj_t * row, const pill_list_item_t * item
         lv_obj_t * toggle_sw = lv_switch_create(row);
         lv_obj_remove_flag(toggle_sw, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
+        lv_obj_t * label = lv_obj_get_child(row, 0);
+        configure_scrolling_row_label(label, pill_row_toggle_label_width(row, label, toggle_sw));
         if (item->toggle_initial_state) lv_obj_add_state(toggle_sw, LV_STATE_CHECKED);
         if (toggle_accent_style) lv_obj_add_style(toggle_sw, toggle_accent_style, LV_PART_INDICATOR | LV_STATE_CHECKED);
 

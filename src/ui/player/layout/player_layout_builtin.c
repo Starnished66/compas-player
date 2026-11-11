@@ -5,6 +5,7 @@
 #include "../../text/rendering/fallback_font.h"
 #include "../../../audio/engine/audio.h"
 #include "../../../core/persistence/settings.h"
+#include "../../input/gesture_detector.h"
 #include "player_layout_internal.h"
 #include "player_layout_builtin.h"
 
@@ -242,7 +243,8 @@ static void create_transport_row(lv_obj_t * scr) {
     lv_obj_t * controls_row = lv_obj_create(scr);
     lv_obj_remove_style_all(controls_row);
 #if defined(BOARD_TEMPOTEC_V1)
-    const int32_t transport_top = 258;
+    const int32_t transport_top = BOARD_SCREEN_HEIGHT - HOME_INDICATOR_BAND_HEIGHT -
+                                  HOME_SWIPE_HIT_EXTRA_PX - 44 - 4;
     lv_obj_set_pos(controls_row, 0, transport_top);
     lv_obj_set_size(controls_row, BOARD_SCREEN_WIDTH, 44);
 #else

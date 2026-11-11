@@ -747,7 +747,7 @@ static void populate_eq_profiles_screen(void) {
         lv_obj_t * label = lv_label_create(eq_profiles_list);
         lv_label_set_text(label, TR("No saved profiles"));
         lv_obj_add_style(label, &style_theme_text_muted, 0);
-        lv_obj_set_style_pad_left(label, 24, 0);
+        lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
         /* Preserve the default 16 px primary face and add multilingual fallback.
          * Constrain long translations to the list content width. */
         lv_obj_set_style_text_font(label, fallback_font_fixed(16), 0);
@@ -1150,7 +1150,7 @@ static lv_obj_t * build_eq_screen(void) {
     int32_t screen_h = lv_display_get_vertical_resolution(lv_display_get_default());
     int32_t footer_h = BOARD_SCALE_PX(112);
     int32_t content_top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
-    lv_obj_set_size(content, lv_pct(100), screen_h - content_top - footer_h);
+    lv_obj_set_size(content, lv_pct(100), screen_h - content_top - footer_h - HOME_INDICATOR_BAND_HEIGHT);
     lv_obj_align(content, LV_ALIGN_TOP_MID, 0, content_top);
     lv_obj_set_style_bg_opa(content, 0, 0);
     lv_obj_set_style_border_width(content, 0, 0);
@@ -1319,7 +1319,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_add_flag(eq_graph_panel, LV_OBJ_FLAG_HIDDEN);
     eq_footer = lv_obj_create(scr);
     lv_obj_set_size(eq_footer, lv_pct(100), footer_h);
-    lv_obj_align(eq_footer, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(eq_footer, LV_ALIGN_BOTTOM_MID, 0, -HOME_INDICATOR_BAND_HEIGHT);
     lv_obj_set_style_bg_opa(eq_footer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(eq_footer, 0, 0);
     lv_obj_set_style_pad_hor(eq_footer, GUI_LIST_SIDE_MARGIN, 0);

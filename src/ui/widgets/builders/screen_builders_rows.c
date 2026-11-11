@@ -186,7 +186,7 @@ static lv_obj_t * pill_row_clickable(lv_obj_t * row, lv_event_cb_t on_click, voi
 
 lv_obj_t * add_pill_row_base(lv_obj_t * parent, const char * label_text) {
     lv_obj_t * row = native_text_row(parent, label_text, gui_theme_font(GUI_FONT_ROLE_BODY),
-                                     ui_list_row_width() - 136);
+                                     ui_list_row_width() - BOARD_SCALE_PX(136));
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     return row;
 }
@@ -207,6 +207,16 @@ lv_obj_t * add_pill_summary_label(lv_obj_t * row) {
     return label;
 }
 
+/* Reserve the real switch width, widening narrow plugin rows when needed. */
+int32_t pill_row_toggle_label_width(lv_obj_t * row, lv_obj_t * label, lv_obj_t * toggle) {
+    lv_obj_update_layout(row);
+    int32_t reserved = lv_obj_get_x(label) + lv_obj_get_width(toggle) + 2 * BOARD_SCALE_PX(20);
+    int32_t width = LV_MIN(ui_list_row_width(),
+                           LV_MAX(lv_obj_get_width(row), reserved + BOARD_SCALE_PX(40)));
+    lv_obj_set_width(row, width);
+    return width - reserved;
+}
+
 lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool checked, lv_event_cb_t on_click) {
     lv_obj_t * row = add_pill_row_base(parent, label_text);
 
@@ -215,7 +225,9 @@ lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool 
     lv_obj_remove_flag(toggle_sw, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_style(toggle_sw, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
     if (checked) lv_obj_add_state(toggle_sw, LV_STATE_CHECKED);
-    lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -20, 0);
+    lv_obj_align(toggle_sw, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
+    lv_obj_t * label = lv_obj_get_child(row, 0);
+    configure_scrolling_row_label(label, pill_row_toggle_label_width(row, label, toggle_sw));
 
     return pill_row_clickable(row, on_click, NULL);
 }
@@ -292,7 +304,7 @@ void gui_pill_option_row_set_selected(lv_obj_t * row, bool selected) {
         lv_obj_remove_style(row, gui_theme_accent_outline_style(), 0);
         lv_obj_remove_local_style_prop(row, LV_STYLE_BORDER_WIDTH, 0);
         lv_obj_remove_local_style_prop(row, LV_STYLE_BG_OPA, 0);
-        if (standard_row_label) lv_obj_set_width(text, pill_row_default_width() - 136);
+        if (standard_row_label) lv_obj_set_width(text, pill_row_default_width() - BOARD_SCALE_PX(136));
         lv_obj_add_flag(check, LV_OBJ_FLAG_HIDDEN);
     }
 }
@@ -373,7 +385,7 @@ lv_obj_t * add_section_header(lv_obj_t * parent, const char * text) {
     lv_obj_set_style_pad_right(label, BOARD_SCALE_PX(24), 0);
 #else
     lv_obj_set_style_pad_top(label, 12, 0);
-    lv_obj_set_style_pad_left(label, 24, 0);
+    lv_obj_set_style_pad_left(label, BOARD_SCALE_PX(24), 0);
 #endif
     return label;
 }

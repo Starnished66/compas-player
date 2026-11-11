@@ -70,7 +70,7 @@
 #if defined(BOARD_TEMPOTEC_V1)
 /* V1 uses the same four-control Compas drawer, scaled to its 240x320 panel. */
 #define QUICK_DRAWER_TOGGLE_ICON_PX BOARD_SCALE_PX(72)
-#define QUICK_DRAWER_TOGGLE_CELL_W BOARD_SCALE_PX(112)
+#define QUICK_DRAWER_TOGGLE_CELL_W (BOARD_SCREEN_WIDTH / 4)
 #define QUICK_DRAWER_TOGGLE_ROW_PITCH BOARD_SCALE_PY(245)
 #define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(322)
 #define QUICK_DRAWER_ROW1_TOP BOARD_SCALE_PY(80)
@@ -176,12 +176,12 @@ typedef enum {
 /* Stateless helpers */
 #if defined(BOARD_TEMPOTEC_V1)
 
-/* Keep four predictable columns at every board size. V1 uses 48px cells
- * with 16px native gutters; the wider boards retain the measured positions
+/* Keep four predictable columns at every board size. V1 divides its width
+ * evenly across the four caption cells; wider boards retain measured positions
  * (the first four columns come from the table below). */
 static inline int32_t quick_drawer_toggle_column_x(int column, int columns) {
     (void) columns;
-    return BOARD_SCALE_PX(18 + 110 * column);
+    return (BOARD_SCREEN_WIDTH / 4) * column;
 }
 static inline int32_t quick_drawer_toggle_state_y(int32_t row_y) {
     return row_y + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_STATE_GAP;
