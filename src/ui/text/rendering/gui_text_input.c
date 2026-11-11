@@ -63,7 +63,11 @@ static void * text_entry_user_data;
  * centered horizontally and anchored to the bottom of the screen.
  * Column 0 holds mode buttons (123/ABC/sym); columns 1-3 hold the 3x3
  * letter/digit/symbol pad; column 4 holds Del, Key 0/Shift, and Enter
- * (spanning rows 2-3). Row 3 holds Left, Right, and Space (cols 2-3). ---- */
+ * (spanning rows 2-3). Row 3 holds Left, Right, and Space (cols 2-3).
+ * Numeric-only entry rearranges the same keys into a phone keypad: Left and
+ * Right take column 0 rows 0-1 (a blank tile fills rows 2-3), the decimal
+ * point goes to row 3 col 1, digit 0 widens over the Space footprint (cols
+ * 2-3) and the minus key takes 0's old cell. ---- */
 #if defined(BOARD_TEMPOTEC_V1)
 /* Keep the original horizontal key pitch while fitting four rows to V1's
  * 320px panel. */
@@ -78,7 +82,7 @@ static void * text_entry_user_data;
 #define TEXT_ENTRY_GRID_ROWS 4
 #define TEXT_ENTRY_GRID_WIDTH (TEXT_ENTRY_GRID_COLS * TEXT_ENTRY_KEY_WIDTH + (TEXT_ENTRY_GRID_COLS - 1) * TEXT_ENTRY_KEY_GAP)
 #define TEXT_ENTRY_GRID_HEIGHT (TEXT_ENTRY_GRID_ROWS * TEXT_ENTRY_KEY_HEIGHT + (TEXT_ENTRY_GRID_ROWS - 1) * TEXT_ENTRY_KEY_GAP)
-#define TEXT_ENTRY_BOTTOM_MARGIN BOARD_SCALE_PX(16)
+#define TEXT_ENTRY_BOTTOM_MARGIN HOME_INDICATOR_CONTENT_INSET
 #define TEXT_ENTRY_GRID_X ((BOARD_SCREEN_WIDTH - TEXT_ENTRY_GRID_WIDTH) / 2)
 #define TEXT_ENTRY_GRID_Y (BOARD_SCREEN_HEIGHT - TEXT_ENTRY_GRID_HEIGHT - TEXT_ENTRY_BOTTOM_MARGIN)
 #define TEXT_ENTRY_MULTITAP_MS 900
@@ -143,13 +147,19 @@ static lv_timer_t * text_entry_multitap_timer;
  * (see text_entry_key0_click_cb's own comment). The numeric-lock decimal
  * and minus keys and the three mode-jump buttons (123/ABC/sym) each need
  * their own visibility toggled independently of the digit-slot keys, so
- * they get their own named pointers rather than living in this array. */
+ * they get their own named pointers rather than living in this array; the
+ * arrows, Space and the numeric-only blank tile are named because the
+ * numeric layout moves or hides them. */
 static lv_obj_t * text_entry_key_img[10];
 static lv_obj_t * text_entry_dotneg_key;
 static lv_obj_t * text_entry_neg_key;
+static lv_obj_t * text_entry_blank_key;
 static lv_obj_t * text_entry_num_mode_key;
 static lv_obj_t * text_entry_abc_mode_key;
 static lv_obj_t * text_entry_sym_mode_key;
+static lv_obj_t * text_entry_left_key;
+static lv_obj_t * text_entry_right_key;
+static lv_obj_t * text_entry_space_key;
 
 /* Generation counter incremented on every show_text_entry() call to distinguish
  * between callbacks that chain into another show_text_entry() call and those
@@ -157,6 +167,8 @@ static lv_obj_t * text_entry_sym_mode_key;
 static uint32_t text_entry_generation = 0;
 static void text_entry_variant_close(void);
 static void text_entry_variant_owner_event_cb(lv_event_t * e);
+static void text_entry_place_key(lv_obj_t * key, int col, int row);
+static void text_entry_fit_key(lv_obj_t * img);
 
 static void text_entry_reveal_btn_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
@@ -305,21 +317,27 @@ static void text_entry_refresh_keys(void) {
         lv_image_set_src(text_entry_key_img[0], asset_path(text_entry_key_image(0)));
     }
 
-    if (text_entry_numeric_only) {
-        text_entry_set_key_available(text_entry_num_mode_key, false);
-        text_entry_set_key_available(text_entry_abc_mode_key, false);
-        text_entry_set_key_available(text_entry_sym_mode_key, false);
-        text_entry_set_key_available(text_entry_dotneg_key, true);
-        lv_obj_move_foreground(text_entry_dotneg_key);
-        text_entry_set_key_available(text_entry_neg_key, true);
-        lv_obj_move_foreground(text_entry_neg_key);
-        return;
+    /* Numeric-only keypad layout (see the geometry comment at the top): the
+     * arrows and digit 0 move, 0 widening over Space's footprint; the mode
+     * keys and Space give way to the decimal, minus and blank tiles. */
+    bool numeric = text_entry_numeric_only;
+    text_entry_place_key(text_entry_left_key, 0, numeric ? 0 : 3);
+    text_entry_place_key(text_entry_right_key, numeric ? 0 : 1, numeric ? 1 : 3);
+    text_entry_place_key(text_entry_key_img[0], numeric ? 2 : 4, numeric ? 3 : 1);
+    if (numeric) {
+        lv_obj_set_size(text_entry_key_img[0], lv_obj_get_width(text_entry_space_key),
+                        lv_obj_get_height(text_entry_space_key));
+        lv_image_set_inner_align(text_entry_key_img[0], LV_IMAGE_ALIGN_CONTAIN);
+    } else {
+        text_entry_fit_key(text_entry_key_img[0]);
     }
-    text_entry_set_key_available(text_entry_dotneg_key, false);
-    text_entry_set_key_available(text_entry_neg_key, false);
-    text_entry_set_key_available(text_entry_num_mode_key, true);
-    text_entry_set_key_available(text_entry_abc_mode_key, true);
-    text_entry_set_key_available(text_entry_sym_mode_key, true);
+    text_entry_set_key_available(text_entry_num_mode_key, !numeric);
+    text_entry_set_key_available(text_entry_abc_mode_key, !numeric);
+    text_entry_set_key_available(text_entry_sym_mode_key, !numeric);
+    text_entry_set_key_available(text_entry_space_key, !numeric);
+    text_entry_set_key_available(text_entry_dotneg_key, numeric);
+    text_entry_set_key_available(text_entry_neg_key, numeric);
+    lv_obj_set_flag(text_entry_blank_key, LV_OBJ_FLAG_HIDDEN, !numeric);
 }
 
 /* Shared by every cycling key (the 9 digit-slot keys, the key-0/digit-0
@@ -491,19 +509,50 @@ static void text_entry_enter_click_cb(lv_event_t * e) {
  * Taller/wider keys (Enter, Space) just have a native asset that extends
  * past one cell; their top-left anchor is computed the same way as every
  * other key. */
-static lv_obj_t * text_entry_make_key(lv_obj_t * scr, int col, int row, lv_event_cb_t cb, void * user_data) {
-    lv_obj_t * img = lv_image_create(scr);
-#if defined(BOARD_TEMPOTEC_V1)
-    /* The stock key PNGs are larger than the board-scaled key grid. */
-    lv_obj_set_size(img, TEXT_ENTRY_KEY_WIDTH, TEXT_ENTRY_KEY_HEIGHT);
-    lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
-#endif
-    lv_obj_add_flag(img, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align(img, LV_ALIGN_TOP_LEFT,
+static void text_entry_place_key(lv_obj_t * key, int col, int row) {
+    lv_obj_align(key, LV_ALIGN_TOP_LEFT,
                  TEXT_ENTRY_GRID_X + col * (TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP),
                  TEXT_ENTRY_GRID_Y + row * (TEXT_ENTRY_KEY_HEIGHT + TEXT_ENTRY_KEY_GAP));
+}
+
+/* A single-cell key's footprint: the stock PNG's own size, except on V1 where
+ * the PNGs are larger than the board-scaled grid and are fitted into a cell. */
+static void text_entry_fit_key(lv_obj_t * img) {
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_size(img, TEXT_ENTRY_KEY_WIDTH, TEXT_ENTRY_KEY_HEIGHT);
+    lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);
+#else
+    lv_obj_set_size(img, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_image_set_inner_align(img, LV_IMAGE_ALIGN_DEFAULT);
+#endif
+}
+
+static lv_obj_t * text_entry_make_key(lv_obj_t * scr, int col, int row, lv_event_cb_t cb, void * user_data) {
+    lv_obj_t * img = lv_image_create(scr);
+    text_entry_fit_key(img);
+    lv_obj_add_flag(img, LV_OBJ_FLAG_CLICKABLE);
+    text_entry_place_key(img, col, row);
     if (cb) lv_obj_add_event_cb(img, cb, LV_EVENT_CLICKED, user_data);
     return img;
+}
+
+/* The stock key PNGs are seamless tiles of one flat fill (theme1 and theme2
+ * ship identical keyboard sets); a plain object with that fill, no radius and
+ * a key's measured size is indistinguishable from them. Hidden until the
+ * numeric layout shows it. */
+#define TEXT_ENTRY_TILE_COLOR lv_color_make(28, 28, 30)
+static lv_obj_t * text_entry_make_tile(lv_obj_t * pad, int col, int row, int32_t w, int32_t h) {
+    lv_obj_t * tile = lv_obj_create(pad);
+    lv_obj_set_size(tile, w, h);
+    text_entry_place_key(tile, col, row);
+    lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(tile, TEXT_ENTRY_TILE_COLOR, 0);
+    lv_obj_set_style_border_width(tile, 0, 0);
+    lv_obj_set_style_radius(tile, 0, 0);
+    lv_obj_set_style_pad_all(tile, 0, 0);
+    lv_obj_remove_flag(tile, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(tile, LV_OBJ_FLAG_HIDDEN);
+    return tile;
 }
 
 /* ---- QWERTY layout: an lv_keyboard inside the same keypad container as the
@@ -533,22 +582,31 @@ static lv_obj_t * text_entry_make_key(lv_obj_t * scr, int col, int row, lv_event
 #define QWERTY_CHAR(w) (LV_BUTTONMATRIX_CTRL_CLICK_TRIG | LV_BUTTONMATRIX_CTRL_NO_REPEAT | (w))
 #define QWERTY_FUNC(w) (QWERTY_CHAR(w) | LV_BUTTONMATRIX_CTRL_CUSTOM_1)
 #define QWERTY_BACKSPACE(w) (LV_BUTTONMATRIX_CTRL_CUSTOM_1 | (w))
-#define QWERTY_ENTER(w) (QWERTY_FUNC(w) | LV_BUTTONMATRIX_CTRL_CHECKED)
-#define QWERTY_ROW4_CTRL QWERTY_FUNC(3), QWERTY_FUNC(2), QWERTY_FUNC(2), QWERTY_FUNC(7), QWERTY_FUNC(2), QWERTY_ENTER(4)
+#define QWERTY_CHECKED(w) (QWERTY_FUNC(w) | LV_BUTTONMATRIX_CTRL_CHECKED)
+/* One grid for every page: a character key is 2 units, Shift/Backspace 3,
+ * and every row of a page adds up to twice the page's column count (20 for
+ * the 10-column pages, 22 for the 11-column ones, 24 for Cyrillic). A row
+ * with fewer keys gives the spare unit at each edge to its edge key (3 units)
+ * so keys keep the same width and column positions on every page instead of
+ * being stretched to fill the row, with no dead gap. Row 4 is the same
+ * shape on every page: page key 3 units (the "abc" label needs that width on
+ * every board), second mode key 2, arrows 2, Space 7, Enter 4; the second key
+ * is drawn checked on the accents page, where it names the current page. */
+#define QWERTY_ROW4_CTRL(other_key) QWERTY_FUNC(3), other_key, QWERTY_FUNC(2), QWERTY_FUNC(7), QWERTY_FUNC(2), QWERTY_CHECKED(4)
 #define QWERTY_ROW4(mode_key, other_key) mode_key, other_key, QWERTY_KEY_LEFT, QWERTY_KEY_SPACE, QWERTY_KEY_RIGHT, QWERTY_KEY_ENTER
 
-/* Letters: 9-key middle row, 34 buttons. */
+/* Letters: 10 columns; the 9-key middle row's a and l are 3 units wide. */
 static const lv_buttonmatrix_ctrl_t qwerty_ctrl_letters[] = {
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
-    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
-    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(3),
     QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
-    QWERTY_ROW4_CTRL,
+    QWERTY_ROW4_CTRL(QWERTY_FUNC(2)),
 };
 
-/* Symbols and accents: 10-key middle row, 35 buttons. */
+/* Numbers and symbols: 10 columns, 10-key middle row, 35 buttons. */
 static const lv_buttonmatrix_ctrl_t qwerty_ctrl_wide[] = {
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
@@ -556,7 +614,7 @@ static const lv_buttonmatrix_ctrl_t qwerty_ctrl_wide[] = {
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
-    QWERTY_ROW4_CTRL,
+    QWERTY_ROW4_CTRL(QWERTY_FUNC(2)),
 };
 
 /* A map has one entry per button plus a "\n" after each of the three row ends
@@ -612,49 +670,56 @@ static const char * const qwerty_map_qwertz_upper[] = {
  * Latin maps for these settings replace the accents shortcut with an абв
  * return key, so URLs and passwords can be entered and the user can switch
  * back without restarting the field. */
-#define QWERTY_LAYOUT_CHAR QWERTY_CHAR(2)
+/* AZERTY: 10 columns; the 6-letter bottom row has a 4-unit Shift and
+ * Backspace. */
 static const lv_buttonmatrix_ctrl_t qwerty_ctrl_azerty[] = {
-    QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR,
-    QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR,
-    QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR,
-    QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_FUNC(3), QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR,
-    QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_LAYOUT_CHAR, QWERTY_BACKSPACE(3), QWERTY_FUNC(3), QWERTY_FUNC(2),
-    QWERTY_FUNC(2), QWERTY_FUNC(7), QWERTY_FUNC(2), QWERTY_ENTER(4),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_FUNC(4), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(4),
+    QWERTY_ROW4_CTRL(QWERTY_FUNC(2)),
 };
+/* QWERTZ: 11 columns; the 7-letter bottom row has a 4-unit Shift and
+ * Backspace. */
 static const lv_buttonmatrix_ctrl_t qwerty_ctrl_extended_letters[] = {
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
-    QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
-    QWERTY_ROW4_CTRL,
+    QWERTY_FUNC(4), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(4),
+    QWERTY_ROW4_CTRL(QWERTY_FUNC(2)),
 };
+/* Cyrillic: 12 columns; the 11-key middle row's edge letters are 3 units
+ * wide, and the bottom row's Shift and Backspace are one key wide (2 units)
+ * so its ten letters line up with the row above. */
 static const lv_buttonmatrix_ctrl_t qwerty_ctrl_cyrillic[] = {
-    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
-    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
-    QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
-    QWERTY_FUNC(3), QWERTY_FUNC(3), QWERTY_FUNC(2), QWERTY_FUNC(7), QWERTY_FUNC(2), QWERTY_ENTER(4),
+    QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
+    QWERTY_CHAR(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(3),
+    QWERTY_FUNC(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(2),
+    QWERTY_ROW4_CTRL(QWERTY_FUNC(2)),
 };
 static const char * const qwerty_map_russian_lower[] = {
-    "ё", "й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ъ", "\n",
+    "й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ъ", "\n",
     "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", "э", "\n",
-    QWERTY_KEY_SHIFT, "я", "ч", "с", "м", "и", "т", "ь", "б", "ю", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_KEY_SHIFT, "я", "ч", "с", "м", "и", "т", "ь", "б", "ю", "ё", QWERTY_KEY_BACKSPACE, "\n",
     QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
 };
 static const char * const qwerty_map_russian_upper[] = {
-    "Ё", "Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", "Х", "Ъ", "\n",
+    "Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", "Х", "Ъ", "\n",
     "Ф", "Ы", "В", "А", "П", "Р", "О", "Л", "Д", "Ж", "Э", "\n",
-    QWERTY_KEY_SHIFT, "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "Ю", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_KEY_SHIFT, "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "Ю", "Ё", QWERTY_KEY_BACKSPACE, "\n",
     QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
 };
 static const char * const qwerty_map_ukrainian_lower[] = {
-    "й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ї", "ґ", "\n",
+    "й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ї", "\n",
     "ф", "і", "в", "а", "п", "р", "о", "л", "д", "ж", "є", "\n",
-    QWERTY_KEY_SHIFT, "я", "ч", "с", "м", "и", "т", "ь", "б", "ю", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_KEY_SHIFT, "я", "ч", "с", "м", "и", "т", "ь", "б", "ю", "ґ", QWERTY_KEY_BACKSPACE, "\n",
     QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
 };
 static const char * const qwerty_map_ukrainian_upper[] = {
-    "Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", "Х", "Ї", "Ґ", "\n",
+    "Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", "Х", "Ї", "\n",
     "Ф", "І", "В", "А", "П", "Р", "О", "Л", "Д", "Ж", "Є", "\n",
-    QWERTY_KEY_SHIFT, "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "Ю", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_KEY_SHIFT, "Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "Ю", "Ґ", QWERTY_KEY_BACKSPACE, "\n",
     QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
 };
 static const char * const qwerty_map_latin_cyr_lower[] = {
@@ -671,8 +736,9 @@ static const char * const qwerty_map_latin_cyr_upper[] = {
 };
 
 /* Every ASCII symbol the T9 symbol keys offer is reachable across the two
- * symbol pages; the second page adds Latin-1 currency/section signs (Montserrat
- * covers Latin-1 and Latin Extended-A only, so no euro sign or bullet). */
+ * symbol pages, each one on exactly one page; the second page adds the Latin-1
+ * signs (Montserrat covers Latin-1 and Latin Extended-A only, so no euro sign
+ * or bullet). */
 static const char * const qwerty_map_special[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
     "@", "#", "$", "%", "&", "-", "+", "(", ")", "/", "\n",
@@ -681,34 +747,35 @@ static const char * const qwerty_map_special[] = {
 };
 
 static const char * const qwerty_map_symbols[] = {
-    "[", "]", "{", "}", "#", "%", "^", "*", "+", "=", "\n",
+    "[", "]", "{", "}", "^", "*", "=", "°", "«", "»", "\n",
     "_", "\\", "|", "~", "<", ">", "`", "£", "¥", "§", "\n",
-    QWERTY_KEY_NUMBERS, ".", ",", ";", ":", "!", "?", "'", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_KEY_NUMBERS, ";", "±", "×", "÷", "©", "®", "¡", QWERTY_KEY_BACKSPACE, "\n",
     QWERTY_ROW4(QWERTY_KEY_LETTERS, QWERTY_KEY_ACCENTS), ""
 };
 
-/* Accents: acute/grave vowels, circumflex/diaeresis vowels, then the rest of
- * the Latin-1 letters (n-tilde, c-cedilla, a/o-tilde, sharp s) and the
- * French ligatures, y-diaeresis, and inverted ? and !. */
+/* Accents: 11 columns of acute/grave vowels, circumflex/diaeresis vowels,
+ * then the rest of the Latin-1 letters (n-tilde, c-cedilla, a/o-tilde, sharp
+ * s), the French ligatures and the inverted ?, between Shift and Backspace.
+ * Row 4 shows the accents key checked: it is the page the user is on. */
 static const lv_buttonmatrix_ctrl_t qwerty_ctrl_accents[] = {
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
-    QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
-    QWERTY_FUNC(3), QWERTY_FUNC(3), QWERTY_FUNC(2), QWERTY_FUNC(7), QWERTY_FUNC(2), QWERTY_ENTER(4),
+    QWERTY_FUNC(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(3),
+    QWERTY_ROW4_CTRL(QWERTY_CHECKED(2)),
 };
 
 static const char * const qwerty_map_accents_lower[] = {
     "á", "é", "í", "ó", "ú", "à", "è", "ì", "ò", "ù", "å", "\n",
     "â", "ê", "î", "ô", "û", "ä", "ë", "ï", "ö", "ü", "ÿ", "\n",
-    QWERTY_KEY_SHIFT, "ñ", "ç", "ã", "õ", "ß", "œ", "æ", "¿", "¡", QWERTY_KEY_BACKSPACE, "\n",
-    QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
+    QWERTY_KEY_SHIFT, "ñ", "ç", "ã", "õ", "ß", "œ", "æ", "¿", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_LETTERS, QWERTY_KEY_ACCENTS), ""
 };
 
 static const char * const qwerty_map_accents_upper[] = {
     "Á", "É", "Í", "Ó", "Ú", "À", "È", "Ì", "Ò", "Ù", "Å", "\n",
     "Â", "Ê", "Î", "Ô", "Û", "Ä", "Ë", "Ï", "Ö", "Ü", "Ÿ", "\n",
-    QWERTY_KEY_SHIFT, "Ñ", "Ç", "Ã", "Õ", "ẞ", "Œ", "Æ", "¿", "¡", QWERTY_KEY_BACKSPACE, "\n",
-    QWERTY_ROW4(QWERTY_KEY_NUMBERS, QWERTY_KEY_LETTERS), ""
+    QWERTY_KEY_SHIFT, "Ñ", "Ç", "Ã", "Õ", "ẞ", "Œ", "Æ", "¿", QWERTY_KEY_BACKSPACE, "\n",
+    QWERTY_ROW4(QWERTY_KEY_LETTERS, QWERTY_KEY_ACCENTS), ""
 };
 
 #define QWERTY_ASSERT_MAP_CTRL(map, ctrl, name) \
@@ -1284,54 +1351,55 @@ static lv_obj_t * build_t9_keypad_group(lv_obj_t * parent) {
     text_entry_sym_mode_key = text_entry_make_key(pad, 0, 2, text_entry_mode_sym_click_cb, NULL);
     lv_image_set_src(text_entry_sym_mode_key, asset_path("keyboard/symbol.png"));
 
-    /* Built after the mode keys they replace so they sit on top when shown. */
-    text_entry_dotneg_key = text_entry_make_key(pad, 0, 0, text_entry_key_click_cb, (void *) (intptr_t) 10);
+    /* Numeric-only decimal key; its cell is Right's in the text layout, which
+     * the numeric layout vacates. */
+    text_entry_dotneg_key = text_entry_make_key(pad, 1, 3, text_entry_key_click_cb, (void *) (intptr_t) 10);
     lv_image_set_src(text_entry_dotneg_key, asset_path("keyboard/dot.png"));
     lv_obj_add_flag(text_entry_dotneg_key, LV_OBJ_FLAG_HIDDEN);
-
-    text_entry_neg_key = lv_obj_create(pad);
-    lv_obj_set_size(text_entry_neg_key, TEXT_ENTRY_KEY_WIDTH, TEXT_ENTRY_KEY_HEIGHT);
-    lv_obj_align(text_entry_neg_key, LV_ALIGN_TOP_LEFT,
-                 TEXT_ENTRY_GRID_X + 0 * (TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP),
-                 TEXT_ENTRY_GRID_Y + 1 * (TEXT_ENTRY_KEY_HEIGHT + TEXT_ENTRY_KEY_GAP));
-    lv_obj_set_style_bg_opa(text_entry_neg_key, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(text_entry_neg_key, lv_color_make(48, 48, 48), 0);
-    lv_obj_set_style_border_width(text_entry_neg_key, 0, 0);
-    lv_obj_set_style_radius(text_entry_neg_key, 8, 0);
-    lv_obj_set_style_pad_all(text_entry_neg_key, 0, 0);
-    lv_obj_remove_flag(text_entry_neg_key, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(text_entry_neg_key, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(text_entry_neg_key, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(text_entry_neg_key, text_entry_neg_click_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * neg_label = lv_label_create(text_entry_neg_key);
-    lv_label_set_text(neg_label, "-");
-    lv_obj_set_style_text_color(neg_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(neg_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
-    lv_obj_remove_flag(neg_label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_center(neg_label);
+    /* Widened over Space's footprint by the numeric layout, this fill shows
+     * either side of the centered 0 tile. */
+    lv_obj_set_style_bg_opa(text_entry_key_img[0], LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(text_entry_key_img[0], TEXT_ENTRY_TILE_COLOR, 0);
 
     lv_obj_t * del_key = text_entry_make_key(pad, 4, 0, text_entry_del_click_cb, NULL);
     lv_image_set_src(del_key, asset_path("keyboard/del.png"));
-    lv_obj_t * left_key = text_entry_make_key(pad, 0, 3, text_entry_left_click_cb, NULL);
-    lv_image_set_src(left_key, asset_path("keyboard/left.png"));
-    lv_obj_t * right_key = text_entry_make_key(pad, 1, 3, text_entry_right_click_cb, NULL);
-    lv_image_set_src(right_key, asset_path("keyboard/right.png"));
+    text_entry_left_key = text_entry_make_key(pad, 0, 3, text_entry_left_click_cb, NULL);
+    lv_image_set_src(text_entry_left_key, asset_path("keyboard/left.png"));
+    text_entry_right_key = text_entry_make_key(pad, 1, 3, text_entry_right_click_cb, NULL);
+    lv_image_set_src(text_entry_right_key, asset_path("keyboard/right.png"));
+    /* Every two-cell key matches a one-cell image's actual bounds, including
+     * board-specific row spacing. Stock enter.png is 190px tall versus 188px
+     * for the R1 two-row footprint; stretching preserves its rounded bottom
+     * edge. */
+    lv_obj_update_layout(text_entry_right_key);
+    int32_t key_w = lv_obj_get_width(text_entry_right_key);
+    int32_t key_h = lv_obj_get_height(text_entry_right_key);
+    int32_t two_rows_h = TEXT_ENTRY_KEY_HEIGHT + TEXT_ENTRY_KEY_GAP + key_h;
     lv_obj_t * enter_key = text_entry_make_key(pad, 4, 2, text_entry_enter_click_cb, NULL);
     lv_image_set_src(enter_key, asset_path("keyboard/enter.png"));
-    /* Match the last row's actual image bounds, including board-specific
-     * row spacing. Stock enter.png is 190px tall versus 188px for the R1
-     * two-row footprint; stretching preserves its rounded bottom edge. */
-    lv_obj_update_layout(right_key);
-    lv_obj_set_size(enter_key, lv_obj_get_width(right_key),
-                    TEXT_ENTRY_KEY_HEIGHT + TEXT_ENTRY_KEY_GAP + lv_obj_get_height(right_key));
+    lv_obj_set_size(enter_key, key_w, two_rows_h);
     lv_image_set_inner_align(enter_key, LV_IMAGE_ALIGN_STRETCH);
-    lv_obj_t * space_key = text_entry_make_key(pad, 2, 3, text_entry_space_click_cb, NULL);
-    lv_image_set_src(space_key, asset_path("keyboard/space2.png"));
+    text_entry_space_key = text_entry_make_key(pad, 2, 3, text_entry_space_click_cb, NULL);
+    lv_image_set_src(text_entry_space_key, asset_path("keyboard/space2.png"));
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_size(space_key, 2 * TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP,
+    lv_obj_set_size(text_entry_space_key, 2 * TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP,
                     TEXT_ENTRY_KEY_HEIGHT);
-    lv_image_set_inner_align(space_key, LV_IMAGE_ALIGN_CONTAIN);
+    lv_image_set_inner_align(text_entry_space_key, LV_IMAGE_ALIGN_CONTAIN);
 #endif
+
+    /* Numeric-only minus key in 0's text-layout cell, and the blank tile
+     * under the arrows. The minus glyph copies the digit PNGs: their figures
+     * are 25px tall in a 94px tile, so a full-size tile gets Montserrat 34
+     * and V1's fitted 45px tile gets 16. */
+    text_entry_blank_key = text_entry_make_tile(pad, 0, 2, key_w, two_rows_h);
+    text_entry_neg_key = text_entry_make_tile(pad, 4, 1, key_w, key_h);
+    lv_obj_add_event_cb(text_entry_neg_key, text_entry_neg_click_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * neg_label = lv_label_create(text_entry_neg_key);
+    lv_label_set_text(neg_label, "-");
+    lv_obj_set_style_text_color(neg_label, lv_color_make(226, 226, 227), 0);
+    lv_obj_set_style_text_font(neg_label, key_h >= 90 ? &lv_font_montserrat_34 : &lv_font_montserrat_16, 0);
+    lv_obj_remove_flag(neg_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_center(neg_label);
 
     text_entry_multitap_timer = lv_timer_create(text_entry_multitap_timeout_cb, TEXT_ENTRY_MULTITAP_MS, NULL);
     lv_timer_pause(text_entry_multitap_timer);
