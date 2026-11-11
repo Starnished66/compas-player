@@ -244,7 +244,7 @@ static void populate_subsonic_saved_servers_screen(void) {
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
         lv_obj_t * hint = lv_label_create(subsonic_saved_servers_list);
-        lv_label_set_text(hint, TR("Go back and choose New Connection to add one."));
+        lv_label_set_text(hint, TR("Go back and choose New connection to add one."));
         lv_obj_add_style(hint, &style_theme_text_muted, 0);
         lv_obj_set_style_text_font(hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
         lv_obj_set_width(hint, lv_pct(88));
@@ -258,7 +258,7 @@ static void populate_subsonic_saved_servers_screen(void) {
 
 static lv_obj_t * build_subsonic_saved_servers_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen(TR("Saved Servers"), &title_label, &subsonic_saved_servers_list);
+    return build_subsonic_list_screen(TR("Saved servers"), &title_label, &subsonic_saved_servers_list);
 }
 
 static void subsonic_saved_servers_row_cb(lv_event_t * e) {
@@ -344,7 +344,7 @@ static void populate_subsonic_new_connection_screen(void) {
 
 static lv_obj_t * build_subsonic_new_connection_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen(TR("New Connection"), &title_label, &subsonic_new_connection_list);
+    return build_subsonic_list_screen(TR("New connection"), &title_label, &subsonic_new_connection_list);
 }
 
 static void subsonic_new_connection_row_cb(lv_event_t * e) {
@@ -363,8 +363,8 @@ static void subsonic_new_connection_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_subsonic_entry_screen(void) {
     static pill_list_item_t items[2];
-    items[0] = (pill_list_item_t){ TR("Saved Servers"), PILL_ACCESSORY_CHEVRON, false, subsonic_saved_servers_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ TR("New Connection"), PILL_ACCESSORY_CHEVRON, false, subsonic_new_connection_row_cb, NULL, NULL };
+    items[0] = (pill_list_item_t){ TR("Saved servers"), PILL_ACCESSORY_CHEVRON, false, subsonic_saved_servers_row_cb, NULL, NULL };
+    items[1] = (pill_list_item_t){ TR("New connection"), PILL_ACCESSORY_CHEVRON, false, subsonic_new_connection_row_cb, NULL, NULL };
     lv_obj_t * scr = build_pill_list_screen(TR("Subsonic"), generic_back_cb, items, 2, gui_theme_accent_style(), GUI_ROW_GAP, 100);
     finalize_screen_navigation(scr);
     return scr;

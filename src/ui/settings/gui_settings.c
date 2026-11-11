@@ -195,7 +195,7 @@ PLUGIN_ROW_CLICK_CB(plugin_more_list_item_click_cb, plugin_manager_more_list_ite
 
 static const struct { const char * icon; const char * label; lv_event_cb_t cb; } native[] = {
     { "submenu/plugins.png", N_("Plugins"), gui_plugin_manage_row_cb },
-    { "submenu/files.png", N_("File Manager"), gui_file_manager_tile_cb },
+    { "submenu/files.png", N_("File manager"), gui_file_manager_tile_cb },
     { "submenu/themes.png", N_("Themes"), themes_row_cb },
     { "submenu/layouts.png", N_("Player layout"), player_layout_choice_settings_row_cb },
     { "submenu/usb.png", N_("USB DAC"), dac_home_usb_row_cb },
@@ -203,7 +203,7 @@ static const struct { const char * icon; const char * label; lv_event_cb_t cb; }
 #if BOARD_SUPPORTS_EMULATORS
     { "submenu/emulators.png", N_("Emulators"), gui_emulators_row_cb },
 #endif
-    { "breeze_rows/submenu_external_apps.png", N_("External Apps"), gui_apps_row_cb },
+    { "breeze_rows/submenu_external_apps.png", N_("External apps"), gui_apps_row_cb },
 };
 enum { NATIVE_COUNT = (int) (sizeof(native) / sizeof(native[0])) };
 

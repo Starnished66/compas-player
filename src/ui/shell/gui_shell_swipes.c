@@ -181,7 +181,7 @@ static bool home_swipe_candidate_at(lv_point_t p, int32_t h) {
  * while library navigation is blocked. Candidate only until sufficient
  * displacement accumulates to determine gesture direction. */
 static bool player_swipe_candidate_at(lv_point_t p) {
-    return !quick_drawer_drag_tracking && !quick_drawer_open &&
+    return !quick_drawer_drag_tracking && !quick_drawer_open && !gui_popup_backdrop_visible() &&
            lv_screen_active() != gui_player_get_screen() &&
            lv_screen_active() != gui_lyrics_get_screen() &&
            lv_screen_active() != gui_track_info_get_screen() &&
@@ -205,8 +205,9 @@ static bool player_swipe_candidate_at(lv_point_t p) {
  * user swipe once this candidate owns the press (see
  * gui_shell_back_swipe_owns_press()). */
 static bool back_swipe_candidate_at(lv_point_t p) {
-    return !quick_drawer_drag_tracking && !quick_drawer_open &&
-           gui_navigation_get_depth() > 1 &&
+    if (quick_drawer_drag_tracking || quick_drawer_open) return false;
+    if (gui_popup_backdrop_visible()) return true; /* the swipe closes the popup, see back_swipe_confirm() */
+    return gui_navigation_get_depth() > 1 &&
            !shell_screen_blocks_swipe(lv_screen_active()) &&
            !gui_library_navigation_blocked() &&
            !player_swipe_press_excluded(p);
@@ -331,7 +332,7 @@ static void back_swipe_begin_slide(lv_indev_t * indev, lv_obj_t * active) {
  * search already closed). */
 static void back_swipe_confirm(lv_indev_t * indev) {
     lv_obj_t * active = lv_screen_active();
-    bool consumed_in_place = search_close_if_active_for_screen(active) ||
+    bool consumed_in_place = gui_popup_dismiss_top() || search_close_if_active_for_screen(active) ||
                              file_browser_go_up_for_screen(active);
     DB_LOG("GESTURE", "back_swipe confirm screen=%s in_place=%d",
            active == gui_library_get_files_screen() ? "files" : "other", consumed_in_place);

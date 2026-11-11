@@ -274,7 +274,7 @@ int bt_control_scan(int seconds, bt_device_t * out, int max_count) {
 
     char devices_buf[8192];
     char * devices_argv[] = { (char *) "bluetoothctl", (char *) "devices", NULL };
-    if (!subprocess_run(devices_argv, devices_buf, sizeof(devices_buf))) return 0;
+    if (!subprocess_run(devices_argv, devices_buf, sizeof(devices_buf))) return -1;
 
     return bt_collect_device_lines(devices_buf, out, max_count, true);
 }

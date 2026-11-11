@@ -310,7 +310,7 @@ static void build_apps_screen(void) {
                                            .on_click = app_row_click_cb, .user_data = (void *) (intptr_t) i,
                                            .out_row = &app_rows[i] };
     }
-    apps_screen = build_pill_list_screen(TR("External Apps"), generic_back_cb, app_items, count,
+    apps_screen = build_pill_list_screen(TR("External apps"), generic_back_cb, app_items, count,
                                          gui_theme_accent_style(), GUI_ROW_GAP, 100);
     for (int i = 0; i < count; i++) {
         decorate_app_row(app_rows[i], app_icons[i]);

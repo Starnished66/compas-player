@@ -204,7 +204,7 @@ static lv_draw_buf_t * snapshot_screen_base(lv_obj_t * target_screen) {
 /* Blends whichever persistent lv_layer_top() bands would actually be
  * visible on target_screen (status_bar_band per Settings > Display > "Hide
  * Player/Lyrics Top Bar", home_indicator_band per Settings > Display >
- * "Swipe Up for Home") onto an existing owned RGB565 base, mutating it in
+ * "Swipe up for home") onto an existing owned RGB565 base, mutating it in
  * place. Kept as a separate, fresh step from the base snapshot itself
  * (snapshot_screen_base() above) so a cached base does not bake in stale
  * clock, battery, wifi, or home-indicator content.

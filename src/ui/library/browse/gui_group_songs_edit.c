@@ -407,6 +407,20 @@ void group_songs_capture_scroll_anchor(const int * deleted_indexes, int deleted_
     lv_obj_get_coords(group_songs_list, &list_area);
     int best_index = -1;
     int32_t best_y = INT32_MAX;
+    if (compact_list_is_live(group_songs_list)) {
+        int32_t scroll_y = lv_obj_get_scroll_y(group_songs_list);
+        int count = group_songs_compact_row_count();
+        for (int logical = 0; logical < count; ++logical) {
+            int source = group_songs_compact_row_source(logical);
+            if (source < 0) continue;
+            int32_t top, bottom, viewport;
+            if (!compact_list_row_span(group_songs_list, logical, &top, &bottom, &viewport)) continue;
+            int32_t screen_y = list_area.y1 + top - scroll_y;
+            if (bottom < scroll_y || top > scroll_y + viewport || screen_y >= best_y) continue;
+            best_index = source;
+            best_y = screen_y;
+        }
+    } else {
     for (int slot = 0; slot < GROUP_SONGS_PAGE_SIZE; ++slot) {
         lv_obj_t * row = group_songs_visible_rows[slot];
         if (!row) continue;
@@ -415,6 +429,7 @@ void group_songs_capture_scroll_anchor(const int * deleted_indexes, int deleted_
         if (row_area.y2 < list_area.y1 || row_area.y1 > list_area.y2 || row_area.y1 >= best_y) continue;
         best_index = group_songs_page_start + slot;
         best_y = row_area.y1;
+    }
     }
     if (best_index < 0 || best_index >= group_songs_count) return;
     int anchor_index = group_songs_anchor_index_after_delete(
@@ -506,4 +521,3 @@ void group_songs_reorder_rearm(void) {
     group_songs_reorder_state.commit = group_songs_reorder_commit;
     group_songs_reorder_state.restore = group_songs_reorder_restore;
 }
-

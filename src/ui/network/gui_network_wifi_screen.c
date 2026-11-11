@@ -158,9 +158,9 @@ void populate_wifi_info_screen(void) {
     int signal_index = (info.signal_level >= 0 && info.signal_level <= 3) ? info.signal_level : 0;
     char lines[5][160];
     snprintf(lines[0], sizeof(lines[0]), TR("SSID: %s"), info.ssid);
-    snprintf(lines[1], sizeof(lines[1]), TR("IP Address: %s"), info.ip[0] ? info.ip : "-");
+    snprintf(lines[1], sizeof(lines[1]), TR("IP address: %s"), info.ip[0] ? info.ip : "-");
     snprintf(lines[2], sizeof(lines[2]), TR("Gateway: %s"), info.gateway[0] ? info.gateway : "-");
-    snprintf(lines[3], sizeof(lines[3]), TR("MAC Address: %s"), info.mac[0] ? info.mac : "-");
+    snprintf(lines[3], sizeof(lines[3]), TR("MAC address: %s"), info.mac[0] ? info.mac : "-");
     snprintf(lines[4], sizeof(lines[4]), TR("Signal: %s"), TR(signal_labels[signal_index]));
 
     for (int i = 0; i < 5; i++) {
@@ -194,12 +194,12 @@ static void wifi_info_row_cb(lv_event_t * e) {
 static void wifi_manual_ssid_entered_cb(const char * text, void * user_data) {
     (void) user_data;
     if (!wifi_pending_ssid_set(text)) return;
-    show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
+    show_text_entry(TR("Wi-Fi password"), NULL, true, false, wifi_password_entered_cb, NULL);
 }
 
 static void wifi_manual_entry_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    show_text_entry(TR("Network Name (SSID)"), NULL, false, false, wifi_manual_ssid_entered_cb, NULL);
+    show_text_entry(TR("Network name (SSID)"), NULL, false, false, wifi_manual_ssid_entered_cb, NULL);
 }
 
 /* ---- DNS settings screen -- view/edit the 2 servers currently in
@@ -265,11 +265,11 @@ static void wifi_restore_at_startup_toggle_cb(lv_event_t * e);
 
 static void populate_wifi_advanced_screen(void) {
     lv_obj_clean(wifi_advanced_list);
-    add_pill_toggle_row(wifi_advanced_list, TR("Restore at Startup"), current_settings.wifi_restore_at_startup,
+    add_pill_toggle_row(wifi_advanced_list, TR("Restore at startup"), current_settings.wifi_restore_at_startup,
                         wifi_restore_at_startup_toggle_cb);
     if (!gui_shell_wifi_effective_enabled()) return;
-    add_pill_chevron_row(wifi_advanced_list, TR("Wi-Fi Info"), wifi_info_row_cb);
-    add_pill_chevron_row(wifi_advanced_list, TR("DNS Settings"), wifi_dns_settings_row_cb);
+    add_pill_chevron_row(wifi_advanced_list, TR("Wi-Fi info"), wifi_info_row_cb);
+    add_pill_chevron_row(wifi_advanced_list, TR("DNS settings"), wifi_dns_settings_row_cb);
 }
 
 static void wifi_restore_at_startup_toggle_cb(lv_event_t * e) {
@@ -314,7 +314,7 @@ void populate_wifi_screen(bool enabled) {
      * boilerplate. poll_wifi_toggle() repopulates this screen once the
      * toggle completes. */
     add_pill_toggle_row(wifi_list, TR("Wi-Fi"), enabled, quick_drawer_wifi_event_cb);
-    if (enabled) add_pill_chevron_row(wifi_list, TR("Manual SSID Entry"), wifi_manual_entry_row_cb);
+    if (enabled) add_pill_chevron_row(wifi_list, TR("Manual SSID entry"), wifi_manual_entry_row_cb);
     /* Stays reachable while Wi-Fi is off: Restore at Startup lives there. */
     add_pill_chevron_row(wifi_list, TR("Advanced"), wifi_advanced_row_cb);
 
@@ -326,7 +326,7 @@ void populate_wifi_screen(bool enabled) {
     const lv_font_t * subtext_font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
     const lv_font_t * text_fonts[] = {body_font, subtext_font};
 
-    add_section_header(wifi_list, TR("Memorized Networks"));
+    add_section_header(wifi_list, TR("Memorized networks"));
     /* During an optimistic cold enable there is no wpa_supplicant control
      * socket yet. Keep the last cached saved-network rows instead of
      * launching synchronous wpa_cli subprocesses that cannot succeed and
@@ -376,7 +376,7 @@ void populate_wifi_screen(bool enabled) {
         align_network_row_text_stack(row, text_lines, text_fonts, 2, LIST_ROW_LABEL_INSET);
     }
 
-    add_section_header(wifi_list, TR("Available Networks"));
+    add_section_header(wifi_list, TR("Available networks"));
     int current_scan_index = wifi_scan_connected_index();
     int available_networks_shown = 0;
     for (int position = 0; position < wifi_scan_result_count; position++) {
@@ -449,8 +449,8 @@ void wifi_tile_cb(lv_event_t * e) {
 
 void gui_network_wifi_screen_build(void) {
     wifi_screen = build_wifi_screen();
-    wifi_info_screen = network_list_screen(TR("Wi-Fi Info"), &wifi_info_list);
-    wifi_dns_screen = network_list_screen(TR("DNS Settings"), &wifi_dns_list);
+    wifi_info_screen = network_list_screen(TR("Wi-Fi info"), &wifi_info_list);
+    wifi_dns_screen = network_list_screen(TR("DNS settings"), &wifi_dns_list);
     wifi_advanced_screen = network_list_screen(TR("Advanced"), &wifi_advanced_list);
     build_wifi_action_popup();
 }

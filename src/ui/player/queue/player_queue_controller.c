@@ -76,7 +76,7 @@ const char *play_mode_icon_asset(play_mode_t mode) {
     }
 }
 
-/* Song long-press context menu's "Add to Queue" -- splices `path` into the
+/* Song long-press context menu's "Add to queue" -- splices `path` into the
  * live playlist right after whatever was queued last (or right after the
  * currently-playing track, if the queue's currently empty), so repeated
  * Add to Queue taps play back in the order they were added. See

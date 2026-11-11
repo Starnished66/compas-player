@@ -14,6 +14,7 @@ const uint8_t * player_cover_bytes(void);
 int player_cover_edge(void);
 uint64_t player_cover_generation(void);
 const cover_file_id_t * player_cover_file(void);
+void player_cover_request_reflection_refresh(void);
 
 void fit_cover_img_to_card(void);
 void player_cover_size_changed_cb(lv_event_t * e);

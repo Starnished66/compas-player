@@ -2,6 +2,7 @@
 #define WIFI_STATUS_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /* Blocking worker-only API: returns true if connected to an access point,
  * checking `wpa_cli -i wlan0
@@ -17,6 +18,16 @@
 bool wifi_get_status(int * out_signal_level);
 /* Association only (wpa COMPLETED); skips the signal_poll query. */
 bool wifi_get_connected(void);
+
+/* wpa_supplicant control socket for wlan0, the datagram exchange wpa_cli
+ * performs, without a process per query. open() returns -1 when the socket
+ * is not there (Wi-Fi off, host). request() sends one command and waits for
+ * its reply up to timeout_ms, skipping any "<N>" event lines an attached
+ * socket may receive meanwhile; false on timeout or an oversized reply.
+ * close() also removes the local socket file. */
+int wifi_wpa_ctrl_open(void);
+bool wifi_wpa_ctrl_request(int fd, const char * command, char * out_buf, size_t out_buf_size, int timeout_ms);
+void wifi_wpa_ctrl_close(int fd);
 
 /* Maps RSSI (dBm) to 0 (weakest) - 3 (strongest) signal level. */
 static inline int wifi_signal_level_from_rssi(int rssi_dbm) {

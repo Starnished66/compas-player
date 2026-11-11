@@ -2,8 +2,306 @@
 #include "screen_builders_internal.h"
 #include "../../text/i18n/i18n.h"
 #include "../../assets/assets.h"
+#include "../../effects/transition_compositor.h"
+#include "lvgl/src/core/lv_obj_event_private.h"
+#include "lvgl/src/misc/lv_area_private.h"
 
 #include <string.h>
+#ifndef HOST_BUILD
+#include "lvgl/src/drivers/display/fb/lv_linux_fbdev.h"
+#include "lvgl/src/display/lv_display_private.h"
+#include "lvgl/src/core/lv_refr_private.h"
+#endif
+
+/* Share one frozen, dimmed page so opaque popups can skip rendering the screen below. */
+static lv_draw_buf_t * popup_backdrop_buf;
+static unsigned popup_backdrop_images;
+static char popup_backdrop_marker;
+
+/* Keep the pair independent of callers' object user data. */
+static void popup_pair_delete_cb(lv_event_t * e) {
+    lv_obj_t * peer = lv_event_get_user_data(e);
+    lv_obj_remove_event_cb_with_user_data(peer, popup_pair_delete_cb, lv_event_get_target(e));
+}
+
+static lv_obj_t * popup_backdrop_card(lv_obj_t * backdrop) {
+    for (uint32_t i = 0; i < lv_obj_get_event_count(backdrop); ++i) {
+        lv_event_dsc_t * dsc = lv_obj_get_event_dsc(backdrop, i);
+        if (lv_event_dsc_get_cb(dsc) == popup_pair_delete_cb)
+            return lv_event_dsc_get_user_data(dsc);
+    }
+    return NULL;
+}
+
+static bool popup_visible_except(lv_obj_t * skip) {
+    lv_obj_t * top = lv_layer_top();
+    for (uint32_t i = 0; i < lv_obj_get_child_count(top); ++i) {
+        lv_obj_t * other = lv_obj_get_child(top, i);
+        lv_obj_t * image = lv_obj_get_child(other, 0);
+        if (other != skip && image && lv_obj_get_user_data(image) == &popup_backdrop_marker &&
+            !lv_obj_has_flag(other, LV_OBJ_FLAG_HIDDEN)) return true;
+    }
+    return false;
+}
+
+bool gui_popup_backdrop_visible(void) {
+    return popup_visible_except(NULL);
+}
+
+/* Closes the top popup the way tapping outside it does (the back swipe). */
+bool gui_popup_dismiss_top(void) {
+    lv_obj_t * top = lv_layer_top();
+    for (int32_t i = (int32_t)lv_obj_get_child_count(top) - 1; i >= 0; --i) {
+        lv_obj_t * backdrop = lv_obj_get_child(top, i);
+        lv_obj_t * image = lv_obj_get_child(backdrop, 0);
+        if (!image || lv_obj_get_user_data(image) != &popup_backdrop_marker ||
+            lv_obj_has_flag(backdrop, LV_OBJ_FLAG_HIDDEN)) continue;
+        lv_obj_send_event(backdrop, LV_EVENT_CLICKED, NULL);
+        return true;
+    }
+    return false;
+}
+
+#ifndef HOST_BUILD
+static lv_draw_buf_t * popup_restore_buf;
+static lv_obj_t * popup_restore_owner;
+static lv_obj_t * popup_restore_screen;
+static lv_display_t * popup_restore_display;
+static lv_display_rotation_t popup_restore_rotation;
+static lv_area_t popup_dirty;
+static bool popup_dirty_valid;
+static bool popup_collect_overlays;
+
+static void popup_restore_reset(void) {
+    popup_restore_owner = NULL;
+    lv_refr_set_invalidation_cb(NULL);
+}
+
+static void popup_track_dirty(lv_display_t * display, lv_obj_t * obj, const lv_area_t * area) {
+    if (!popup_restore_owner || display != popup_restore_display) return;
+    if (!area) { popup_restore_reset(); return; }
+    if (obj && !popup_collect_overlays) {
+        lv_obj_t * top = lv_display_get_layer_top(display);
+        lv_obj_t * root = obj;
+        while (lv_obj_get_parent(root) && lv_obj_get_parent(root) != top)
+            root = lv_obj_get_parent(root);
+        if (lv_obj_get_parent(root) == top &&
+            (root == popup_backdrop_card(popup_restore_owner) ||
+             lv_obj_get_index(root) >= lv_obj_get_index(popup_restore_owner))) return;
+    }
+    if (popup_dirty_valid) lv_area_join(&popup_dirty, &popup_dirty, area);
+    else { popup_dirty = *area; popup_dirty_valid = true; }
+}
+
+/* Include descendants with overflow, shadows and transforms using LVGL's own bounds. */
+static void popup_invalidate_tree(lv_obj_t * obj) {
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) return;
+    lv_obj_invalidate(obj);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(obj); ++i)
+        popup_invalidate_tree(lv_obj_get_child(obj, i));
+}
+
+static void popup_invalidate_overlays(lv_display_t * display) {
+    lv_obj_t * layers[] = {lv_display_get_layer_top(display), lv_display_get_layer_sys(display)};
+    for (unsigned n = 0; n < 2; ++n)
+        for (uint32_t i = 0; i < lv_obj_get_child_count(layers[n]); ++i)
+            popup_invalidate_tree(lv_obj_get_child(layers[n], i));
+}
+#endif
+
+static bool popup_backdrop_capture(lv_obj_t * backdrop) {
+#ifdef HOST_BUILD
+    (void)backdrop;
+    return false;
+#else
+    popup_restore_reset();
+    lv_display_t * display = lv_obj_get_display(backdrop);
+    if (!display || transition_compositor_is_active() || lv_linux_fbdev_ram_stage_active(display) ||
+        lv_display_get_color_format(display) != LV_COLOR_FORMAT_RGB565) return false;
+    if (popup_visible_except(backdrop) || lv_display_get_rotation(display) != LV_DISPLAY_ROTATION_0 ||
+        !lv_display_is_invalidation_enabled(display) || display->rendering_in_progress || display->flushing)
+        return false;
+    /* Flush recent hides and screen changes before copying the scanned page. */
+    lv_refr_now(display);
+    int32_t width = lv_display_get_horizontal_resolution(display);
+    int32_t height = lv_display_get_vertical_resolution(display);
+    const uint8_t * page = lv_linux_fbdev_get_active_page(display);
+    uint32_t stride = lv_linux_fbdev_get_stride(display);
+    if (!page || !stride || width <= 0 || height <= 0 || stride < (uint32_t) width * 2U) return false;
+    if (!popup_backdrop_buf || popup_backdrop_buf->header.w != (uint32_t) width ||
+        popup_backdrop_buf->header.h != (uint32_t) height) {
+        if (popup_backdrop_buf && popup_backdrop_images) return false;
+        if (popup_backdrop_buf) lv_draw_buf_destroy(popup_backdrop_buf);
+        if (popup_restore_buf) lv_draw_buf_destroy(popup_restore_buf);
+        popup_restore_buf = NULL;
+        popup_backdrop_buf = lv_draw_buf_create((uint32_t) width, (uint32_t) height,
+                                                LV_COLOR_FORMAT_RGB565, 0);
+    }
+    if (!popup_backdrop_buf || !popup_backdrop_buf->data) return false;
+    if (!popup_restore_buf) popup_restore_buf = lv_draw_buf_create((uint32_t) width, (uint32_t) height,
+                                                                  LV_COLOR_FORMAT_RGB565, 0);
+    if (!popup_restore_buf || !popup_restore_buf->data) return false;
+    for (int32_t y = 0; y < height; ++y) {
+        const uint16_t * src = (const uint16_t *)(page + (size_t) y * stride);
+        uint16_t * dst = (uint16_t *)(popup_backdrop_buf->data + (size_t) y * popup_backdrop_buf->header.stride);
+        memcpy(popup_restore_buf->data + (size_t)y * popup_restore_buf->header.stride, src, (size_t)width * 2U);
+        /* Halve each RGB565 channel without leaking bits into its neighbour. */
+        for (int32_t x = 0; x < width; ++x) dst[x] = (uint16_t)((src[x] >> 1) & 0x7BEF);
+    }
+    popup_restore_owner = backdrop;
+    popup_restore_screen = lv_display_get_screen_active(display);
+    popup_restore_display = display;
+    popup_restore_rotation = lv_display_get_rotation(display);
+    popup_dirty_valid = false;
+    lv_refr_set_invalidation_cb(popup_track_dirty);
+    /* Captured overlays may disappear or move while the popup is open. */
+    popup_collect_overlays = true;
+    popup_invalidate_overlays(display);
+    popup_collect_overlays = false;
+    return true;
+#endif
+}
+
+static void popup_backdrop_image_delete_cb(lv_event_t * e) {
+#ifndef HOST_BUILD
+    if (lv_obj_get_parent(lv_event_get_target(e)) == popup_restore_owner) popup_restore_reset();
+#else
+    (void)e;
+#endif
+    if (popup_backdrop_images) popup_backdrop_images--;
+    /* Hidden reusable popups still own image references to this buffer. */
+    if (!popup_backdrop_images && popup_backdrop_buf) {
+        lv_draw_buf_destroy(popup_backdrop_buf);
+        popup_backdrop_buf = NULL;
+#ifndef HOST_BUILD
+        if (popup_restore_buf) lv_draw_buf_destroy(popup_restore_buf);
+        popup_restore_buf = NULL;
+        popup_restore_reset();
+#endif
+    }
+}
+
+/* lv_image never claims to cover (its own background is transparent), so
+ * without this the screen under the opaque snapshot is still redrawn. */
+static void popup_backdrop_cover_cb(lv_event_t * e) {
+    lv_cover_check_info_t * info = lv_event_get_param(e);
+    lv_obj_t * image = lv_event_get_target(e);
+    lv_area_t coords;
+    lv_obj_get_coords(image, &coords);
+    if (info->res != LV_COVER_RES_MASKED && lv_image_get_src(image) &&
+        lv_area_is_in(info->area, &coords, 0)) info->res = LV_COVER_RES_COVER;
+}
+
+static void popup_backdrop_refresh(lv_obj_t * backdrop) {
+    if (!backdrop) return;
+    lv_obj_t * image = lv_obj_get_child(backdrop, 0);
+    if (!image || lv_obj_get_user_data(image) != &popup_backdrop_marker) return;
+    if (!popup_backdrop_capture(backdrop)) {
+        /* The translucent parent remains the fallback when capture is unavailable. */
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_image_set_src(image, popup_backdrop_buf);
+    lv_obj_remove_flag(image, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_invalidate(image);
+}
+
+void gui_popup_backdrop_show(lv_obj_t * backdrop) {
+    if (!backdrop) return;
+    /* Reordering a hidden pair changes no pixels; avoid a full top-layer redraw. */
+    lv_obj_t * card = popup_backdrop_card(backdrop);
+    lv_display_t * display = lv_obj_get_display(backdrop);
+    bool hidden = lv_obj_has_flag(backdrop, LV_OBJ_FLAG_HIDDEN) &&
+                  (!card || lv_obj_has_flag(card, LV_OBJ_FLAG_HIDDEN));
+    if (hidden) lv_display_enable_invalidation(display, false);
+    lv_obj_move_foreground(backdrop);
+    if (card) lv_obj_move_foreground(card);
+    if (hidden) lv_display_enable_invalidation(display, true);
+    if (lv_obj_has_flag(backdrop, LV_OBJ_FLAG_HIDDEN)) popup_backdrop_refresh(backdrop);
+    lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_HIDDEN);
+}
+
+#ifndef HOST_BUILD
+static void popup_restore_copy(lv_display_t * display) {
+    uint8_t * page = lv_linux_fbdev_get_inactive_page(display);
+    uint32_t stride = lv_linux_fbdev_get_stride(display);
+    for (uint32_t y = 0; y < popup_restore_buf->header.h; ++y)
+        memcpy(page + (size_t)y * stride,
+               popup_restore_buf->data + (size_t)y * popup_restore_buf->header.stride,
+               (size_t)popup_restore_buf->header.w * 2U);
+}
+
+static uint8_t * popup_follow_page;
+static bool popup_follow_registered;
+
+/* Once the restored page is on screen, the other page still shows the popup:
+ * copy the restore there too, before LVGL syncs the last frame's areas into it.
+ * Skipped when another page loaded meanwhile (its first frame is a full redraw). */
+static void popup_restore_follow_cb(lv_event_t * e) {
+    lv_display_t * display = lv_event_get_current_target(e);
+    if (!popup_follow_page || lv_linux_fbdev_get_inactive_page(display) == popup_follow_page) return;
+    popup_follow_page = NULL;
+    if (popup_restore_buf && lv_display_get_screen_active(display) == popup_restore_screen &&
+        !transition_compositor_is_active() && !lv_linux_fbdev_ram_stage_active(display) &&
+        display->buf_act && display->buf_act->data == lv_linux_fbdev_get_inactive_page(display))
+        popup_restore_copy(display);
+}
+
+static bool popup_backdrop_restore(lv_obj_t * backdrop, lv_obj_t * card) {
+    lv_display_t * display = lv_obj_get_display(backdrop);
+    int32_t width = lv_display_get_horizontal_resolution(display);
+    int32_t height = lv_display_get_vertical_resolution(display);
+    if (popup_restore_owner != backdrop || !popup_restore_buf || !card ||
+        popup_visible_except(backdrop) || display != popup_restore_display ||
+        lv_display_get_screen_active(display) != popup_restore_screen ||
+        lv_display_get_rotation(display) != popup_restore_rotation ||
+        width != (int32_t)popup_restore_buf->header.w || height != (int32_t)popup_restore_buf->header.h ||
+        lv_display_get_color_format(display) != LV_COLOR_FORMAT_RGB565 ||
+        transition_compositor_is_active() || lv_linux_fbdev_ram_stage_active(display) ||
+        !lv_linux_fbdev_get_active_page(display) || !lv_linux_fbdev_get_inactive_page(display) ||
+        lv_linux_fbdev_get_stride(display) < (uint32_t)width * 2U ||
+        !lv_display_is_invalidation_enabled(display) || display->rendering_in_progress || display->flushing ||
+        (popup_dirty_valid && (uint64_t)lv_area_get_size(&popup_dirty) * 4 >= (uint64_t)width * height * 3))
+        return false;
+
+    uint8_t * page = lv_linux_fbdev_get_inactive_page(display);
+    if (!display->buf_act || display->buf_act->data != page) return false;
+
+    /* Write only the hidden page and let LVGL's next frame show it. A page
+     * opened by the same tap then replaces the popup directly instead of
+     * Now Playing flashing in between. */
+    popup_restore_reset();
+    lv_refr_scroll_blit_reset();
+    lv_display_enable_invalidation(display, false);
+    lv_obj_add_flag(backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+    lv_display_enable_invalidation(display, true);
+    popup_restore_copy(display);
+    /* Areas drawn while the popup was up would copy popup pixels back over the restore. */
+    lv_ll_clear(&display->sync_areas);
+    if (!popup_follow_registered) {
+        lv_display_add_event_cb(display, popup_restore_follow_cb, LV_EVENT_REFR_READY, NULL);
+        popup_follow_registered = true;
+    }
+    popup_follow_page = page;
+    if (popup_dirty_valid) lv_inv_area(display, &popup_dirty);
+    popup_invalidate_overlays(display);
+    lv_area_t pixel = {0, 0, 0, 0};
+    lv_inv_area(display, &pixel); /* always present the restored page, even with nothing else queued */
+    return true;
+}
+#endif
+
+void gui_popup_backdrop_hide(lv_obj_t * backdrop) {
+    if (!backdrop) return;
+    lv_obj_t * card = popup_backdrop_card(backdrop);
+#ifndef HOST_BUILD
+    if (!lv_obj_has_flag(backdrop, LV_OBJ_FLAG_HIDDEN) && popup_backdrop_restore(backdrop, card)) return;
+    if (popup_restore_owner == backdrop) popup_restore_reset();
+#endif
+    lv_obj_add_flag(backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (card) lv_obj_add_flag(card, LV_OBJ_FLAG_HIDDEN);
+}
 
 /* Overlays: popup surfaces, confirmation and titled popups, popup visibility
  * tracking, the Power Hub panel and the font-change mask. */
@@ -18,8 +316,20 @@ lv_obj_t * build_popup_surface(lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdr
     lv_obj_set_style_bg_color(backdrop, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(backdrop, LV_OPA_50, 0);
     lv_obj_set_style_border_width(backdrop, 0, 0);
+    lv_obj_set_style_radius(backdrop, 0, 0);
+    lv_obj_set_style_pad_all(backdrop, 0, 0);
     lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(backdrop, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t * image = lv_image_create(backdrop);
+    lv_obj_set_pos(image, 0, 0);
+    lv_obj_set_size(image, lv_pct(100), lv_pct(100));
+    lv_image_set_inner_align(image, LV_IMAGE_ALIGN_STRETCH);
+    lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_user_data(image, &popup_backdrop_marker);
+    lv_obj_add_event_cb(image, popup_backdrop_image_delete_cb, LV_EVENT_DELETE, NULL);
+    lv_obj_add_event_cb(image, popup_backdrop_cover_cb, LV_EVENT_COVER_CHECK, NULL);
+    popup_backdrop_images++;
     if (backdrop_cb) lv_obj_add_event_cb(backdrop, backdrop_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * popup = lv_obj_create(top);
@@ -34,12 +344,15 @@ lv_obj_t * build_popup_surface(lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdr
     lv_obj_set_style_bg_opa(popup, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(popup, ICON_GRID_TILE_BORDER, 0);
     lv_obj_set_style_pad_all(popup, BOARD_SCALE_PX(12), 0);
+    ui_marquee_list_enable(popup);
     lv_obj_set_style_pad_row(popup, GUI_ROW_GAP, 0);
     lv_obj_set_scroll_dir(popup, LV_DIR_VER);
     screen_builders_configure_content_scrollbar(popup);
     lv_obj_add_flag(popup, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_flex_flow(popup, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(popup, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_event_cb(backdrop, popup_pair_delete_cb, LV_EVENT_DELETE, popup);
+    lv_obj_add_event_cb(popup, popup_pair_delete_cb, LV_EVENT_DELETE, backdrop);
     *out_backdrop = backdrop;
     return popup;
 }
@@ -86,7 +399,8 @@ lv_obj_t * add_popup_action_row(lv_obj_t * popup, const char * text, lv_color_t 
     lv_obj_set_width(label, lv_pct(100));
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_color(label, color, 0);
+    if (popup_text_is_cancel(text)) lv_obj_add_style(label, &style_theme_text_primary, 0);
+    else lv_obj_set_style_text_color(label, color, 0);
     lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
@@ -146,8 +460,7 @@ lv_obj_t * build_confirm_popup_with_labels(const char * title_text, lv_label_lon
     if (out_confirm_label) *out_confirm_label = lv_obj_get_child(confirm_row, 0);
     if (out_confirm_row) *out_confirm_row = confirm_row;
 
-    lv_obj_t * cancel_row = add_popup_action_row(popup, cancel_text,
-        popup_text_is_cancel(cancel_text) ? lv_color_make(255, 120, 120) : cancel_color, cancel_cb, NULL);
+    lv_obj_t * cancel_row = add_popup_action_row(popup, cancel_text, cancel_color, cancel_cb, NULL);
     if (out_cancel_row) *out_cancel_row = cancel_row;
 
     return popup;
@@ -295,7 +608,7 @@ lv_obj_t * build_power_hub_panel(lv_obj_t * parent, lv_event_cb_t action_cb,
     lv_label_set_text(cancel_label, TR("Cancel"));
     lv_obj_set_width(cancel_label, lv_pct(100));
     lv_obj_set_style_text_align(cancel_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(cancel_label, lv_color_make(255, 120, 120), 0);
+    lv_obj_add_style(cancel_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(cancel_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_remove_flag(cancel_label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     if (out_actions) out_actions[4] = cancel;
@@ -320,10 +633,11 @@ void gui_popup_show(gui_popup_t * p) {
         p->visible = true;
         visible_popup_count++;
     }
-    if (p->backdrop) lv_obj_remove_flag(p->backdrop, LV_OBJ_FLAG_HIDDEN);
-    if (p->popup) lv_obj_remove_flag(p->popup, LV_OBJ_FLAG_HIDDEN);
-    if (p->backdrop) lv_obj_move_foreground(p->backdrop);
-    if (p->popup) lv_obj_move_foreground(p->popup);
+    if (p->backdrop) gui_popup_backdrop_show(p->backdrop);
+    if (p->popup) {
+        lv_obj_remove_flag(p->popup, LV_OBJ_FLAG_HIDDEN);
+        if (!p->backdrop) lv_obj_move_foreground(p->popup);
+    }
 }
 
 void gui_popup_hide(gui_popup_t * p) {
@@ -332,7 +646,7 @@ void gui_popup_hide(gui_popup_t * p) {
         p->visible = false;
         if (visible_popup_count > 0) visible_popup_count--;
     }
-    if (p->backdrop) lv_obj_add_flag(p->backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (p->backdrop) gui_popup_backdrop_hide(p->backdrop);
     if (p->popup) lv_obj_add_flag(p->popup, LV_OBJ_FLAG_HIDDEN);
 }
 

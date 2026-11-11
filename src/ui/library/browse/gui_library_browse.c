@@ -97,11 +97,11 @@ static void all_songs_row_long_press_cb(int display_index) {
 
 songs_bar_t all_songs_bar, recent_bar;
 
-/* Builds the "All Songs" screen with a paged provider
+/* Builds the "All songs" screen with a paged provider
  * (compact_list_set_paged_provider()) so items are loaded incrementally
  * on scroll rather than materializing the full library in memory. */
 lv_obj_t * build_all_songs_screen(void) {
-    lv_obj_t * scr = build_compact_list_screen(TR("All Songs"), generic_back_cb, NULL, 0, all_songs_row_click_cb,
+    lv_obj_t * scr = build_compact_list_screen(TR("All songs"), generic_back_cb, NULL, 0, all_songs_row_click_cb,
                                                 all_songs_row_long_press_cb, &all_songs_list, NULL,
                                                 LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(all_songs_list, MUSIC_LIST_ROW_HEIGHT);
@@ -182,7 +182,7 @@ static void recently_added_row_long_press_cb(int display_index) {
 }
 
 lv_obj_t * build_recently_added_screen(void) {
-    lv_obj_t * scr = build_compact_list_screen(TR("Recently Added"), generic_back_cb, NULL, 0, recently_added_row_click_cb,
+    lv_obj_t * scr = build_compact_list_screen(TR("Recently added"), generic_back_cb, NULL, 0, recently_added_row_click_cb,
                                                 recently_added_row_long_press_cb, &recently_added_list, NULL,
                                                 LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(recently_added_list, MUSIC_LIST_ROW_HEIGHT);
@@ -862,7 +862,7 @@ static void album_artist_row_press_cb(int index, bool pressed) {
 }
 
 lv_obj_t * build_album_artist_screen(void) {
-    lv_obj_t * scr = build_compact_list_screen(TR("Album Artist"), generic_back_cb, NULL, 0, album_artist_row_click_cb,
+    lv_obj_t * scr = build_compact_list_screen(TR("Album artist"), generic_back_cb, NULL, 0, album_artist_row_click_cb,
                                                 album_artist_collection_long_press_cb, &album_artist_list, NULL,
                                                 LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
     compact_list_set_row_height(album_artist_list, MUSIC_LIST_ROW_HEIGHT);
@@ -1410,7 +1410,7 @@ static lv_obj_t * build_genre_view_screen(void) {
     lv_obj_t * title, * list;
     lv_obj_t * screen = build_subsonic_list_screen(TR("Display"), &title, &list);
     (void) title;
-    static const char * labels[GENRE_VIEW_COUNT] = { N_("All Songs"), N_("Artists"), N_("Album Artist"),
+    static const char * labels[GENRE_VIEW_COUNT] = { N_("All songs"), N_("Artists"), N_("Album artist"),
                                                      N_("Albums") };
     for (int i = 0; i < GENRE_VIEW_COUNT; i++) {
         genre_view_options[i] = add_pill_option_row(list, TR(labels[i]), false, genre_view_option_cb,

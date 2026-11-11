@@ -150,8 +150,8 @@ typedef enum {
 } eq_field_t;
 
 static void eq_format_crossfeed(char * out, size_t out_size, double strength) {
-    if (strength <= 0.0) snprintf(out, out_size, "%s", TR("Crossfeed: Off"));
-    else snprintf(out, out_size, TR("Crossfeed: %d%%"), (int) lround(strength * 100.0));
+    if (strength <= 0.0) snprintf(out, out_size, "%s", TR("Off"));
+    else snprintf(out, out_size, "%d%%", (int) lround(strength * 100.0));
 }
 
 static void eq_numeric_entry_done_cb(const char * text, void * user_data) {
@@ -215,7 +215,7 @@ static void eq_numeric_entry_done_cb(const char * text, void * user_data) {
 }
 
 /* Tap-to-edit: attached to each slider card's value label (see
- * create_eq_slider_card() / eq_make_slider_card()) -- opens the shared numeric keypad pre-filled
+ * eq_make_fill_card() / eq_make_slider_card()) -- opens the shared numeric keypad pre-filled
  * with the field's current exact value, for typing a precise number
  * instead of only dragging a slider. */
 static void eq_field_label_click_cb(lv_event_t * e) {
@@ -227,7 +227,7 @@ static void eq_field_label_click_cb(lv_event_t * e) {
 
     switch (field) {
         case EQ_FIELD_PREAMP:
-            title = TR("Pre-Amp (dB, -12 to 12)");
+            title = TR("Pre-amp (dB, -12 to 12)");
             snprintf(buf, sizeof(buf), "%.2f", peq_get_preamp_db());
             break;
         case EQ_FIELD_CROSSFEED:
@@ -438,58 +438,19 @@ void gui_settings_open_eq(void) {
 /* EQ slider card with value label on top and slider track below.
  * Card uses flex-column flow with content-based sizing so card height
  * dynamically adjusts to the active font tier without overlapping. */
-static lv_obj_t * create_eq_slider_card(lv_obj_t * parent, eq_field_t field, lv_obj_t ** out_value_label,
-                                        lv_obj_t ** out_slider, int32_t range_min, int32_t range_max) {
-    lv_obj_t * card = lv_obj_create(parent);
-    lv_obj_set_width(card, lv_pct(96));
-    /* Flex column with content height accommodates varying font heights. */
-    lv_obj_set_height(card, LV_SIZE_CONTENT);
-    lv_obj_add_style(card, &style_theme_card_bg, 0);
-    lv_obj_set_style_border_width(card, 0, 0);
-    lv_obj_set_style_radius(card, BOARD_SCALE_PX(12), 0);
-    lv_obj_set_style_pad_all(card, BOARD_SCALE_PX(16), 0);
-    lv_obj_set_style_pad_row(card, BOARD_SCALE_PX(8), 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    /* Clickable (tap-to-edit, see eq_field_label_click_cb()) -- the whole
-     * label area is the tap target, not just the text glyphs, via
-     * lv_obj_set_ext_click_area() below. */
-    lv_obj_t * value_label = lv_label_create(card);
-    lv_obj_set_width(value_label, lv_pct(100));
-    lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_LEFT, 0);
-    lv_label_set_long_mode(value_label, LV_LABEL_LONG_WRAP);
-    lv_obj_add_style(value_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(value_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
-    lv_obj_add_flag(value_label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_ext_click_area(value_label, 16);
-    lv_obj_add_event_cb(value_label, eq_field_label_click_cb, LV_EVENT_CLICKED, (void *) (intptr_t) field);
-
-    /* Size the rail from the knob diameter, so its outer edges line up
-     * with the text inset at both ends, at every display resolution. */
-    lv_obj_t * slider_row = lv_obj_create(card);
-    lv_obj_set_size(slider_row, lv_pct(100), SLIDER_KNOB_SIZE + BOARD_SCALE_PX(8));
-    lv_obj_set_style_bg_opa(slider_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(slider_row, 0, 0);
-    lv_obj_set_style_pad_all(slider_row, 0, 0);
-    /* LVGL places the knob on the indicator end, one pixel left of the rail. */
-    lv_obj_set_style_pad_left(slider_row, SLIDER_TRACK_HEIGHT / 2 + SLIDER_KNOB_PAD + 1, 0);
-    lv_obj_set_style_pad_right(slider_row, SLIDER_TRACK_HEIGHT - 1 - SLIDER_TRACK_HEIGHT / 2 + SLIDER_KNOB_PAD, 0);
-    lv_obj_remove_flag(slider_row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t * slider = lv_slider_create(slider_row);
-    lv_obj_set_width(slider, lv_pct(100));
-    lv_obj_center(slider);
-    lv_obj_set_height(slider, SLIDER_TRACK_HEIGHT);
-    lv_slider_set_range(slider, range_min, range_max);
-    lv_obj_add_style(slider, gui_theme_accent_style(), LV_PART_INDICATOR);
-    lv_obj_add_style(slider, gui_theme_accent_knob_style(), LV_PART_KNOB);
-    lv_obj_remove_flag(slider, LV_OBJ_FLAG_ADV_HITTEST);
-    lv_obj_set_ext_click_area(slider, (BOARD_SCALE_PX(48) - SLIDER_TRACK_HEIGHT + 1) / 2);
-
-    *out_value_label = value_label;
-    *out_slider = slider;
-    return card;
+/* Crossfeed uses the shared fill row; the value stays a tap target for fine entry. */
+static lv_obj_t * eq_make_fill_card(lv_obj_t * parent, eq_field_t field, const char * title,
+                                    lv_obj_t ** value_out, lv_obj_t ** slider_out,
+                                    int32_t minimum, int32_t maximum) {
+    fill_slider_t fill = build_fill_slider(parent, &(fill_slider_cfg_t) {
+        .width = ui_list_row_width(), .height = FILL_SLIDER_HEIGHT, .radius = FILL_SLIDER_RADIUS,
+        .caption = title, .value_format = "%d", .min = minimum, .max = maximum,
+    });
+    lv_obj_add_flag(fill.label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(fill.label, eq_field_label_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)field);
+    *value_out = fill.label;
+    *slider_out = fill.slider;
+    return fill.slider;
 }
 
 /* ---- PEQ named profiles (save/load to/from the SD card) ----
@@ -764,7 +725,7 @@ static void eq_profile_rename_row_cb(lv_event_t * e) {
     snprintf(display, sizeof(display), "%s", basename_of(path));
     char * dot = strrchr(display, '.');
     if (dot && strcmp(dot, ".peq") == 0) *dot = '\0';
-    show_text_entry(TR("Rename Profile"), display, false, false, eq_profile_rename_done_cb, (void *) path);
+    show_text_entry(TR("Rename profile"), display, false, false, eq_profile_rename_done_cb, (void *) path);
 }
 
 static void populate_eq_profiles_screen(void) {
@@ -772,7 +733,7 @@ static void populate_eq_profiles_screen(void) {
     eq_profiles_free_paths();
 
     if (eq_profiles_title_label)
-        lv_label_set_text(eq_profiles_title_label, eq_profiles_replace_mode ? TR("Replace Profile") : TR("Profiles"));
+        lv_label_set_text(eq_profiles_title_label, eq_profiles_replace_mode ? TR("Replace profile") : TR("Profiles"));
     if (eq_profiles_edit_btn) {
         lv_label_set_text(eq_profiles_edit_btn, eq_profiles_edit_mode ? TR("Done") : TR("Edit"));
         /* Rename/delete don't make sense mid-replace -- hide the entry point
@@ -932,7 +893,7 @@ static void eq_save_choice_new_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     eq_hide_save_choice_popup();
     const char * prefill = eq_save_choice_prefill_current ? eq_current_profile_name : "";
-    const char * title = eq_save_choice_prefill_current ? TR("Save Profile As") : TR("Profile Name");
+    const char * title = eq_save_choice_prefill_current ? TR("Save profile as") : TR("Profile name");
     show_text_entry(title, prefill, false, false, eq_save_profile_name_done_cb, NULL);
 }
 
@@ -944,10 +905,10 @@ static void eq_save_choice_replace_cb(lv_event_t * e) {
 
 static void build_eq_save_choice_popup(void) {
     eq_save_choice_popup.popup = build_confirm_popup(
-        TR("Save Profile"), LV_LABEL_LONG_WRAP, NULL,
+        TR("Save profile"), LV_LABEL_LONG_WRAP, NULL,
         TR("Save as a new profile, or replace one that already exists?"),
-        TR("Replace Existing"), lv_color_hex(GUI_BREEZE_NEGATIVE), eq_save_choice_replace_cb, NULL,
-        TR("New Profile"), accent_lv_color(), eq_save_choice_new_cb, NULL,
+        TR("Replace existing"), lv_color_hex(GUI_BREEZE_NEGATIVE), eq_save_choice_replace_cb, NULL,
+        TR("New profile"), accent_lv_color(), eq_save_choice_new_cb, NULL,
         eq_save_choice_backdrop_cb, &eq_save_choice_popup.backdrop);
 }
 
@@ -964,7 +925,7 @@ static void eq_open_save_choice_popup(bool prefill_current_name) {
 
     if (!have_existing && !prefill_current_name) {
         const char * prefill = prefill_current_name ? eq_current_profile_name : "";
-        const char * title = prefill_current_name ? TR("Save Profile As") : TR("Profile Name");
+        const char * title = prefill_current_name ? TR("Save profile as") : TR("Profile name");
         show_text_entry(title, prefill, false, false, eq_save_profile_name_done_cb, NULL);
         return;
     }
@@ -1078,7 +1039,7 @@ static lv_obj_t * build_eq_band_options_screen(void) {
     /* Keep the last action clear of the bottom swipe gesture area. */
     lv_obj_set_style_pad_bottom(content, BOARD_SCALE_PY(64), 0);
     eq_type_menu = add_pill_option_menu_row(content, TR("Filter type"),
-        TR("Peaking\nLow Shelf\nHigh Shelf"), 0, eq_type_menu_event_cb);
+        TR("Peaking\nLow shelf\nHigh shelf"), 0, eq_type_menu_event_cb);
     lv_obj_t * enable_row = lv_obj_create(content);
     lv_obj_set_width(enable_row, lv_pct(100));
     lv_obj_set_height(enable_row, GUI_SETTINGS_ROW_HEIGHT);
@@ -1117,7 +1078,7 @@ static lv_obj_t * build_crossfeed_screen(void) {
     lv_obj_set_scroll_dir(content, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
     lv_obj_set_style_pad_bottom(content, BOARD_SCALE_PY(64), 0);
-    lv_obj_t * crossfeed = create_eq_slider_card(content, EQ_FIELD_CROSSFEED, &eq_crossfeed_value_label, &eq_crossfeed_slider, 0, 100);
+    lv_obj_t * crossfeed = eq_make_fill_card(content, EQ_FIELD_CROSSFEED, TR("Crossfeed"), &eq_crossfeed_value_label, &eq_crossfeed_slider, 0, 100);
     lv_obj_set_width(crossfeed, lv_pct(100));
     eq_crossfeed_angle_menu = add_pill_option_menu_row(content, TR("Crossfeed angle"),
         TR("No delay\n30°\n45°\n60°\n90°"), 0, eq_crossfeed_angle_menu_event_cb);
@@ -1131,7 +1092,6 @@ static lv_obj_t * build_crossfeed_screen(void) {
     lv_obj_add_event_cb(scr, crossfeed_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     finalize_screen_navigation(scr);
     lv_obj_remove_flag(crossfeed, LV_OBJ_FLAG_GESTURE_BUBBLE);
-    register_swipe_dead_zone(crossfeed);
     return scr;
 }
 
@@ -1244,7 +1204,7 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_style_bg_opa(below_q_spacer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(below_q_spacer, 0, 0);
     lv_obj_remove_flag(below_q_spacer, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    eq_preamp_card = eq_make_slider_card(content, EQ_FIELD_PREAMP, TR("Pre-Amp"), &eq_preamp_value_label, &eq_preamp_slider, -120, 120);
+    eq_preamp_card = eq_make_slider_card(content, EQ_FIELD_PREAMP, TR("Pre-amp"), &eq_preamp_value_label, &eq_preamp_slider, -120, 120);
     eq_graph_panel = lv_obj_create(content);
     lv_obj_set_width(eq_graph_panel, ui_list_row_width());
     lv_obj_set_flex_grow(eq_graph_panel, 1);

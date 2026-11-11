@@ -87,6 +87,7 @@ typedef struct {
  * filtering call. The DB worker sees only copied id/kind/query data and never
  * calls or retains any UI callback. */
 void library_search_register(search_binding_id_t id, const library_search_config_t *config);
+void library_search_set_restore_thumbnail_list(search_binding_id_t id, lv_obj_t *list);
 void library_search_open(search_binding_id_t id);
 void library_search_global_select(int display_index, bool long_press);
 /* Optional, after registering: the full row (subtitle, cover) for a source

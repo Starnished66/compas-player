@@ -28,6 +28,7 @@ static gui_shell_bt_output_device_t bt_output_menu_devices[BT_MAX_RESULTS];
 static int bt_output_menu_device_count;
 
 static void bt_output_menu_delete(void) {
+    if (bt_output_menu_backdrop) gui_popup_backdrop_hide(bt_output_menu_backdrop);
     if (bt_output_menu_popup) lv_obj_delete(bt_output_menu_popup);
     if (bt_output_menu_backdrop) lv_obj_delete(bt_output_menu_backdrop);
     bt_output_menu_popup = NULL;
@@ -80,7 +81,7 @@ static void bt_output_menu_build(void) {
                                         (void *)(intptr_t)-2 };
     bt_output_menu_popup = build_menu_popup(rows, count, bt_output_menu_backdrop_cb,
                                             &bt_output_menu_backdrop);
-    lv_obj_remove_flag(bt_output_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
+    gui_popup_backdrop_show(bt_output_menu_backdrop);
     lv_obj_remove_flag(bt_output_menu_popup, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -520,6 +521,7 @@ static bool bt_scan_active = false;
 static atomic_bool bt_scan_done_flag = false;
 static bt_device_t bt_scan_pending_results[BT_MAX_RESULTS];
 static int bt_scan_pending_result_count = 0;
+static bool bt_paired_snapshot_loaded;
 
 /* Set before the thread starts, so the write happens-before the read. */
 static bool bt_scan_want_inquiry = true;
@@ -540,6 +542,7 @@ static void start_bt_scan(bool inquiry) {
     if (bt_scan_active) return;
 
     bt_scan_want_inquiry = inquiry;
+    bt_paired_snapshot_loaded = false;
 
     atomic_store_explicit(&bt_scan_done_flag, false, memory_order_relaxed);
     bt_scan_active = true;
@@ -563,6 +566,7 @@ void poll_bt_scan(void) {
         memcpy(bt_scan_results, bt_scan_pending_results,
                (size_t) bt_scan_pending_result_count * sizeof(bt_scan_results[0]));
         bt_scan_result_count = bt_scan_pending_result_count;
+        bt_paired_snapshot_loaded = true;
     }
     populate_bt_screen(); /* refresh the list either way -- worth keeping current even if the user already backed out */
 }
@@ -580,7 +584,7 @@ typedef struct {
 } bt_codec_option_t;
 
 static const bt_codec_option_t bt_codec_options[] = {
-    { "auto", N_("Auto") },   { "ldac_hq", N_("LDAC Quality") }, { "ldac_sq", N_("LDAC Standard") },
+    { "auto", N_("Auto") },   { "ldac_hq", N_("LDAC quality") }, { "ldac_sq", N_("LDAC standard") },
     { "ssc", "SSC" },        { "aptx", "aptX" },                { "aac", "AAC" },
     { "sbc", "SBC" },        { "sbc_xq", "SBC-XQ" },
 };
@@ -823,18 +827,18 @@ static void bt_speexrate_toggle_cb(lv_event_t * e) {
 
 static void populate_bt_advanced_screen(void) {
     lv_obj_clean(bt_advanced_list);
-    add_pill_toggle_row(bt_advanced_list, TR("Bluetooth Volume Sync"),
+    add_pill_toggle_row(bt_advanced_list, TR("Bluetooth volume sync"),
                         current_settings.bt_volume_sync_enabled, bt_volume_sync_toggle_cb);
     add_pill_chevron_row(bt_advanced_list, TR("Codec"), bt_codec_settings_row_cb);
-    add_pill_chevron_row(bt_advanced_list, TR("Sample Rate"), bt_rate_settings_row_cb);
+    add_pill_chevron_row(bt_advanced_list, TR("Sample rate"), bt_rate_settings_row_cb);
     /* Only does anything for a track whose rate differs from the negotiated
      * transport rate; with Sample Rate at 44.1 kHz most tracks never reach
      * the resampler at all. */
-    add_pill_toggle_row(bt_advanced_list, TR("Speex Resampling"),
+    add_pill_toggle_row(bt_advanced_list, TR("Speex resampling"),
                         current_settings.bt_speexrate_enabled, bt_speexrate_toggle_cb);
-    add_pill_toggle_row(bt_advanced_list, TR("Hide Unnamed Devices"),
+    add_pill_toggle_row(bt_advanced_list, TR("Hide unnamed devices"),
                         current_settings.bt_hide_unnamed_devices, bt_hide_unnamed_toggle_cb);
-    add_pill_toggle_row(bt_advanced_list, TR("Restore at Startup"),
+    add_pill_toggle_row(bt_advanced_list, TR("Restore at startup"),
                         current_settings.bt_restore_at_startup, bt_restore_at_startup_toggle_cb);
 }
 
@@ -894,6 +898,7 @@ static uint64_t bt_screen_signature(bool powered) {
     int32_t row_h = ui_list_row_height();
     const lv_font_t * fonts[2] = {gui_theme_font(GUI_FONT_ROLE_BODY), gui_theme_font(GUI_FONT_ROLE_SUBTEXT)};
     h = bt_sig_add(h, &powered, sizeof(powered));
+    h = bt_sig_add(h, &bt_paired_snapshot_loaded, sizeof(bt_paired_snapshot_loaded));
     h = bt_sig_add(h, &row_h, sizeof(row_h));
     h = bt_sig_add(h, fonts, sizeof(fonts));
     /* A font size change rewrites the descriptors in place, so the addresses alone miss it. */
@@ -963,6 +968,7 @@ void populate_bt_screen(void) {
      * pre-existing hang class start_refresh_bt_icon()'s own comment
      * documents). The cache is kept fresh in the background regardless. */
     bool powered = bt_is_powered_cached;
+    if (!powered) bt_paired_snapshot_loaded = false;
     if (bt_rescan_btn) {
         if (powered) lv_obj_remove_flag(bt_rescan_btn, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(bt_rescan_btn, LV_OBJ_FLAG_HIDDEN);
@@ -994,14 +1000,14 @@ void populate_bt_screen(void) {
     add_pill_chevron_row(bt_list, TR("Bluetooth DAC"), bt_dac_settings_row_cb);
     add_pill_chevron_row(bt_list, TR("Advanced"), bt_advanced_settings_row_cb);
 
-    add_section_header(bt_list, TR("Paired Devices"));
-    if (add_bt_device_section(true) == 0) {
+    add_section_header(bt_list, TR("Paired devices"));
+    if (add_bt_device_section(true) == 0 && bt_paired_snapshot_loaded) {
         build_list_message(bt_list, TR("No paired devices"), TR("Previously connected accessories will appear here."));
     }
 
     add_section_header(bt_list, bt_scan_active && bt_scan_want_inquiry
-                       ? TR("Scanning for devices") : TR("Available Devices"));
-    if (add_bt_device_section(false) == 0) {
+                       ? TR("Scanning for devices") : TR("Available devices"));
+    if (add_bt_device_section(false) == 0 && !bt_scan_active) {
         build_list_message(bt_list, TR("No nearby devices"), TR("Make an accessory discoverable, then tap Rescan."));
     }
 
@@ -1061,7 +1067,7 @@ void gui_network_bt_build(void) {
     bt_screen = build_bluetooth_screen();
     bt_codec_screen = network_list_screen(TR("Codec"), &bt_codec_list);
     bt_advanced_screen = network_list_screen(TR("Advanced"), &bt_advanced_list);
-    bt_rate_screen = network_list_screen(TR("Sample Rate"), &bt_rate_list);
+    bt_rate_screen = network_list_screen(TR("Sample rate"), &bt_rate_list);
     build_bt_action_popup();
 }
 

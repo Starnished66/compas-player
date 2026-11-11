@@ -205,7 +205,7 @@ static void about_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (!about_screen) {
         lv_obj_t * list;
-        about_screen = build_subsonic_list_screen(TR("About Play Through"), NULL, &list);
+        about_screen = build_subsonic_list_screen(TR("How it works"), NULL, &list);
         add_wrapped_section_header(list, TR("Albums continue in the artist's alphabetical album order."));
         add_wrapped_section_header(list, TR("Folders continue in lexical (alphabetical, case-insensitive) sibling-folder order."));
         add_wrapped_section_header(list, TR("Album mode has priority when both options are enabled."));
@@ -218,13 +218,13 @@ static void play_through_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (!play_through_screen) {
         lv_obj_t * list;
-        play_through_screen = build_subsonic_list_screen(TR("Play Through"), NULL, &list);
+        play_through_screen = build_subsonic_list_screen(TR("Play through"), NULL, &list);
         pill_list_item_t items[] = {
-            { TR("Play Through Folders"), PILL_ACCESSORY_TOGGLE, current_settings.native_play_through_folders,
+            { TR("Play through folders"), PILL_ACCESSORY_TOGGLE, current_settings.native_play_through_folders,
               NULL, play_through_toggle_cb, &current_settings.native_play_through_folders },
-            { TR("Play Through Albums"), PILL_ACCESSORY_TOGGLE, current_settings.native_play_through_albums,
+            { TR("Play through albums"), PILL_ACCESSORY_TOGGLE, current_settings.native_play_through_albums,
               NULL, play_through_toggle_cb, &current_settings.native_play_through_albums },
-            { TR("How It Works"), PILL_ACCESSORY_CHEVRON, false, about_cb },
+            { TR("How it works"), PILL_ACCESSORY_CHEVRON, false, about_cb },
         };
         add_pill_list_rows(list, items, 3);
     }

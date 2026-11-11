@@ -1,0 +1,79 @@
+--- a/src/core/lv_refr.c
++++ b/src/core/lv_refr.c
+@@ -289,7 +289,19 @@
+     LV_PROFILER_REFR_END;
+ }
+ 
++static lv_refr_invalidation_cb_t invalidation_cb;
++
++void lv_refr_set_invalidation_cb(lv_refr_invalidation_cb_t cb)
++{
++    invalidation_cb = cb;
++}
++
+ lv_result_t lv_inv_area(lv_display_t * disp, const lv_area_t * area_p)
++{
++    return lv_inv_area_obj(disp, area_p, NULL);
++}
++
++lv_result_t lv_inv_area_obj(lv_display_t * disp, const lv_area_t * area_p, lv_obj_t * obj)
+ {
+     if(!disp) disp = lv_display_get_default();
+     if(!disp) return LV_RESULT_INVALID;
+@@ -308,6 +320,8 @@
+      */
+     LV_ASSERT_MSG(!disp->rendering_in_progress, "Invalidate area is not allowed during rendering.");
+ 
++    if(area_p == NULL && invalidation_cb) invalidation_cb(disp, NULL, NULL);
++
+     /*Clear the invalidate buffer if the parameter is NULL*/
+     if(area_p == NULL) {
+         disp->inv_p = 0;
+@@ -338,6 +352,7 @@
+     if(disp->render_mode == LV_DISPLAY_RENDER_MODE_FULL) {
+         disp->inv_areas[0] = scr_area;
+         disp->inv_p = 1;
++        if(invalidation_cb) invalidation_cb(disp, obj, &scr_area);
+         lv_display_send_event(disp, LV_EVENT_REFR_REQUEST, NULL);
+         return LV_RESULT_OK;
+     }
+@@ -348,6 +363,7 @@
+     lv_refr_scroll_blit_note_inval(&com_area); /*Before the dedupe below, which would hide it*/
+ 
+     /*Save only if this area is not in one of the saved areas*/
++    if(invalidation_cb) invalidation_cb(disp, obj, &com_area);
+     uint16_t i;
+     for(i = 0; i < disp->inv_p; i++) {
+         if(lv_area_is_in(&com_area, &disp->inv_areas[i], 0) != false) return LV_RESULT_OK;
+--- a/src/core/lv_refr.h
++++ b/src/core/lv_refr.h
+@@ -25,6 +25,9 @@
+  *      TYPEDEFS
+  **********************/
+ 
++typedef void (*lv_refr_invalidation_cb_t)(lv_display_t * disp, lv_obj_t * obj, const lv_area_t * area);
++void lv_refr_set_invalidation_cb(lv_refr_invalidation_cb_t cb);
++
+ /**********************
+  *  STATIC PROTOTYPES
+  **********************/
+@@ -49,6 +52,9 @@
+  * @param disp pointer to display to refresh. NULL to refresh all displays.
+  */
+ void lv_refr_now(lv_display_t * disp);
++
++/* Invalidate an area and identify its originating object for the invalidation hook. */
++lv_result_t lv_inv_area_obj(lv_display_t * disp, const lv_area_t * area, lv_obj_t * obj);
+ 
+ /**
+  * Redrawn on object and all its children using the passed draw context
+--- a/src/core/lv_obj_pos.c
++++ b/src/core/lv_obj_pos.c
+@@ -1645,6 +1645,6 @@
+     }
+ #endif
+ 
+-    lv_result_t res = lv_inv_area(lv_obj_get_display(obj), area_tmp);
++    lv_result_t res = lv_inv_area_obj(lv_obj_get_display(obj), area_tmp, (lv_obj_t *)obj);
+     return res;
+ }

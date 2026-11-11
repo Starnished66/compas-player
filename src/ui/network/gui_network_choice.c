@@ -35,7 +35,7 @@ static void populate_int_options(lv_obj_t * list, const int_option_t * options, 
 
 /* Value (matches player_settings_t.resume_mode) and untranslated label. */
 static const int_option_t resume_mode_options[] = {
-    { 0, N_("Off") }, { 1, N_("Resume and Play") }, { 2, N_("Resume, but Paused") },
+    { 0, N_("Off") }, { 1, N_("Resume and play") }, { 2, N_("Resume, but paused") },
 };
 
 static void resume_mode_option_row_cb(lv_event_t * e);
@@ -144,7 +144,7 @@ void font_size_settings_row_cb(lv_event_t * e) {
 
 /* Value matches player_settings_t.replaygain_mode. */
 static const int_option_t replaygain_mode_options[] = {
-    { 0, N_("Off") }, { 1, N_("Per Track") }, { 2, N_("Per Album") },
+    { 0, N_("Off") }, { 1, N_("Per track") }, { 2, N_("Per album") },
 };
 
 static lv_obj_t * replaygain_mode_list;
@@ -173,9 +173,9 @@ void replaygain_mode_settings_row_cb(lv_event_t * e) {
 }
 
 void gui_network_choice_settings_build(void) {
-    font_size_screen = network_list_screen(TR("Font Size"), &font_size_list);
+    font_size_screen = network_list_screen(TR("Font size"), &font_size_list);
     replaygain_mode_screen = network_list_screen(TR("ReplayGain"), &replaygain_mode_list);
-    resume_mode_screen = network_list_screen(TR("Resume Last Track"), &resume_mode_list);
+    resume_mode_screen = network_list_screen(TR("Resume last track"), &resume_mode_list);
 }
 
 void gui_network_choice_settings_teardown(void) {

@@ -1,5 +1,6 @@
 #include "screen_builders.h"
 #include "screen_builders_internal.h"
+#include "../lists/scroll_blit.h"
 #include "../../plugins/gui_plugins.h"
 #include "../../shell/gui_navigation.h"
 #include "../../assets/assets.h"
@@ -316,12 +317,15 @@ static lv_obj_t * screen_list_body(lv_obj_t * scr, int32_t header_h, int32_t bot
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
     screen_builders_configure_content_scrollbar(list);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    ui_marquee_list_enable(list);
     /* track_cross_place (3rd arg) set to CENTER centers the column track within
      * the container, ensuring narrower rows are properly centered rather than left-aligned. */
     lv_obj_set_flex_align(list, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(list, row_gap, 0);
     lv_obj_set_style_pad_top(list, GUI_ROW_GAP, 0);
     lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(8), 0);
+    /* Reuse scrolled pixels when the renderer proves the list is safe to copy. */
+    ui_scroll_blit_enable(list);
     return list;
 }
 

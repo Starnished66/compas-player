@@ -131,7 +131,7 @@ lv_obj_t * gui_plugin_manage_build_screen(void) {
     static pill_list_item_t items[2 + PLUGIN_MANAGE_MAX_ROWS];
     items[0] = (pill_list_item_t){ TR("Plugin Store"), PILL_ACCESSORY_CHEVRON, false,
                                     gui_plugin_store_row_cb, NULL, NULL };
-    items[1] = (pill_list_item_t){ TR("Refresh Plugins"), PILL_ACCESSORY_NONE, false,
+    items[1] = (pill_list_item_t){ TR("Refresh plugins"), PILL_ACCESSORY_NONE, false,
                                     plugin_manage_reload_row_cb, NULL, NULL };
     int count = 2;
     for (int i = 0; i < manage_entry_count; i++) {

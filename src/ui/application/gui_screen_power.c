@@ -318,7 +318,6 @@ static void finish_screen_wake_reveal(void) {
     gui_lock_screen_refresh(false);
     gui_control_poll_kick_player_ui();
     force_screen_just_woke = true;
-    gui_library_screen_woke(); /* the page's chunk timer resumes now, not at the next 500 ms poll */
 }
 
 static void begin_screen_wake_reveal(void) {
@@ -1021,7 +1020,6 @@ screen_poll_result_t poll_screen_power(void) {
     bool screen_just_slept = !screen_on_now && (screen_was_on || force_screen_just_slept);
     force_screen_just_slept = false;
     if (screen_just_woke) gui_control_poll_kick_player_ui();
-    if (screen_just_woke) gui_library_screen_woke();
     /* A wake can precede completion of the background RC stop. Retry its
      * restoration without blocking input or losing the saved preference. */
     if (screen_on_now) gui_network_resume_radio_services();

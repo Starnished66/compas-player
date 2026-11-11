@@ -1,0 +1,31 @@
+--- a/src/core/lv_refr.c
++++ b/src/core/lv_refr.c
+@@ -1795,6 +1795,20 @@
+         lv_draw_buf_clear(layer->draw_buf, &clear_area);
+     }
+ 
++    /* An opaque overlay covers lower layers; keep the system layer above top-layer content. */
++    lv_obj_t * sys_layer_obj = lv_refr_get_top_obj(&layer->_clip_area, lv_display_get_layer_sys(disp_refr));
++    if(sys_layer_obj) {
++        refr_obj_and_children(layer, sys_layer_obj);
++        goto refr_area_part_done;
++    }
++
++    lv_obj_t * top_layer_obj = lv_refr_get_top_obj(&layer->_clip_area, lv_display_get_layer_top(disp_refr));
++    if(top_layer_obj) {
++        refr_obj_and_children(layer, top_layer_obj);
++        refr_obj_and_children(layer, lv_display_get_layer_sys(disp_refr));
++        goto refr_area_part_done;
++    }
++
+     lv_obj_t * top_act_scr = NULL;
+     lv_obj_t * top_prev_scr = NULL;
+ 
+@@ -1834,6 +1848,7 @@
+     refr_obj_and_children(layer, lv_display_get_layer_top(disp_refr));
+     refr_obj_and_children(layer, lv_display_get_layer_sys(disp_refr));
+ 
++refr_area_part_done:
+     LV_PROFILER_REFR_END;
+ }
+ 

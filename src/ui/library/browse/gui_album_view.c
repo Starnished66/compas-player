@@ -12,6 +12,7 @@
 #include <string.h>
 
 static char dur_marker;
+static char number_marker;
 
 static lv_obj_t * plain(lv_obj_t * parent) {
     lv_obj_t * o = lv_obj_create(parent);
@@ -44,12 +45,17 @@ static int32_t text_width(const char * text, const lv_font_t * font) {
     return size.x;
 }
 
-/* Wide enough for the album's longest number on one line, measured as 8s (the widest digit). */
+/* Reserve the widest digit for each position. */
 int32_t gui_album_view_number_width(int widest) {
     char digits[12];
     int len = snprintf(digits, sizeof(digits), "%d", widest < 1 ? 1 : widest);
-    memset(digits, '8', (size_t) len);
-    int32_t w = text_width(digits, gui_theme_font(GUI_FONT_ROLE_BODY));
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_BODY);
+    int32_t w = 0;
+    for (char digit = '0'; digit <= '9'; ++digit) {
+        memset(digits, digit, (size_t)len);
+        int32_t candidate = text_width(digits, font);
+        if (candidate > w) w = candidate;
+    }
     return w > BOARD_SCALE_PX(40) ? w : BOARD_SCALE_PX(40);
 }
 
@@ -286,6 +292,56 @@ void gui_album_view_row_set_duration(lv_obj_t * row, unsigned seconds) {
     for (uint32_t i = 0; i < n; i++) {
         lv_obj_t * child = lv_obj_get_child(row, (int32_t) i);
         if (lv_obj_get_user_data(child) == &dur_marker) { set_duration_text(child, seconds); return; }
+    }
+}
+
+static lv_obj_t * compact_detail_label(lv_obj_t * row, void * marker) {
+    for (uint32_t i = 0; i < lv_obj_get_child_count(row); ++i) {
+        lv_obj_t * child = lv_obj_get_child(row, (int32_t)i);
+        if (lv_obj_get_user_data(child) == marker) return child;
+    }
+    lv_obj_t * label = lv_label_create(row);
+    lv_obj_add_style(label, &style_theme_text_muted, 0);
+    lv_obj_set_user_data(label, marker);
+    lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    return label;
+}
+
+/* Compact rows are recycled, so keep one marked child for each album detail. */
+void gui_album_view_decorate_compact_row(lv_obj_t * row, int number, int num_w, int seconds) {
+    if (!row) return;
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_BODY);
+    int32_t pad = BOARD_SCALE_PX(14);
+    int32_t dur_right = pad + BOARD_SCALE_PX(40) + BOARD_SCALE_PX(6);
+    if (num_w <= 0) num_w = BOARD_SCALE_PX(40);
+    int32_t left = pad + num_w + BOARD_SCALE_PX(8);
+    int32_t right = dur_right + text_width("88:88", font) + BOARD_SCALE_PX(8);
+    lv_obj_set_style_pad_left(row, left, 0);
+    lv_obj_set_style_pad_right(row, right, 0);
+    int32_t y = (lv_obj_get_style_pad_top(row, 0) - lv_obj_get_style_pad_bottom(row, 0)) / -2;
+    lv_obj_t * n = compact_detail_label(row, &number_marker);
+    char text[12];
+    snprintf(text, sizeof(text), "%d", number);
+    lv_label_set_text(n, text);
+    lv_obj_set_style_text_font(n, font, 0);
+    lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(n, num_w);
+    lv_obj_align(n, LV_ALIGN_LEFT_MID, pad - left, y);
+    lv_obj_remove_flag(n, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t * d = compact_detail_label(row, &dur_marker);
+    lv_obj_set_style_text_font(d, font, 0);
+    if (seconds >= 0) set_duration_text(d, (unsigned)seconds);
+    else lv_label_set_text(d, "");
+    lv_obj_align(d, LV_ALIGN_RIGHT_MID, right - dur_right, y);
+    lv_obj_remove_flag(d, LV_OBJ_FLAG_HIDDEN);
+}
+
+void gui_album_view_clear_compact_row(lv_obj_t * row) {
+    if (!row) return;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(row); ++i) {
+        lv_obj_t * child = lv_obj_get_child(row, (int32_t)i);
+        if (lv_obj_get_user_data(child) == &number_marker || lv_obj_get_user_data(child) == &dur_marker)
+            lv_obj_add_flag(child, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

@@ -11,11 +11,14 @@
  * request was launched with (player_cover_raster_px() at that moment), so a
  * layout change cannot make a late result be read at the wrong size.
  * A stream_url or subsonic_cover_id selects the streamed-art path; otherwise local_track_path is
- * decoded. picture_data is an optional owned stream body and transfers with
- * the request. shown_cover is captured only when a request actually launches. */
+ * decoded. picture_data is an owned encoded stream body for normal jobs, or
+ * an owned RGB565 snapshot for reflection_only jobs, and transfers with the
+ * request. shown_cover is captured only when a request actually launches. */
 typedef struct {
     int for_index;
     unsigned int generation;
+    bool reflection_only;
+    uint64_t source_cover_generation;
     int edge;
 #ifdef UI_PERF_TRACE
     uint64_t request_perf_us;
@@ -67,6 +70,8 @@ typedef struct {
 typedef struct {
     int for_index;
     unsigned int generation;
+    bool reflection_only;
+    uint64_t source_cover_generation;
     int edge;
     audio_current_format_info_t format;
     bool ok;
@@ -91,6 +96,9 @@ typedef struct {
  * replacement or launch failure. shown_file is read synchronously only when
  * the request actually starts; parked requests carry no shown-file snapshot. */
 void player_artwork_jobs_submit(cover_decode_request_t request, const cover_file_id_t * shown_file);
+/* Starts only when the worker, result slot, pending request and reload gate
+ * are all idle. Takes ownership of picture_data even when it refuses. */
+bool player_artwork_jobs_try_submit_reflection(cover_decode_request_t request);
 /* Retry path used after a same-file result mismatch; it parks without starting mid-apply. */
 void player_artwork_jobs_park_retry(cover_decode_request_t request);
 /* take_pending transfers request.picture_data to the caller. */

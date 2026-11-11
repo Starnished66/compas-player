@@ -39,48 +39,70 @@ static bool wpa_wait(int fd, short events, int64_t deadline) {
     }
 }
 
-static bool wpa_ctrl_query(const char * command, char * out_buf, size_t out_buf_size) {
+int wifi_wpa_ctrl_open(void) {
     static atomic_uint serial;
     struct sockaddr_un local = { .sun_family = AF_UNIX }, remote = { .sun_family = AF_UNIX };
-    if (strlen(WPA_CTRL_SOCKET) >= sizeof(remote.sun_path)) return false;
+    if (strlen(WPA_CTRL_SOCKET) >= sizeof(remote.sun_path)) return -1;
     strcpy(remote.sun_path, WPA_CTRL_SOCKET);
-    /* Nonblocking, with one deadline for connect, send and receive together: a wpa_supplicant that
-     * stopped draining its queue must not be able to hold the caller (a UI-adjacent path). */
-    int64_t deadline = wpa_now_ms() + WIFI_QUERY_TIMEOUT_MS;
+    /* Nonblocking: a wpa_supplicant that stopped draining its queue must not be able to hold
+     * the caller (a UI-adjacent path). */
     int fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-    if (fd < 0) return false;
+    if (fd < 0) return -1;
     snprintf(local.sun_path, sizeof(local.sun_path), "/tmp/compas_wpa_%d_%u", (int) getpid(),
              atomic_fetch_add(&serial, 1u));
     unlink(local.sun_path);
-    bool ok = false;
-    if (bind(fd, (struct sockaddr *) &local, sizeof(local)) == 0) {
-        size_t len = strlen(command);
-        if (connect(fd, (struct sockaddr *) &remote, sizeof(remote)) == 0) {
-            bool sent = false;
-            for (;;) {
-                if (wpa_now_ms() >= deadline) break; /* checked before every attempt, retries after EINTR included */
-                ssize_t n = send(fd, command, len, MSG_DONTWAIT);
-                if (n == (ssize_t) len) { sent = true; break; }
-                if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) break;
-                if (errno != EINTR && !wpa_wait(fd, POLLOUT, deadline)) break;
-            }
-            char reply[4096];
-            if (sent && wpa_wait(fd, POLLIN, deadline)) {
-                ssize_t n = recv(fd, reply, sizeof(reply) - 1, MSG_TRUNC | MSG_DONTWAIT);
-                /* MSG_TRUNC reports the real datagram size: a reply that did not fit goes to wpa_cli */
-                if (n > 0 && (size_t) n < sizeof(reply) - 1 && out_buf_size > 1 &&
-                    strncmp(reply, "FAIL", 4) != 0) {
-                    /* Truncate into the caller's buffer like the subprocess path does */
-                    size_t copy = (size_t) n < out_buf_size - 1 ? (size_t) n : out_buf_size - 1;
-                    memcpy(out_buf, reply, copy);
-                    out_buf[copy] = '\0';
-                    ok = true;
-                }
-            }
-        }
+    if (bind(fd, (struct sockaddr *) &local, sizeof(local)) == 0 &&
+        connect(fd, (struct sockaddr *) &remote, sizeof(remote)) == 0)
+        return fd;
+    wifi_wpa_ctrl_close(fd);
+    return -1;
+}
+
+void wifi_wpa_ctrl_close(int fd) {
+    struct sockaddr_un local;
+    socklen_t len = sizeof(local);
+    memset(&local, 0, sizeof(local));
+    if (getsockname(fd, (struct sockaddr *) &local, &len) == 0 && local.sun_path[0]) {
+        local.sun_path[sizeof(local.sun_path) - 1] = '\0';
         unlink(local.sun_path);
     }
     close(fd);
+}
+
+bool wifi_wpa_ctrl_request(int fd, const char * command, char * out_buf, size_t out_buf_size, int timeout_ms) {
+    /* One deadline for send and receive together. */
+    int64_t deadline = wpa_now_ms() + timeout_ms;
+    size_t len = strlen(command);
+    bool sent = false;
+    for (;;) {
+        if (wpa_now_ms() >= deadline) break; /* checked before every attempt, retries after EINTR included */
+        ssize_t n = send(fd, command, len, MSG_DONTWAIT);
+        if (n == (ssize_t) len) { sent = true; break; }
+        if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) break;
+        if (errno != EINTR && !wpa_wait(fd, POLLOUT, deadline)) break;
+    }
+    char reply[4096];
+    while (sent && wpa_wait(fd, POLLIN, deadline)) {
+        ssize_t n = recv(fd, reply, sizeof(reply) - 1, MSG_TRUNC | MSG_DONTWAIT);
+        if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
+        /* MSG_TRUNC reports the real datagram size: a reply that did not fit goes to wpa_cli */
+        if (n <= 0 || (size_t) n >= sizeof(reply) - 1 || out_buf_size < 2) return false;
+        if (reply[0] == '<') continue; /* an unsolicited event on an attached socket, not the reply */
+        /* Truncate into the caller's buffer like the subprocess path does */
+        size_t copy = (size_t) n < out_buf_size - 1 ? (size_t) n : out_buf_size - 1;
+        memcpy(out_buf, reply, copy);
+        out_buf[copy] = '\0';
+        return true;
+    }
+    return false;
+}
+
+static bool wpa_ctrl_query(const char * command, char * out_buf, size_t out_buf_size) {
+    int fd = wifi_wpa_ctrl_open();
+    if (fd < 0) return false;
+    bool ok = wifi_wpa_ctrl_request(fd, command, out_buf, out_buf_size, WIFI_QUERY_TIMEOUT_MS) &&
+              strncmp(out_buf, "FAIL", 4) != 0;
+    wifi_wpa_ctrl_close(fd);
     return ok;
 }
 

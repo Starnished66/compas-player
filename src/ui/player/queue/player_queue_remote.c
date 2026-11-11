@@ -72,7 +72,7 @@ bool gui_player_queue_snapshot(int **order, int *count, int *current, uint64_t *
     return true;
 }
 
-/* Publish the displayed Up Next order only when the queue revision changes.
+/* Publish the displayed queue only when the queue revision changes.
  * The remote listener owns its own copy, so it never reads playlist state
  * from its worker thread. This also seeds the endpoint the first time
  * Remote Control is enabled after boot/restoration. */
@@ -83,26 +83,24 @@ void gui_player_sync_remote_queue(void) {
     uint64_t revision = 0;
     if (!gui_player_queue_snapshot(&order, &count, &current, &revision)) return;
     if (revision == published_revision) { free(order); return; }
-    int upcoming = current >= 0 && current < count ? count - current - 1 : 0;
-    const char ** paths = upcoming ? malloc(sizeof(*paths) * (size_t) upcoming) : NULL;
-    if (upcoming && !paths) { free(order); return; }
-    for (int i = 0; i < upcoming; i++) paths[i] = playlist_path_at(order[current + 1 + i]);
-    remote_control_sync_queue(paths, upcoming, revision);
+    const char ** paths = count ? malloc(sizeof(*paths) * (size_t) count) : NULL;
+    if (count && !paths) { free(order); return; }
+    for (int i = 0; i < count; i++) paths[i] = playlist_path_at(order[i]);
+    bool published = remote_control_sync_queue(paths, count, current, gui_player_get_queued_count(), revision);
     free(paths);
     free(order);
-    published_revision = revision;
+    if (published) published_revision = revision;
 }
 
-/* Maps a Remote Control Up Next offset (current track excluded) to its
- * displayed queue index, or -1 when the revision or offset is stale. */
+/* HTTP offsets are normalized to displayed indices before reaching the UI. */
 static int remote_queue_displayed_index(int offset, uint64_t revision) {
     if (revision != player_queue_model_revision() || offset < 0) return -1;
     int * order = NULL, count = 0, current = -1;
     uint64_t actual = 0;
     if (!gui_player_queue_snapshot(&order, &count, &current, &actual)) return -1;
     free(order);
-    if (actual != revision || current < 0 || offset >= count - current - 1) return -1;
-    return current + 1 + offset;
+    if (actual != revision || offset >= count) return -1;
+    return offset;
 }
 
 bool gui_player_remote_queue_remove(int offset, uint64_t revision) {

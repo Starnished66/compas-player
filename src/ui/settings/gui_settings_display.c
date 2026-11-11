@@ -1,5 +1,7 @@
 #include "../application/gui.h"
 #include "gui_settings.h"
+#include "../shell/gui_shell.h"
+#include "../assets/assets.h"
 #include "../appearance/gui_accent.h"
 #include "../appearance/fonts/gui_custom_font.h"
 #include "display/gui_display_timing_settings.h"
@@ -45,7 +47,7 @@ typedef struct {
 } animation_speed_option_t;
 
 static const animation_speed_option_t animation_speed_options[] = {
-    { 0, N_("Off") }, { 25, N_("Fastest") }, { 50, N_("Faster") }, { 75, N_("Fast") }, { 100, N_("Normal") },
+    { 0, N_("Off") }, { 25, "0.25x" }, { 50, "0.5x" }, { 75, "0.75x" }, { 100, "1x" },
 };
 #define ANIMATION_SPEED_OPTION_COUNT (sizeof(animation_speed_options) / sizeof(animation_speed_options[0]))
 
@@ -53,25 +55,28 @@ static void animation_speed_option_row_cb(lv_event_t * e);
 
 static void populate_animation_speed_screen(void) {
     if (!animation_speed_list) return;
-    lv_obj_clean(animation_speed_list);
-    for (size_t i = 0; i < ANIMATION_SPEED_OPTION_COUNT; i++) {
-        bool selected = current_settings.animation_scale == animation_speed_options[i].scale;
-        add_pill_option_row(animation_speed_list, TR(animation_speed_options[i].label),
-                            selected, animation_speed_option_row_cb, (void *) (intptr_t) i);
+    if (lv_obj_get_child_count(animation_speed_list) == 0) {
+        for (size_t i = 0; i < ANIMATION_SPEED_OPTION_COUNT; i++) {
+            add_pill_option_row(animation_speed_list, TR(animation_speed_options[i].label), false,
+                                animation_speed_option_row_cb, (void *) (intptr_t) i);
+        }
     }
+    for (size_t i = 0; i < ANIMATION_SPEED_OPTION_COUNT; i++)
+        gui_pill_option_row_set_selected(lv_obj_get_child(animation_speed_list, i),
+            current_settings.animation_scale == animation_speed_options[i].scale);
 }
 
 static void animation_speed_option_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
+    gui_pill_option_list_set_selected(animation_speed_list, lv_event_get_current_target(e));
     current_settings.animation_scale = animation_speed_options[index].scale;
     settings_save_async(&current_settings);
-    populate_animation_speed_screen();
 }
 
 static lv_obj_t * build_animation_speed_screen(void) {
     lv_obj_t * title_label; /* unused after build -- title never changes */
-    return build_subsonic_list_screen(TR("Animation Speed"), &title_label, &animation_speed_list);
+    return build_subsonic_list_screen(TR("Animation speed"), &title_label, &animation_speed_list);
 }
 
 static void animation_speed_settings_row_cb(lv_event_t * e) {
@@ -107,12 +112,15 @@ static void keyboard_layout_option_row_cb(lv_event_t * e);
 
 static void populate_keyboard_layout_screen(void) {
     if (!keyboard_layout_list) return;
-    lv_obj_clean(keyboard_layout_list);
-    for (size_t i = 0; i < KEYBOARD_LAYOUT_OPTION_COUNT; i++) {
-        bool selected = current_settings.keyboard_layout == keyboard_layout_options[i].layout;
-        add_pill_option_row(keyboard_layout_list, TR(keyboard_layout_options[i].label),
-                            selected, keyboard_layout_option_row_cb, (void *) (intptr_t) i);
+    if (lv_obj_get_child_count(keyboard_layout_list) == 0) {
+        for (size_t i = 0; i < KEYBOARD_LAYOUT_OPTION_COUNT; i++) {
+            add_pill_option_row(keyboard_layout_list, TR(keyboard_layout_options[i].label), false,
+                                keyboard_layout_option_row_cb, (void *) (intptr_t) i);
+        }
     }
+    for (size_t i = 0; i < KEYBOARD_LAYOUT_OPTION_COUNT; i++)
+        gui_pill_option_row_set_selected(lv_obj_get_child(keyboard_layout_list, i),
+            current_settings.keyboard_layout == keyboard_layout_options[i].layout);
 }
 
 /* Takes effect the next time a text field or inline search opens -- the
@@ -120,9 +128,9 @@ static void populate_keyboard_layout_screen(void) {
 static void keyboard_layout_option_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
+    gui_pill_option_list_set_selected(keyboard_layout_list, lv_event_get_current_target(e));
     current_settings.keyboard_layout = keyboard_layout_options[index].layout;
     settings_save_async(&current_settings);
-    populate_keyboard_layout_screen();
 }
 
 static lv_obj_t * build_keyboard_layout_screen(void) {
@@ -248,7 +256,7 @@ static lv_obj_t * build_player_layout_choice_screen(void) {
 static lv_obj_t * build_lyrics_settings_screen(void) {
     lv_obj_t * rows[4] = {0};
     pill_list_item_t items[] = {
-        { TR("Show Lyrics"), PILL_ACCESSORY_TOGGLE, current_settings.lyrics_enabled, NULL, lyrics_switch_event_cb, NULL },
+        { TR("Show lyrics"), PILL_ACCESSORY_TOGGLE, current_settings.lyrics_enabled, NULL, lyrics_switch_event_cb, NULL },
         { TR("Lyrics text size"), PILL_ACCESSORY_CHEVRON, false, lyrics_font_size_settings_row_cb, NULL, NULL },
         { TR("Hide player/lyrics top bar"), PILL_ACCESSORY_TOGGLE, current_settings.hide_player_topbar, NULL, hide_player_topbar_switch_event_cb, NULL },
         { TR("Keep lyrics screen on"), PILL_ACCESSORY_TOGGLE, current_settings.lyrics_keep_screen_on, NULL, lyrics_keep_screen_on_switch_event_cb, NULL },
@@ -270,9 +278,9 @@ static lv_obj_t * build_settings_personalize_screen(void) {
         { TR("Player layout"), PILL_ACCESSORY_CHEVRON, false, player_layout_choice_settings_row_cb, NULL, NULL },
         { TR("Lyrics"), PILL_ACCESSORY_CHEVRON, false, push_screen_slot_cb, NULL, &lyrics_settings_screen },
         { TR("Top bar"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_topbar_row_cb, NULL, NULL },
-        { TR("Quick drawer"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_quick_drawer_row_cb, NULL, NULL },
+        { TR("Quick Drawer"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_quick_drawer_row_cb, NULL, NULL },
         { TR("Music menu"), PILL_ACCESSORY_CHEVRON, false, gui_shell_settings_music_order_row_cb, NULL, NULL },
-        { TR("Show Artist Images"), PILL_ACCESSORY_TOGGLE, current_settings.show_artist_images, NULL, artist_images_switch_event_cb, NULL },
+        { TR("Show artist images"), PILL_ACCESSORY_TOGGLE, current_settings.show_artist_images, NULL, artist_images_switch_event_cb, NULL },
     };
     int count = append_plugin_list_rows(items, 9, PLUGIN_MAX_DISPLAY_LIST_ITEMS,
         plugin_manager_get_display_list_item_count, plugin_manager_get_display_list_item_label,
@@ -285,14 +293,13 @@ static lv_obj_t * build_settings_personalize_screen(void) {
 
 extern void quick_drawer_brightness_changed_cb(lv_event_t * e);
 
-static void brightness_format(char * out, size_t size, int value) {
-    snprintf(out, size, "%d%%", value);
-}
-
 void gui_settings_sync_brightness(int percent) {
     if (!brightness_ui.slider) return;
-    lv_slider_set_value(brightness_ui.slider, percent, LV_ANIM_OFF);
     setting_slider_set_index(&brightness_ui, percent);
+}
+
+static void format_brightness(char * buf, size_t size, int value) {
+    snprintf(buf, size, "%d%%", value);
 }
 
 static void brightness_changed(lv_event_t * e) {
@@ -309,20 +316,20 @@ static void display_loaded(lv_event_t * e) {
 
 static lv_obj_t * build_settings_display_screen(void) {
     pill_list_item_t items[] = {
-        { TR("Screen Timeout"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_timeout_row_cb, NULL, NULL },
-        { TR("Screen Dimming"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_dimming_row_cb, NULL, NULL },
-        { TR("Font Size"), PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL },
+        { TR("Screen timeout"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_timeout_row_cb, NULL, NULL },
+        { TR("Screen dimming"), PILL_ACCESSORY_CHEVRON, false, gui_display_timing_settings_dimming_row_cb, NULL, NULL },
+        { TR("Font size"), PILL_ACCESSORY_CHEVRON, false, font_size_settings_row_cb, NULL, NULL },
         { TR("Keyboard"), PILL_ACCESSORY_CHEVRON, false, keyboard_layout_settings_row_cb, NULL, NULL },
-        { TR("Upside Down Screen"), PILL_ACCESSORY_TOGGLE, current_settings.screen_upside_down, NULL, upside_down_screen_switch_event_cb, NULL },
-        { TR("Animation Speed"), PILL_ACCESSORY_CHEVRON, false, animation_speed_settings_row_cb, NULL, NULL },
-        { TR("Swipe Up for Home"), PILL_ACCESSORY_TOGGLE, current_settings.swipe_up_home_enabled, NULL, swipe_up_home_switch_event_cb, NULL },
+        { TR("Upside down screen"), PILL_ACCESSORY_TOGGLE, current_settings.screen_upside_down, NULL, upside_down_screen_switch_event_cb, NULL },
+        { TR("Animation speed"), PILL_ACCESSORY_CHEVRON, false, animation_speed_settings_row_cb, NULL, NULL },
+        { TR("Swipe up for home"), PILL_ACCESSORY_TOGGLE, current_settings.swipe_up_home_enabled, NULL, swipe_up_home_switch_event_cb, NULL },
     };
     lv_obj_t * list;
     lv_obj_t * scr = build_subsonic_list_screen(TR("Display"), NULL, &list);
-    brightness_ui = build_setting_slider(list, &(setting_slider_cfg_t){
-        .caption = TR("Brightness"), .min_index = 0, .max_index = 100,
-        .index = current_settings.brightness_percent, .fmt = brightness_format,
-        .control_always_on = true, .slider_cb = brightness_changed
+    brightness_ui = build_setting_slider(list, &(setting_slider_cfg_t) {
+        .caption = TR("Brightness"), .max_index = 100,
+        .index = current_settings.brightness_percent,
+        .fmt = format_brightness, .slider_cb = brightness_changed,
     });
     add_pill_list_rows(list, items, 7);
     lv_obj_add_event_cb(scr, display_loaded, LV_EVENT_SCREEN_LOADED, NULL);

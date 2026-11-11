@@ -584,7 +584,8 @@ static const char * compact_trailing_src(const char * trailing_asset) {
     if (cached_src && lv_color_eq(color, cached_text) && !strcmp(cached_asset, trailing_asset))
         return cached_src;
     const char * stock = asset_path(trailing_asset);
-    const char * breeze = titlebar_breeze_icon(stock);
+    const char * breeze = strcmp(trailing_asset, "breeze_rows/library_sorting.png") == 0
+                              ? NULL : titlebar_breeze_icon(stock);
     snprintf(cached_asset, sizeof(cached_asset), "%s", trailing_asset);
     cached_text = color;
     cached_src = breeze ? breeze : stock;
@@ -760,6 +761,7 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
          * padding so both images remain vertically centred in the card. */
         compact_list_align_row_decoration(data, slot, is_action);
     }
+    ui_marquee_list_changed(list);
     bool any_visible = false;
     for (int slot = 0; slot < COMPACT_LIST_POOL_SIZE; ++slot)
         if (!lv_obj_has_flag(data->rows[slot], LV_OBJ_FLAG_HIDDEN)) any_visible = true;
@@ -1107,6 +1109,7 @@ lv_obj_t * build_compact_list_widget(lv_obj_t * parent, const compact_list_item_
     screen_builders_configure_content_scrollbar(list);
     lv_obj_set_style_pad_bottom(list, BOARD_SCALE_PX(8), 0);
     ui_scroll_blit_enable(list); /* rows keep their pixels while the list scrolls */
+    ui_marquee_list_enable(list);
 
     /* Zeroed so fields added later (the landing-rebind skip state) start defined for every list kind */
     compact_list_virtual_data_t * data = calloc(1, sizeof(*data));

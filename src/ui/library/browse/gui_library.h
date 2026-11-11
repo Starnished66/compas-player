@@ -99,7 +99,6 @@ bool gui_library_open_now_playing_group(const char * path, bool album);
 void poll_az_index_drag(lv_timer_t * timer);
 void plugin_stream_tile_click_cb(lv_event_t * e);
 /* The screen came back on: a half-built Songs page goes back to its normal build pace at once. */
-void gui_library_screen_woke(void);
 void set_player_source_group_songs_direct(const group_song_entry_t * entries, int count, const char * title, int selected_index);
 
 bool search_close_if_active_for_screen(lv_obj_t * screen);

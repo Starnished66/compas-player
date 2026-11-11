@@ -831,7 +831,6 @@ static void player_style_custom_layout(lv_obj_t * scr, const player_roles_t * r)
     if (r->transport_color) {
         lv_color_t color = lv_obj_get_style_text_color(r->transport_color, 0);
         lv_obj_t * icons[] = { r->order, r->play, r->prev, r->next, r->more, r->fav_icon,
-                              player_find_role(scr, "dismiss_icon", &lv_image_class),
                               player_find_role(scr, "lyrics_icon", &lv_image_class),
                               r->lyrics_toggle && lv_obj_check_type(r->lyrics_toggle, &lv_image_class) ? r->lyrics_toggle : NULL };
         for (unsigned i = 0; i < sizeof(icons) / sizeof(icons[0]); ++i) {
@@ -839,6 +838,13 @@ static void player_style_custom_layout(lv_obj_t * scr, const player_roles_t * r)
             lv_obj_set_style_image_recolor(icons[i], color, 0);
             lv_obj_set_style_image_recolor_opa(icons[i], LV_OPA_COVER, 0);
         }
+    }
+    lv_obj_t * dismiss = player_find_role(scr, "dismiss_icon", &lv_image_class);
+    if (dismiss) {
+        const void * src = lv_image_get_src(dismiss);
+        bool breeze = src && lv_image_src_get_type(src) == LV_IMAGE_SRC_FILE &&
+                      strcmp(src, text_glyph_asset("titlebar/breeze_back.png")) == 0;
+        style_titlebar_icon(dismiss, breeze);
     }
     lv_obj_t * primary[] = { r->title, r->count };
     lv_obj_t * muted[] = { r->artist, r->album, r->badge, r->pos, r->dur };
@@ -1578,7 +1584,29 @@ void gui_player_poll_waveform(void) {
                       playlist_path_at(next_index) : NULL);
 }
 
+bool gui_player_sync_popup_pause(void) {
+    static bool was_blocked;
+    bool blocked = gui_popup_visible_count() > 0 || gui_queue_song_context_menu_visible();
+    lv_obj_t * labels[] = {song_title_label, artist_label, album_label, song_count_label};
+    if (blocked || was_blocked) {
+        for (unsigned i = 0; i < sizeof(labels) / sizeof(labels[0]); ++i) {
+            lv_anim_t * anim = labels[i] ? lv_anim_get(labels[i], NULL) : NULL;
+            if (!anim) continue;
+            if (blocked && !lv_anim_is_paused(anim)) lv_anim_pause(anim);
+            else if (!blocked && lv_anim_is_paused(anim)) lv_anim_resume(anim);
+        }
+    }
+    if (was_blocked && !blocked) {
+        player_progress_display_reset();
+        gui_player_update_progress();
+        refresh_format_badge();
+    }
+    was_blocked = blocked;
+    return blocked;
+}
+
 void gui_player_update_progress(void) {
+    if (gui_popup_visible_count() > 0 || gui_queue_song_context_menu_visible()) return;
     if (player_waveform_seekbar && progress_slider) {
         const char * path = gui_player_get_current_track_path();
         waveform_data_t data;

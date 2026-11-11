@@ -58,7 +58,7 @@ static void build_playlist_context_menu_popup(void);
 
 static lv_obj_t *build_add_to_playlist_screen(void) {
     lv_obj_t *title_label;
-    return build_subsonic_list_screen(TR("Add to Playlist"), &title_label, &add_to_playlist_list);
+    return build_subsonic_list_screen(TR("Add to playlist"), &title_label, &add_to_playlist_list);
 }
 
 static void playlist_picker_path_free_cb(lv_event_t * e) {
@@ -87,7 +87,7 @@ static lv_obj_t * build_picker_row(const char * text, lv_style_t * text_style) {
 
 static void populate_add_to_playlist_screen(void) {
     lv_obj_clean(add_to_playlist_list);
-    lv_obj_t * new_row = build_picker_row(TR("+ New Playlist"), gui_theme_accent_style());
+    lv_obj_t * new_row = build_picker_row(TR("+ New playlist"), gui_theme_accent_style());
     lv_obj_add_event_cb(new_row, new_playlist_row_cb, LV_EVENT_CLICKED, NULL);
 
     char ** paths;
@@ -135,8 +135,7 @@ static void playlist_rename_done_cb(const char * name, void * data) {
 }
 
 static void hide_playlist_context_menu_popup(void) {
-    if (playlist_context_menu_popup) lv_obj_add_flag(playlist_context_menu_popup, LV_OBJ_FLAG_HIDDEN);
-    if (playlist_context_menu_backdrop) lv_obj_add_flag(playlist_context_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (playlist_context_menu_backdrop) gui_popup_backdrop_hide(playlist_context_menu_backdrop);
 }
 
 static void playlist_context_menu_backdrop_cb(lv_event_t * e) {
@@ -147,7 +146,7 @@ static void playlist_context_menu_backdrop_cb(lv_event_t * e) {
 static void playlist_context_menu_rename_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_playlist_context_menu_popup();
-    show_text_entry(TR("Rename Playlist"), basename_of(playlist_action_path), false, false, playlist_rename_done_cb, NULL);
+    show_text_entry(TR("Rename playlist"), basename_of(playlist_action_path), false, false, playlist_rename_done_cb, NULL);
 }
 
 static void playlist_context_menu_delete_cb(lv_event_t * e) {
@@ -168,8 +167,8 @@ static void playlist_context_menu_cancel_cb(lv_event_t * e) {
 
 static void build_playlist_context_menu_popup(void) {
     const menu_popup_row_t rows[] = {
-        { TR("Rename Playlist"), playlist_context_menu_rename_cb, false, false, NULL },
-        { TR("Delete Playlist"), playlist_context_menu_delete_cb, true, false, NULL },
+        { TR("Rename playlist"), playlist_context_menu_rename_cb, false, false, NULL },
+        { TR("Delete playlist"), playlist_context_menu_delete_cb, true, false, NULL },
         { TR("Cancel"), playlist_context_menu_cancel_cb, false, true, NULL },
     };
     playlist_context_menu_popup = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])),
@@ -182,10 +181,8 @@ static void playlist_row_long_press_cb(lv_event_t * e) {
     int i = (int) (intptr_t) lv_event_get_user_data(e);
     if (i < 0 || i >= playlists_m3u_count) return;
     snprintf(playlist_action_path, sizeof(playlist_action_path), "%s", playlists_m3u_paths[i]);
-    lv_obj_remove_flag(playlist_context_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
+    gui_popup_backdrop_show(playlist_context_menu_backdrop);
     lv_obj_remove_flag(playlist_context_menu_popup, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(playlist_context_menu_backdrop);
-    lv_obj_move_foreground(playlist_context_menu_popup);
 }
 
 /* System rows (Favorites ... Recently Added) are never deletable/renamable
@@ -229,16 +226,16 @@ static void populate_playlists_screen(void) {
     /* Persistent cache of PLAYLISTS_DIR only -- see rescan_playlists(). */
     metadata_db_load_all_playlists(&playlists_m3u_paths, &playlists_m3u_count);
 
-    lv_obj_t * create = build_wide_list_row(playlists_list, TR("+ New Playlist"), true);
+    lv_obj_t * create = build_wide_list_row(playlists_list, TR("+ New playlist"), true);
     lv_obj_add_style(create, &style_theme_card_bg, 0);
     lv_obj_add_flag(create, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(create, new_playlist_row_cb, LV_EVENT_CLICKED, (void *) 1);
     build_list_section(playlists_list, TR("System playlists"));
 
     add_system_playlist_row(TR("Favorites"), 0);
-    add_system_playlist_row(TR("Most Played"), 1);
+    add_system_playlist_row(TR("Most played"), 1);
     add_system_playlist_row(TR("Queue"), 2);
-    add_system_playlist_row(TR("Recently Added"), 3);
+    add_system_playlist_row(TR("Recently added"), 3);
 
     build_list_section(playlists_list, TR("User playlists"));
     if (!playlists_m3u_count)
@@ -357,7 +354,7 @@ static void new_playlist_row_cb(lv_event_t *event) {
     }
     gui_playlist_target_copy(&target);
     playlist_name_target_generation = target.generation;
-    show_text_entry(TR("Playlist Name"), "", false, false, new_playlist_name_done_cb, NULL);
+    show_text_entry(TR("Playlist name"), "", false, false, new_playlist_name_done_cb, NULL);
 }
 
 static void existing_playlist_row_cb(lv_event_t *event) {
@@ -513,6 +510,7 @@ void gui_playlists_poll(void) {
 
 void gui_playlists_teardown_popups(void) {
     gui_popup_teardown(&playlist_delete_popup);
+    if (playlist_context_menu_backdrop) gui_popup_backdrop_hide(playlist_context_menu_backdrop);
     if (playlist_context_menu_popup) { lv_obj_delete(playlist_context_menu_popup); playlist_context_menu_popup = NULL; }
     if (playlist_context_menu_backdrop) { lv_obj_delete(playlist_context_menu_backdrop); playlist_context_menu_backdrop = NULL; }
 }

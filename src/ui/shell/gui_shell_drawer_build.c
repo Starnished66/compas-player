@@ -1,8 +1,5 @@
 #include "gui_shell_internal.h"
 #include "../network/gui_network.h"
-#ifndef HOST_BUILD
-#include "../../audio/output/audio_output.h"
-#endif
 
 #if defined(BOARD_TEMPOTEC_V1)
 #define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(265)
@@ -122,37 +119,29 @@ static void quick_drawer_plugin_toggle_long_press_cb(lv_event_t * e) {
 }
 #define BRIGHTNESS_HW_APPLY_INTERVAL_MS 50
 
-/* One drawer slider: 0-100 range, accent styling and a forgiving touch
- * margin. Position is the V1 or default coordinate pair; callers add their
- * own callback and value. */
-static lv_obj_t * quick_drawer_create_slider(int32_t track_w, int32_t v1_y, int32_t y) {
-    lv_obj_t * track = lv_slider_create(quick_drawer);
+/* Each slider occupies its entire row card. */
+static fill_slider_t quick_drawer_create_slider(int32_t v1_y, int32_t y, int32_t h,
+                                                const void * icon, bool clickable,
+                                                const char * format, lv_event_cb_t cb) {
 #if defined(BOARD_TEMPOTEC_V1)
-    (void) track_w;
-    (void) y;
-    lv_obj_set_size(track, BOARD_SCALE_PX(270), BOARD_SCALE_PY(20));
-    lv_obj_align(track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(104), v1_y);
+    y = v1_y;
+    h = BOARD_SCALE_PY(55);
 #else
     (void) v1_y;
-    lv_obj_set_size(track, track_w, SLIDER_TRACK_HEIGHT);
-    lv_obj_align(track, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(103), y);
 #endif
-    lv_slider_set_range(track, 0, 100);
-    lv_obj_add_style(track, gui_theme_accent_style(), LV_PART_INDICATOR);
-    lv_obj_add_style(track, gui_theme_accent_knob_style(), LV_PART_KNOB);
-    /* Configures rail styling to prevent visual artifacts on the track edge. */
-    configure_native_slider_rail(track);
-    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_width(track, SLIDER_KNOB_SIZE, LV_PART_KNOB);
-    lv_obj_set_style_height(track, SLIDER_KNOB_SIZE, LV_PART_KNOB);
-    /* A generous rail target that leaves the handle and neighboring rail
-     * outside its touch bounds. Ownership checks use these same bounds. */
+    fill_slider_t ui = build_fill_slider(quick_drawer, &(fill_slider_cfg_t){
+        .width = QUICK_DRAWER_CARD_W, .height = h, .radius = BOARD_SCALE_PX(23),
+        .max = 100, .icon_src = icon, .icon_clickable = clickable,
+        .value_format = format, .event_cb = cb
+    });
+    lv_obj_set_pos(ui.slider, BOARD_SCALE_PX(34), y);
+    lv_obj_add_style(ui.icon, gui_shell_slider_glyph_style(), 0);
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_ext_click_area(track, BOARD_SCALE_PX(14));
-#else
-    lv_obj_set_ext_click_area(track, BOARD_SCALE_PX(26));
+    lv_image_set_inner_align(ui.icon, LV_IMAGE_ALIGN_CONTAIN);
+    lv_obj_set_size(ui.icon, BOARD_SCALE_PX(36), BOARD_SCALE_PY(45));
+    lv_obj_set_style_text_font(ui.label, &lv_font_montserrat_14, 0);
 #endif
-    return track;
+    return ui;
 }
 
 /* Full-screen drawer root and the rounded panel behind every control. */
@@ -220,44 +209,27 @@ static void quick_drawer_build_expansion_handle(void) {
     lv_obj_add_event_cb(expansion_handle, quick_drawer_expansion_handle_cb, LV_EVENT_CLICKED, NULL);
 }
 
-/* Row backgrounds for the brightness and volume sliders. Returns the
- * brightness container, which the shift registration needs. */
+/* Keep the row references used by visibility and motion handling. */
 static lv_obj_t * quick_drawer_build_slider_containers(void) {
-    /* Brightness first, volume second -- swapped from the reference's own
-     * order at the user's request. Only the container Y (and the matching
-     * icon/track/label Y offsets below) moved; every X position, size, and
-     * per-row delta stays exactly as measured before. */
+    const void * decoded = asset_decoded_image_open(&quick_drawer_brightness_image, "pull_down/blk.png")
+                         ? asset_decoded_image_source(&quick_drawer_brightness_image) : NULL;
+    fill_slider_t brightness = quick_drawer_create_slider(
+        BOARD_SCALE_PY(285), BOARD_SCALE_PY(238), BOARD_SCALE_PY(72),
+        decoded ? decoded : asset_path("pull_down/blk.png"), false, "%d", quick_drawer_brightness_changed_cb);
+    quick_drawer_brightness_track = brightness.slider;
+    quick_drawer_brightness_icon = brightness.icon;
+    quick_drawer_brightness_label = brightness.label;
 #if defined(BOARD_TEMPOTEC_V1)
-    quick_drawer_brightness_container = lv_obj_create(quick_drawer);
-    lv_obj_t * brightness_container = quick_drawer_brightness_container;
-#else
-    lv_obj_t * brightness_container = lv_obj_create(quick_drawer);
+    quick_drawer_brightness_container = quick_drawer_brightness_track;
 #endif
-    lv_obj_remove_style_all(brightness_container);
-#if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_pos(brightness_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(285));
-    lv_obj_set_size(brightness_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(55));
-#else
-    lv_obj_set_pos(brightness_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(238));
-    lv_obj_set_size(brightness_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(72));
-#endif
-    lv_obj_add_style(brightness_container, &shell_drawer_row_style, 0);
-    lv_obj_set_style_bg_opa(brightness_container, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(brightness_container, BOARD_SCALE_PX(23), 0);
-
-    quick_drawer_volume_container = lv_obj_create(quick_drawer);
-    lv_obj_remove_style_all(quick_drawer_volume_container);
-#if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(370));
-    lv_obj_set_size(quick_drawer_volume_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(55));
-#else
-    lv_obj_set_pos(quick_drawer_volume_container, BOARD_SCALE_PX(34), BOARD_SCALE_PY(325));
-    lv_obj_set_size(quick_drawer_volume_container, QUICK_DRAWER_CARD_W, BOARD_SCALE_PY(73));
-#endif
-    lv_obj_add_style(quick_drawer_volume_container, &shell_drawer_row_style, 0);
-    lv_obj_set_style_bg_opa(quick_drawer_volume_container, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(quick_drawer_volume_container, BOARD_SCALE_PX(23), 0);
-    return brightness_container;
+    fill_slider_t volume = quick_drawer_create_slider(
+        BOARD_SCALE_PY(370), BOARD_SCALE_PY(325), BOARD_SCALE_PY(73),
+        asset_path("volume/vol.png"), true, "%d", quick_drawer_volume_event_cb);
+    quick_drawer_volume_track = volume.slider;
+    quick_drawer_volume_icon = volume.icon;
+    quick_drawer_volume_label = volume.label;
+    quick_drawer_volume_container = quick_drawer_volume_track;
+    return quick_drawer_brightness_track;
 }
 
 /* X of a toggle icon inside its column cell (the V1 centres the icon in the
@@ -474,7 +446,7 @@ static void quick_drawer_build_car_mode_toggle(int32_t x, int32_t row_y) {
     quick_drawer_toggle_icon[QD_TOGGLE_CAR_MODE] = icon;
     lv_obj_add_event_cb(icon, quick_drawer_car_mode_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(icon, quick_drawer_car_mode_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
-    quick_drawer_make_toggle_labels(QD_TOGGLE_CAR_MODE, x, row_y, TR("Car Mode"));
+    quick_drawer_make_toggle_labels(QD_TOGGLE_CAR_MODE, x, row_y, TR("Car mode"));
     quick_drawer_set_toggle_state(QD_TOGGLE_CAR_MODE, on);
 }
 
@@ -482,18 +454,6 @@ static void quick_drawer_output_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     quick_drawer_dismiss_for_navigation();
     gui_network_bt_open_output_menu();
-}
-
-const char * gui_shell_output_icon_src(const char * wired_src) {
-#ifdef HOST_BUILD
-    bool bluetooth_route = gui_shell_is_bt_audio_connected();
-#else
-    audio_output_info_t info;
-    audio_output_get_info(&info);
-    audio_output_route_t route = info.active ? info.route : info.requested_route;
-    bool bluetooth_route = route == AUDIO_OUTPUT_ROUTE_BLUETOOTH;
-#endif
-    return bluetooth_route ? topbar_icon("bluetooth") : wired_src;
 }
 
 void quick_drawer_refresh_output_state(void) {
@@ -542,91 +502,8 @@ static void quick_drawer_set_expansion_full_height(void) {
 #endif
 }
 
-/* Vertical offset that centres the fixed-size percentage on its track. */
-static int32_t quick_drawer_slider_pct_dy(void) {
-    int32_t slider_pct_h = lv_font_get_line_height(&app_font_player_meta);
-    return (SLIDER_TRACK_HEIGHT - slider_pct_h) / 2;
-}
-
-/* Slider row icon at the V1 or default coordinate pair. */
-static lv_obj_t * quick_drawer_create_slider_icon(const void * src, int32_t v1_y, int32_t y) {
-    lv_obj_t * icon = lv_image_create(quick_drawer);
-    lv_obj_add_style(icon, &shell_drawer_slider_glyph_style, 0);
-    lv_image_set_src(icon, src);
-#if defined(BOARD_TEMPOTEC_V1)
-    (void) y;
-    lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CONTAIN);
-    lv_obj_set_size(icon, BOARD_SCALE_PX(36), BOARD_SCALE_PY(45));
-    lv_obj_align(icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(54), v1_y);
-#else
-    (void) v1_y;
-    lv_obj_align(icon, LV_ALIGN_TOP_LEFT, BOARD_SCALE_PX(55), y);
-#endif
-    return icon;
-}
-
-/* Slider row percentage label. Fixed size, so it does not follow the Font
- * Size tier, and centred on its own track (pct_dy) rather than pinned to a
- * hardcoded Y; only the non-V1 layout offsets by pct_dy. */
-static lv_obj_t * quick_drawer_create_pct_label(int32_t v1_y, int32_t y, int32_t pct_dy) {
-    lv_obj_t * label = lv_label_create(quick_drawer);
-    lv_obj_add_style(label, &style_theme_text_primary, 0);
-#if defined(BOARD_TEMPOTEC_V1)
-    (void) y;
-    (void) pct_dy;
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
-    lv_obj_set_size(label, BOARD_SCALE_PX(54), BOARD_SCALE_PY(48));
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_pos(label, BOARD_SCALE_PX(392), v1_y);
-#else
-    (void) v1_y;
-    lv_obj_set_style_text_font(label, &app_font_player_meta, 0);
-    lv_obj_align(label, LV_ALIGN_TOP_RIGHT, -BOARD_SCALE_PX(52), y + pct_dy);
-#endif
-    return label;
-}
-
-/* Slider width, sized from the widest percentage label ("100") so the track
- * never overlaps it. The percentage is anchored at x=428; leave a 16px visual
- * gap before its actual text box and keep the knob's overhang inside that
- * gap. */
-static int32_t quick_drawer_slider_track_width(void) {
-#if defined(BOARD_TEMPOTEC_V1)
-    int32_t track_w = BOARD_SCALE_PX(270);
-#else
-    lv_point_t label_size;
-    lv_text_get_size(&label_size, "100", &app_font_player_meta, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    int32_t track_w = BOARD_SCALE_PX(428) - label_size.x - BOARD_SCALE_PX(16) - BOARD_SCALE_PX(103);
-#endif
-    if (track_w > BOARD_SCALE_PX(300)) track_w = BOARD_SCALE_PX(300);
-    if (track_w < BOARD_SCALE_PX(120)) track_w = BOARD_SCALE_PX(120); /* sane floor so the track never collapses to nothing */
-    return track_w;
-}
-
-/* Brightness icon, percentage label and slider. Returns the track width,
- * which the volume slider shares. Screen brightness is a real control, via
- * the standard Linux backlight sysfs class (backlight.h); there is no
- * dedicated slider-track asset in this theme, so it reuses the volume
- * slider's own. Brightness sits ahead of volume at the user's request. */
-static int32_t quick_drawer_build_brightness_row(int32_t slider_pct_dy) {
-    const void * decoded = asset_decoded_image_open(&quick_drawer_brightness_image, "pull_down/blk.png")
-                         ? asset_decoded_image_source(&quick_drawer_brightness_image) : NULL;
-    quick_drawer_brightness_icon = quick_drawer_create_slider_icon(
-        decoded ? decoded : asset_path("pull_down/blk.png"), BOARD_SCALE_PY(290), BOARD_SCALE_PY(259));
-    quick_drawer_brightness_label = quick_drawer_create_pct_label(
-        BOARD_SCALE_PY(290), BOARD_SCALE_PY(267), slider_pct_dy);
-
-    int32_t brightness_track_w = quick_drawer_slider_track_width();
-
-    /* Full 0-100 -- backlight.c maps this logical range to its own safe
-     * raw range internally (see backlight.h's own comment), so the slider
-     * itself shows a clean, honest 0%-100%. Initial value is set below by
-     * refresh_quick_drawer_brightness() (also called on every
-     * open_quick_drawer(), see its own comment). */
-    quick_drawer_brightness_track = quick_drawer_create_slider(
-        brightness_track_w, BOARD_SCALE_PY(302), BOARD_SCALE_PY(267));
-    lv_obj_add_event_cb(quick_drawer_brightness_track, quick_drawer_brightness_changed_cb,
-                        LV_EVENT_ALL, NULL);
+/* Brightness uses the existing hardware apply timer and logical 0-100 range. */
+static void quick_drawer_build_brightness_row(void) {
     if (!brightness_hw_apply_timer) {
         brightness_hw_apply_timer = lv_timer_create(brightness_hw_apply_timer_cb,
                                                     BRIGHTNESS_HW_APPLY_INTERVAL_MS, NULL);
@@ -634,56 +511,29 @@ static int32_t quick_drawer_build_brightness_row(int32_t slider_pct_dy) {
     }
 
     refresh_quick_drawer_brightness();
-    return brightness_track_w;
 }
 
 /* Volume icon, percentage label and slider, in brightness's former slot. */
-static void quick_drawer_build_volume_row(int32_t brightness_track_w, int32_t slider_pct_dy) {
-    quick_drawer_volume_icon = quick_drawer_create_slider_icon(
-        asset_path("volume/vol.png"), BOARD_SCALE_PY(375), BOARD_SCALE_PY(346));
-    lv_obj_add_flag(quick_drawer_volume_icon, LV_OBJ_FLAG_CLICKABLE);
+static void quick_drawer_build_volume_row(void) {
     lv_obj_add_event_cb(quick_drawer_volume_icon, quick_drawer_open_eq_cb, LV_EVENT_LONG_PRESSED, NULL);
     lv_obj_add_event_cb(quick_drawer_volume_icon, quick_drawer_output_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
     quick_drawer_refresh_output_state();
-    quick_drawer_volume_track = quick_drawer_create_slider(
-        brightness_track_w, BOARD_SCALE_PY(388), BOARD_SCALE_PY(354));
-    lv_obj_add_event_cb(quick_drawer_volume_track, quick_drawer_volume_event_cb, LV_EVENT_ALL, NULL);
     lv_slider_set_value(quick_drawer_volume_track, gui_player_get_volume_percent(), LV_ANIM_OFF);
-    quick_drawer_volume_label = quick_drawer_create_pct_label(
-        BOARD_SCALE_PY(375), BOARD_SCALE_PY(354), slider_pct_dy);
     lv_label_set_text_fmt(quick_drawer_volume_label, "%d", gui_player_get_volume_percent());
     gui_shell_refresh_quick_drawer_volume_visibility();
 }
 
 /* Everything below the expansion box slides down with it. */
-static void quick_drawer_register_shift_objs(lv_obj_t * brightness_container, int32_t slider_pct_dy) {
-    (void) slider_pct_dy; /* only the non-V1 layout offsets by it */
-    /* Everything below the expansion box slides down by whatever height it
-     * currently has. Registered with the collapsed y each object was just
-     * built at, so quick_drawer_apply_expansion() never has to re-derive
-     * any of this geometry. Both slider hit tests read live
-     * lv_obj_get_coords(), so they follow these automatically. */
+static void quick_drawer_register_shift_objs(lv_obj_t * brightness_container) {
     quick_drawer_shift_count = 0;
 #if defined(BOARD_TEMPOTEC_V1)
     quick_drawer_register_shift_obj(quick_drawer_expansion_handle, BOARD_SCALE_PY(272));
     quick_drawer_register_shift_obj(brightness_container, BOARD_SCALE_PY(285));
-    quick_drawer_register_shift_obj(quick_drawer_brightness_icon, BOARD_SCALE_PY(290));
-    quick_drawer_register_shift_obj(quick_drawer_brightness_label, BOARD_SCALE_PY(290));
-    quick_drawer_register_shift_obj(quick_drawer_brightness_track, BOARD_SCALE_PY(302));
     quick_drawer_register_shift_obj(quick_drawer_volume_container, BOARD_SCALE_PY(370));
-    quick_drawer_register_shift_obj(quick_drawer_volume_icon, BOARD_SCALE_PY(375));
-    quick_drawer_register_shift_obj(quick_drawer_volume_label, BOARD_SCALE_PY(375));
-    quick_drawer_register_shift_obj(quick_drawer_volume_track, BOARD_SCALE_PY(388));
 #else
     quick_drawer_register_shift_obj(quick_drawer_expansion_handle, BOARD_SCALE_PY(219));
     quick_drawer_register_shift_obj(brightness_container, BOARD_SCALE_PY(238));
-    quick_drawer_register_shift_obj(quick_drawer_brightness_icon, BOARD_SCALE_PY(259));
-    quick_drawer_register_shift_obj(quick_drawer_brightness_label, BOARD_SCALE_PY(267) + slider_pct_dy);
-    quick_drawer_register_shift_obj(quick_drawer_brightness_track, BOARD_SCALE_PY(267));
     quick_drawer_register_shift_obj(quick_drawer_volume_container, BOARD_SCALE_PY(325));
-    quick_drawer_register_shift_obj(quick_drawer_volume_icon, BOARD_SCALE_PY(346));
-    quick_drawer_register_shift_obj(quick_drawer_volume_label, BOARD_SCALE_PY(354) + slider_pct_dy);
-    quick_drawer_register_shift_obj(quick_drawer_volume_track, BOARD_SCALE_PY(354));
 #endif
 }
 
@@ -1012,10 +862,9 @@ void build_quick_drawer(void) {
     quick_drawer_build_expansion_row3();
     quick_drawer_set_expansion_full_height();
 
-    int32_t slider_pct_dy = quick_drawer_slider_pct_dy();
-    int32_t brightness_track_w = quick_drawer_build_brightness_row(slider_pct_dy);
-    quick_drawer_build_volume_row(brightness_track_w, slider_pct_dy);
-    quick_drawer_register_shift_objs(brightness_container, slider_pct_dy);
+    quick_drawer_build_brightness_row();
+    quick_drawer_build_volume_row();
+    quick_drawer_register_shift_objs(brightness_container);
 
     lv_obj_t * card = quick_drawer_build_card_frame();
     lv_obj_t * band = quick_drawer_build_card_text(card);

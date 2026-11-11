@@ -338,18 +338,17 @@ void gui_player_refresh_frosted_background(void) {
            (unsigned long long) player_cover_generation(), params.blur_radius,
            params.blur_passes, params.darken_num, params.darken_den);
 #endif
-    drop_current_reflection();
-    current_reflection_bytes = player_reflection_cache_get(player_cover_file(), &params);
-    if (!current_reflection_bytes)
-        current_reflection_bytes = player_compute_reflection_bytes_cancelable(player_cover_bytes(), player_cover_edge(),
-                                                                               params.blur_radius,
-                                                                               params.blur_passes,
-                                                                               params.darken_num,
-                                                                               params.darken_den,
-                                                                               params.tint_rgb,
-                                                                               params.tint_weight,
-                                                                               NULL, NULL);
-    set_current_reflection_key(&params);
+    uint8_t * replacement = player_reflection_cache_get(player_cover_file(), &params);
+    if (replacement) {
+        drop_current_reflection();
+        current_reflection_bytes = replacement;
+        set_current_reflection_key(&params);
+    } else {
+        /* Keep the last displayed reflection while the shared artwork worker
+         * builds a replacement. The cover worker's result is checked against
+         * both the cover and live frost generation before adoption. */
+        player_cover_request_reflection_refresh();
+    }
 
     /* TRANSP, not COVER -- player_background_img (the frosted image, about
      * to be shown) fully covers this panel; keeping the panel's own paint
@@ -358,7 +357,7 @@ void gui_player_refresh_frosted_background(void) {
      * analogous wrapper (dark_overlay in gui_lyrics.c) is deliberately kept
      * transparent for exactly this reason -- its own comment explains
      * darkness is already baked into its backdrop image. */
-    player_panel_show_reflection();
+    if (current_reflection_bytes) player_panel_show_reflection();
 
     attach_current_reflection();
     gui_shell_refresh_quick_drawer_cover();

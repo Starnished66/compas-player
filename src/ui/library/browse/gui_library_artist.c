@@ -52,7 +52,7 @@ static int artist_albums_group_count;
 static pthread_mutex_t artist_albums_state_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Name/kind of the artist or album artist this screen is currently showing
  * -- set by show_artist_albums(), read back by artist_album_row_click_cb()'s
- * own "All Songs" row (index 0, see that function's own comment) to fetch
+ * own "All songs" row (index 0, see that function's own comment) to fetch
  * every song credited to them, flattened across all their albums. */
 static char artist_albums_current_name[128];
 static metadata_db_group_kind_t artist_albums_current_kind;
@@ -115,7 +115,7 @@ static int cmp_artist_song_sort_entry(const void * a, const void * b) {
 
 /* Fetches every song credited to artist_albums_current_name (flattened
  * across all its albums) and hands it to show_group_songs_take_ownership()
- * -- the "All Songs" row prepended at index 0 by show_artist_albums().
+ * -- the "All songs" row prepended at index 0 by show_artist_albums().
  *
  * Exact track count is queried via metadata_db_get_group_offset() /
  * metadata_db_get_groups_page() so buffer sizing matches accurately. */
@@ -730,10 +730,8 @@ void artist_album_row_press_cb(int index, bool pressed) {
 }
 
 void hide_collection_menu(void) {
-    if (collection_menu_popup) lv_obj_add_flag(collection_menu_popup, LV_OBJ_FLAG_HIDDEN);
-    if (collection_menu_backdrop) lv_obj_add_flag(collection_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
-    if (album_collection_menu_popup) lv_obj_add_flag(album_collection_menu_popup, LV_OBJ_FLAG_HIDDEN);
-    if (album_collection_menu_backdrop) lv_obj_add_flag(album_collection_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (collection_menu_backdrop) gui_popup_backdrop_hide(collection_menu_backdrop);
+    if (album_collection_menu_backdrop) gui_popup_backdrop_hide(album_collection_menu_backdrop);
 }
 
 static void collection_menu_backdrop_cb(lv_event_t * e) {
@@ -745,10 +743,8 @@ static void show_collection_menu(bool album) {
     lv_obj_t * popup = album ? album_collection_menu_popup : collection_menu_popup;
     lv_obj_t * backdrop = album ? album_collection_menu_backdrop : collection_menu_backdrop;
     if (!popup || !backdrop) return;
-    lv_obj_remove_flag(backdrop, LV_OBJ_FLAG_HIDDEN);
+    gui_popup_backdrop_show(backdrop);
     lv_obj_remove_flag(popup, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(backdrop);
-    lv_obj_move_foreground(popup);
 }
 
 /* Starts playback from a list of entries, independent of the shared Songs page. */
@@ -965,7 +961,7 @@ static void artist_album_more_click_cb(int index) {
 }
 
 /* ---- Artist page header actions (gui_artist_page.c) ----------------------- */
-/* Play and Shuffle: what the old "All Songs" row's list would play, started
+/* Play and Shuffle: what the old "All songs" row's list would play, started
  * straight away without leaving the page, like the album page's buttons. */
 static void artist_page_play(play_mode_t mode) {
     if (library_rescan_active) return;

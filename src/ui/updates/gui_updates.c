@@ -58,7 +58,7 @@ static void firmware_update_confirm_cb(lv_event_t * e) {
 
 static void build_firmware_update_popup(void) {
     firmware_update_popup.popup = build_confirm_popup(
-        "", LV_LABEL_LONG_WRAP, &firmware_update_popup_title, NULL, TR("Update & Reboot"), lv_color_hex(GUI_BREEZE_NEGATIVE),
+        "", LV_LABEL_LONG_WRAP, &firmware_update_popup_title, NULL, TR("Update & reboot"), lv_color_hex(GUI_BREEZE_NEGATIVE),
         firmware_update_confirm_cb, NULL, TR("Cancel"), accent_lv_color(), firmware_update_cancel_cb, NULL,
         firmware_update_popup_backdrop_cb, &firmware_update_popup.backdrop);
 }
@@ -121,8 +121,7 @@ static bool player_update_can_start(void) {
 }
 
 static void hide_player_update_menu(void) {
-    if (player_update_menu) lv_obj_add_flag(player_update_menu, LV_OBJ_FLAG_HIDDEN);
-    if (player_update_backdrop) lv_obj_add_flag(player_update_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (player_update_backdrop) gui_popup_backdrop_hide(player_update_backdrop);
 }
 
 static void player_update_backdrop_cb(lv_event_t * e) {
@@ -223,13 +222,13 @@ static void build_player_update_popups(void) {
     player_update_menu = build_menu_popup(rows, (int)(sizeof(rows) / sizeof(rows[0])),
                                           player_update_backdrop_cb, &player_update_backdrop);
     add_update_menu_description(player_update_menu,
-                                TR("Update the Player only, retaining current drivers, kernel and bootloader."));
+                                TR("Update the player only, retaining current drivers, kernel and bootloader."));
     player_update_offer_popup.popup = build_confirm_popup(
-        "", LV_LABEL_LONG_WRAP, &player_update_offer_title, NULL, TR("Download & Install"), accent_lv_color(),
+        "", LV_LABEL_LONG_WRAP, &player_update_offer_title, NULL, TR("Download & install"), accent_lv_color(),
         player_update_online_offer_cb, NULL, TR("Cancel"), accent_lv_color(), player_update_cancel_cb, NULL,
         player_update_cancel_cb, &player_update_offer_popup.backdrop);
     player_update_confirm_popup.popup = build_confirm_popup(
-        "", LV_LABEL_LONG_WRAP, &player_update_confirm_title, NULL, TR("Install & Restart"),
+        "", LV_LABEL_LONG_WRAP, &player_update_confirm_title, NULL, TR("Install & restart"),
         lv_color_hex(GUI_BREEZE_NEGATIVE), player_update_install_confirm_cb, NULL,
         TR("Cancel"), accent_lv_color(), player_update_cancel_cb, NULL,
         player_update_cancel_cb, &player_update_confirm_popup.backdrop);
@@ -237,10 +236,9 @@ static void build_player_update_popups(void) {
 
 void gui_updates_player_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    /* Capture before showing the menu so it is not baked into its own backdrop. */
+    if (player_update_backdrop) gui_popup_backdrop_show(player_update_backdrop);
     if (player_update_menu) lv_obj_remove_flag(player_update_menu, LV_OBJ_FLAG_HIDDEN);
-    if (player_update_backdrop) lv_obj_remove_flag(player_update_backdrop, LV_OBJ_FLAG_HIDDEN);
-    if (player_update_backdrop) lv_obj_move_foreground(player_update_backdrop);
-    if (player_update_menu) lv_obj_move_foreground(player_update_menu);
 }
 
 static void poll_player_update(void) {
@@ -293,8 +291,7 @@ static void poll_player_update(void) {
 }
 
 static void hide_firmware_source_menu(void) {
-    if (firmware_source_menu) lv_obj_add_flag(firmware_source_menu, LV_OBJ_FLAG_HIDDEN);
-    if (firmware_source_backdrop) lv_obj_add_flag(firmware_source_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (firmware_source_backdrop) gui_popup_backdrop_hide(firmware_source_backdrop);
 }
 
 static void firmware_source_backdrop_cb(lv_event_t * e) {
@@ -392,7 +389,7 @@ static void ota_offer_download_cb(lv_event_t * e) {
 static void ota_install_later_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     gui_popup_hide(&ota_install_popup);
-    show_info_toast(TR("Update saved. Install from Firmware Update > Install from SD card."));
+    show_info_toast(TR("Update saved. Install from firmware update > install from SD card."));
     firmware_ota_reset();
 }
 
@@ -419,22 +416,20 @@ static void build_firmware_ota_popups(void) {
     firmware_source_menu = build_menu_popup(rows, (int) (sizeof(rows) / sizeof(rows[0])),
                                             firmware_source_backdrop_cb, &firmware_source_backdrop);
     add_update_menu_description(firmware_source_menu,
-                                TR("Update the entire CompásOS. Flashing firmware contains Bootloader, Player, Kernel and Drivers."));
+                                TR("Update the entire CompásOS. Flashing firmware contains bootloader, player, kernel and drivers."));
     ota_offer_popup.popup = build_confirm_popup(
         "", LV_LABEL_LONG_WRAP, &ota_offer_title, NULL, TR("Download"), accent_lv_color(), ota_offer_download_cb, NULL,
         TR("Cancel"), accent_lv_color(), ota_offer_cancel_cb, NULL, ota_offer_cancel_cb, &ota_offer_popup.backdrop);
     ota_install_popup.popup = build_confirm_popup(
-        "", LV_LABEL_LONG_WRAP, &ota_install_title, NULL, TR("Install & Reboot"), lv_color_hex(GUI_BREEZE_NEGATIVE),
+        "", LV_LABEL_LONG_WRAP, &ota_install_title, NULL, TR("Install & reboot"), lv_color_hex(GUI_BREEZE_NEGATIVE),
         ota_install_now_cb, NULL, TR("Later"), accent_lv_color(), ota_install_later_cb, NULL, ota_install_later_cb,
         &ota_install_popup.backdrop);
 }
 
 void firmware_update_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    lv_obj_remove_flag(firmware_source_backdrop, LV_OBJ_FLAG_HIDDEN);
+    gui_popup_backdrop_show(firmware_source_backdrop);
     lv_obj_remove_flag(firmware_source_menu, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(firmware_source_backdrop);
-    lv_obj_move_foreground(firmware_source_menu);
 }
 
 void poll_firmware_ota(void) {
@@ -521,12 +516,14 @@ void gui_updates_teardown(void) {
     gui_popup_teardown(&player_update_offer_popup);
     gui_popup_teardown(&player_update_confirm_popup);
     player_update_offer_title = player_update_confirm_title = NULL;
+    if (player_update_backdrop) gui_popup_backdrop_hide(player_update_backdrop);
     if (player_update_menu) { lv_obj_delete(player_update_menu); player_update_menu = NULL; }
     if (player_update_backdrop) { lv_obj_delete(player_update_backdrop); player_update_backdrop = NULL; }
     gui_popup_teardown(&firmware_update_popup);
     gui_popup_teardown(&ota_offer_popup);
     gui_popup_teardown(&ota_install_popup);
     ota_offer_title = ota_install_title = NULL;
+    if (firmware_source_backdrop) gui_popup_backdrop_hide(firmware_source_backdrop);
     if (firmware_source_menu) { lv_obj_delete(firmware_source_menu); firmware_source_menu = NULL; }
     if (firmware_source_backdrop) { lv_obj_delete(firmware_source_backdrop); firmware_source_backdrop = NULL; }
 }

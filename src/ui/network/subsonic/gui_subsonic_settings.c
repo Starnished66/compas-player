@@ -56,7 +56,7 @@ static void subsonic_quality_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_subsonic_quality_screen(void) {
     lv_obj_t * title;
-    lv_obj_t * screen = build_subsonic_list_screen(TR("Stream Quality"), &title, &subsonic_quality_list);
+    lv_obj_t * screen = build_subsonic_list_screen(TR("Stream quality"), &title, &subsonic_quality_list);
     (void) title;
     add_section_header(subsonic_quality_list, TR("Applies to new streaming queues"));
     static const char * labels[] = { N_("Original"), N_("Low (96 kbps)"), N_("Medium (192 kbps)"), N_("High (320 kbps)") };
@@ -113,7 +113,7 @@ static void subsonic_download_settings_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_subsonic_download_settings_screen(void) {
     lv_obj_t * title;
-    lv_obj_t * screen = build_subsonic_list_screen(TR("Download Settings"), &title,
+    lv_obj_t * screen = build_subsonic_list_screen(TR("Download settings"), &title,
                                                     &subsonic_download_settings_list);
     (void)title;
     subsonic_download_folder_row = add_pill_chevron_row(subsonic_download_settings_list,
@@ -122,7 +122,7 @@ static lv_obj_t * build_subsonic_download_settings_screen(void) {
     add_wrapped_section_header(subsonic_download_settings_list,
         TR("Subfolder is relative to SD root (example: Music/Offline); empty uses SD root"));
     add_section_header(subsonic_download_settings_list, TR("Folder layout for downloaded albums"));
-    static const char * labels[] = { N_("Album Artist / Album"), N_("Album Artist - Album") };
+    static const char * labels[] = { N_("Album artist / album"), N_("Album artist - album") };
     for (int i = 0; i < 2; i++)
         subsonic_download_layout_options[i] = add_pill_option_row(subsonic_download_settings_list,
             TR(labels[i]), current_settings.subsonic_download_layout == i,

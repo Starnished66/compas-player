@@ -1,23 +1,15 @@
 --- a/src/core/lv_refr.c
 +++ b/src/core/lv_refr.c
-@@ -311,6 +311,7 @@
-     /*Clear the invalidate buffer if the parameter is NULL*/
-     if(area_p == NULL) {
+@@ -313,2 +313,3 @@
          disp->inv_p = 0;
 +        lv_refr_scroll_blit_poison(LV_SB_GUARD_QUEUE_CLEARED);
          return LV_RESULT_OK;
-     }
- 
-@@ -344,6 +345,8 @@
-     lv_result_t res = lv_display_send_event(disp, LV_EVENT_INVALIDATE_AREA, &com_area);
-     if(res != LV_RESULT_OK) return LV_RESULT_INVALID;
+@@ -346,2 +347,4 @@
  
 +    lv_refr_scroll_blit_note_inval(&com_area); /*Before the dedupe below, which would hide it*/
 +
      /*Save only if this area is not in one of the saved areas*/
-     uint16_t i;
-     for(i = 0; i < disp->inv_p; i++) {
-@@ -373,6 +376,683 @@
+@@ -373,6 +376,792 @@
      return disp_refr;
  }
  
@@ -325,6 +317,12 @@
 +       lv_obj_get_style_border_width(o, LV_PART_MAIN) > 0 ||
 +       lv_obj_get_style_outline_width(o, LV_PART_MAIN) > 0 ||
 +       lv_obj_get_style_shadow_width(o, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_drop_shadow_opa(o, LV_PART_MAIN) > LV_OPA_TRANSP ||
++       lv_obj_get_style_blur_radius(o, LV_PART_MAIN) > 0 ||
++       lv_obj_get_style_blur_backdrop(o, LV_PART_MAIN) ||
++       lv_obj_get_style_blend_mode(o, LV_PART_MAIN) != LV_BLEND_MODE_NORMAL ||
++       (lv_obj_get_style_color_filter_dsc(o, LV_PART_MAIN) &&
++        lv_obj_get_style_color_filter_opa(o, LV_PART_MAIN) > LV_OPA_TRANSP) ||
 +       lv_obj_get_style_bg_image_src(o, LV_PART_MAIN) ||
 +       sb_has_draw_events(o) || sb_scrollbar_visible(o)) return true;
 +    const lv_obj_class_t * c = o->class_p;
@@ -368,7 +366,7 @@
 +    return true;
 +}
 +
-+/*Descendants of the list must render the same wherever they are: no layers*/
++/*Even SIMPLE layers can differ at clipped row edges; keep the conservative refusal.*/
 +static bool sb_no_layers_below(lv_obj_t * o)
 +{
 +    uint32_t n = lv_obj_get_child_count(o);
@@ -377,6 +375,103 @@
 +        if(lv_obj_get_layer_type(c) != LV_LAYER_TYPE_NONE) { sb_diag("list descendant layer", c); return false; }
 +        if(!sb_no_layers_below(c)) return false;
 +    }
++    return true;
++}
++
++static bool sb_popup_candidate(lv_display_t * disp, lv_obj_t * obj)
++{
++    lv_obj_t * card = lv_obj_get_parent(obj);
++    return card && lv_obj_get_parent(card) == lv_display_get_layer_top(disp);
++}
++
++/* A scrollable body directly inside a fully opaque card on layer_top is a
++ * special shielded topology: pixels below the card cannot contribute to its
++ * interior. Only inspect the card's other children, later layer_top siblings,
++ * and the system layer. Earlier siblings and lower layers are occluded by the
++ * card. Keep this proof deliberately strict so ordinary lists use sb_collect. */
++static bool sb_popup_card_scan(lv_display_t * disp, lv_obj_t * obj, const lv_area_t * rect)
++{
++    lv_obj_t * card = lv_obj_get_parent(obj);
++    lv_obj_t * top = lv_display_get_layer_top(disp);
++    lv_obj_t * sys = lv_display_get_layer_sys(disp);
++    if(!card || lv_obj_get_parent(card) != top || card->class_p != &lv_obj_class ||
++       obj->class_p != &lv_obj_class || lv_obj_get_layer_type(card) != LV_LAYER_TYPE_NONE ||
++       lv_obj_get_layer_type(obj) != LV_LAYER_TYPE_NONE ||
++       lv_obj_get_layer_type(top) != LV_LAYER_TYPE_NONE || lv_obj_get_layer_type(sys) != LV_LAYER_TYPE_NONE ||
++       !lv_obj_is_visible(obj) || lv_obj_has_flag(card, LV_OBJ_FLAG_HIDDEN) ||
++       lv_obj_has_flag(card, LV_OBJ_FLAG_OVERFLOW_VISIBLE) ||
++       lv_obj_has_flag(obj, LV_OBJ_FLAG_OVERFLOW_VISIBLE) || lv_obj_get_style_clip_corner(card, LV_PART_MAIN) ||
++       lv_obj_get_style_clip_corner(obj, LV_PART_MAIN) || lv_obj_get_style_clip_corner(top, LV_PART_MAIN) ||
++       lv_obj_get_style_clip_corner(sys, LV_PART_MAIN) || sb_has_draw_events(card) || sb_has_draw_events(top) ||
++       sb_has_draw_events(sys) || sb_draws_itself(top) || sb_draws_itself(sys) ||
++       lv_obj_has_flag(top, LV_OBJ_FLAG_OVERFLOW_VISIBLE) || lv_obj_has_flag(sys, LV_OBJ_FLAG_OVERFLOW_VISIBLE) ||
++       lv_obj_get_ext_draw_size(top) != 0 || lv_obj_get_ext_draw_size(sys) != 0 ||
++       lv_obj_get_style_bg_grad_dir(top, LV_PART_MAIN) != LV_GRAD_DIR_NONE ||
++       lv_obj_get_style_bg_grad_dir(sys, LV_PART_MAIN) != LV_GRAD_DIR_NONE ||
++       lv_obj_get_style_bg_grad(top, LV_PART_MAIN) != NULL || lv_obj_get_style_bg_grad(sys, LV_PART_MAIN) != NULL ||
++       lv_obj_get_style_bg_image_src(top, LV_PART_MAIN) != NULL || lv_obj_get_style_bg_image_src(sys, LV_PART_MAIN) != NULL ||
++       lv_obj_get_style_transform_width(card, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_transform_height(card, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_transform_width(top, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_transform_height(top, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_transform_width(sys, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_transform_height(sys, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_shadow_width(card, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_outline_width(card, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_blur_radius(obj, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_blur_backdrop(obj, LV_PART_MAIN) ||
++       lv_obj_get_style_drop_shadow_opa(card, LV_PART_MAIN) > LV_OPA_TRANSP ||
++       lv_obj_get_style_blur_radius(card, LV_PART_MAIN) != 0 ||
++       lv_obj_get_style_blur_backdrop(card, LV_PART_MAIN) ||
++       lv_obj_get_style_blend_mode(card, LV_PART_MAIN) != LV_BLEND_MODE_NORMAL ||
++       (lv_obj_get_style_color_filter_dsc(card, LV_PART_MAIN) &&
++        lv_obj_get_style_color_filter_opa(card, LV_PART_MAIN) > LV_OPA_TRANSP) ||
++       lv_obj_has_flag(card, LV_OBJ_FLAG_SCROLLABLE)) return false;
++
++    int32_t border = lv_obj_get_style_border_width(card, LV_PART_MAIN);
++    int32_t radius = lv_obj_get_style_radius(card, LV_PART_MAIN);
++    if(border < 0 || radius < 0 ||
++       lv_obj_get_style_bg_opa(card, LV_PART_MAIN) != LV_OPA_COVER ||
++       lv_obj_get_style_opa_recursive(card, LV_PART_MAIN) != LV_OPA_COVER ||
++       lv_obj_get_style_bg_grad_dir(card, LV_PART_MAIN) != LV_GRAD_DIR_NONE ||
++       lv_obj_get_style_bg_grad(card, LV_PART_MAIN) != NULL ||
++       lv_obj_get_style_bg_image_src(card, LV_PART_MAIN) != NULL ||
++       lv_obj_get_style_opa_recursive(top, LV_PART_MAIN) != LV_OPA_COVER ||
++       lv_obj_get_style_opa_recursive(sys, LV_PART_MAIN) != LV_OPA_COVER) return false;
++
++    /* The border is drawn inside the card coordinates. Test all four body
++     * corners against the remaining rounded interior to exclude border and
++     * transparent rounded corners from the copy rectangle. */
++    lv_area_t interior = card->coords;
++    interior.x1 += border;
++    interior.x2 -= border;
++    interior.y1 += border;
++    interior.y2 -= border;
++    int32_t card_w = lv_area_get_width(&card->coords);
++    int32_t card_h = lv_area_get_height(&card->coords);
++    radius = LV_MIN(radius, LV_MIN(card_w, card_h) / 2);
++    radius = LV_MAX(0, radius - border);
++    lv_area_t copy_margin = *rect;
++    copy_margin.x1--;
++    copy_margin.y1--;
++    copy_margin.x2++;
++    copy_margin.y2++;
++    if(!lv_area_is_in(&copy_margin, &interior, radius)) return false;
++
++    uint32_t child_count = lv_obj_get_child_count(card);
++    for(uint32_t i = 0; i < child_count; i++) {
++        lv_obj_t * child = lv_obj_get_child(card, i);
++        if(child != obj && !sb_collect(child, rect, NULL)) return false;
++    }
++
++    int32_t card_index = lv_obj_get_index(card);
++    uint32_t top_count = lv_obj_get_child_count(top);
++    for(uint32_t i = (uint32_t)(card_index + 1); i < top_count; i++)
++        if(!sb_collect(lv_obj_get_child(top, i), rect, NULL)) return false;
++
++    uint32_t sys_count = lv_obj_get_child_count(sys);
++    for(uint32_t i = 0; i < sys_count; i++)
++        if(!sb_collect(lv_obj_get_child(sys, i), rect, NULL)) return false;
 +    return true;
 +}
 +
@@ -403,6 +498,12 @@
 +            sb_diag("floating child", lv_obj_get_child(obj, i)); *code = SB_STYLE; return false;
 +        }
 +    if(!sb_no_layers_below(obj)) { *code = SB_STYLE; return false; }
++
++    lv_obj_t * parent = lv_obj_get_parent(obj);
++    if(parent && lv_obj_get_parent(parent) == lv_display_get_layer_top(disp)) {
++        if(!sb_popup_card_scan(disp, obj, rect)) { sb_diag("unsafe popup card body", obj); *code = SB_OVERLAP; return false; }
++        return true;
++    }
 +
 +    /*Everything behind the object must look the same at any vertical offset*/
 +    for(lv_obj_t * o = obj; o; o = lv_obj_get_parent(o)) {
@@ -485,7 +586,7 @@
 +    int32_t net = (sb.obj == obj ? sb.dy : 0) + dy;
 +    int code = SB_BLIT;
 +    if(!sb_display_ok(disp)) code = SB_MODE;
-+    else if(lv_obj_get_screen(obj) != lv_display_get_screen_active(disp) ||
++    else if((lv_obj_get_screen(obj) != lv_display_get_screen_active(disp) && !sb_popup_candidate(disp, obj)) ||
 +            !sb_blit_rect(disp, obj, &rect, &full) || lv_area_get_height(&rect) <= 0) code = SB_STALE;
 +    else if(net >= lv_area_get_height(&rect) / 2 || -net >= lv_area_get_height(&rect) / 2) code = SB_TOO_BIG;
 +    else if(sb.obj == obj && !lv_area_is_equal(&sb.rect, &rect)) code = SB_STALE;
@@ -612,7 +713,7 @@
 +    lv_area_t rect = sb.rect, cur, cur_full;
 +    uint64_t t0 = 0;
 +    if(sb.poisoned || disp != disp_refr || !sb_display_ok(disp) || disp->inv_p == 0 ||
-+       lv_obj_get_screen(obj) != disp->act_scr ||
++       (lv_obj_get_screen(obj) != disp->act_scr && !sb_popup_candidate(disp, obj)) ||
 +       !sb_blit_rect(disp, obj, &cur, &cur_full) || !lv_area_is_equal(&cur, &rect)) code = SB_STALE;
 +    else if(sb.dy == 0) code = SB_NET_ZERO;
 +    else {
@@ -701,7 +802,7 @@
  /**
   * Get the display which is being refreshed
   * @return the display being refreshed
-@@ -465,6 +1145,13 @@
+@@ -475,6 +1264,13 @@
          }
      }
  
@@ -715,7 +816,7 @@
      lv_memzero(disp_refr->inv_areas, sizeof(disp_refr->inv_areas));
      lv_memzero(disp_refr->inv_area_joined, sizeof(disp_refr->inv_area_joined));
      disp_refr->inv_p = 0;
-@@ -650,6 +1337,8 @@
+@@ -660,6 +1456,8 @@
   */
  static void lv_refr_join_area(void)
  {

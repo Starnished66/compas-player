@@ -10,8 +10,7 @@
 static lv_style_t style_accent;
 static lv_style_t style_accent_knob;
 static lv_style_t style_accent_outline;
-/* Added after style_theme_text_primary on Breeze title-bar icons: empty
- * unless "Tint title bar icons" is on, so they follow the text color. */
+/* Optional accent override shared by title-bar images and symbol labels. */
 static lv_style_t style_titlebar_tint;
 
 lv_style_t * gui_theme_accent_style(void) { return &style_accent; }
@@ -23,6 +22,7 @@ lv_style_t * gui_theme_titlebar_tint_style(void) { return &style_titlebar_tint; 
 static void update_titlebar_tint(void) {
     lv_style_reset(&style_titlebar_tint);
     if (current_settings.titlebar_icon_tint) {
+        lv_style_set_text_color(&style_titlebar_tint, accent_lv_color());
         lv_style_set_image_recolor(&style_titlebar_tint, accent_lv_color());
         lv_style_set_image_recolor_opa(&style_titlebar_tint, LV_OPA_COVER);
     }

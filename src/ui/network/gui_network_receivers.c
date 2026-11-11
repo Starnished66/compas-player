@@ -5,6 +5,7 @@
 #include "../shell/gui_shell.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../assets/assets.h"
+#include "../../core/device/hostname_apply.h"
 #include "../../hardware/usb/usb_dac_bridge.h"
 #include "../../network/airplay/airplay_control.h"
 #include "../../network/airplay/airplay_bridge.h"
@@ -226,20 +227,6 @@ void populate_airplay_screen(void) {
                       "audio from an iPhone, iPad, or Mac to be played through this device's own output."));
 }
 
-/* /usr/resource/hostname is the same file wifi_on.sh already reads for the
- * DHCP hostname it advertises -- reusing it here keeps the name AirPlay
- * senders see consistent with how this device already identifies itself on
- * the network, rather than inventing a second name. "HiBy_Music" matches
- * that script's own fallback default when the file is missing. */
-static void get_device_name(char * out, size_t out_size) {
-    snprintf(out, out_size, "HiBy_Music");
-    FILE * f = fopen("/usr/resource/hostname", "r");
-    if (f) {
-        if (fgets(out, (int) out_size, f)) out[strcspn(out, "\n")] = '\0';
-        fclose(f);
-    }
-}
-
 /* Anything reachable from the quick drawer (which can toggle these long
  * before their own screen has ever been opened) refreshes through these
  * rather than calling populate_*() directly -- lv_obj_clean() on a NULL
@@ -282,7 +269,7 @@ bool gui_network_toggle_airplay(void) {
 
     if (current_settings.wifi_dac_mode_enabled) {
         char name[64];
-        get_device_name(name, sizeof(name));
+        hostname_device_name(name, sizeof(name)); /* the same name DHCP advertises */
         if (!airplay_control_start(name)) {
             /* Startup is transactional (see airplay_control_start()'s own
              * comment) -- a false return means nothing was actually left

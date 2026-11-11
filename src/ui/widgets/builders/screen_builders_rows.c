@@ -272,22 +272,66 @@ lv_obj_t * add_pill_chevron_row(lv_obj_t * parent, const char * label_text, lv_e
     return pill_row_clickable(row, on_click, NULL);
 }
 
-lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool selected,
-                              lv_event_cb_t on_click, void * user_data) {
-    lv_obj_t * row = add_pill_row_base(parent, label_text);
+/* Keep option rows alive while moving the checkmark, preserving scroll and focus. */
+void gui_pill_option_row_set_selected(lv_obj_t * row, bool selected) {
+    if (!row || !lv_obj_has_flag(row, LV_OBJ_FLAG_USER_2)) return;
+    lv_obj_t * text = lv_obj_get_child(row, 0);
+    lv_obj_t * check = lv_obj_get_child(row, 1);
+    if (!text || !check) return;
+    if (lv_obj_has_flag(check, LV_OBJ_FLAG_HIDDEN) == !selected) return;
+    /* Wrapped labels keep their custom width when selection changes. */
+    bool standard_row_label = lv_label_get_long_mode(text) == LV_LABEL_LONG_SCROLL_CIRCULAR;
     if (selected) {
         lv_obj_add_style(row, gui_theme_accent_outline_style(), 0);
         lv_obj_set_style_border_width(row, BOARD_SCALE_PX(3), 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-        lv_obj_t * text = lv_obj_get_child(row, 0);
-        configure_scrolling_row_label(text, pill_row_default_width() - GUI_TEXT_INSET - BOARD_SCALE_PX(64));
-        lv_obj_t * check = lv_label_create(row);
-        lv_label_set_text(check, LV_SYMBOL_OK);
-        lv_obj_add_style(check, gui_theme_accent_style(), 0);
-        lv_obj_set_style_text_font(check, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-        lv_obj_align(check, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-20), 0);
-        lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
+        if (standard_row_label)
+            lv_obj_set_width(text, pill_row_default_width() - GUI_TEXT_INSET - BOARD_SCALE_PX(64));
+        lv_obj_remove_flag(check, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_style(row, gui_theme_accent_outline_style(), 0);
+        lv_obj_remove_local_style_prop(row, LV_STYLE_BORDER_WIDTH, 0);
+        lv_obj_remove_local_style_prop(row, LV_STYLE_BG_OPA, 0);
+        if (standard_row_label) lv_obj_set_width(text, pill_row_default_width() - 136);
+        lv_obj_add_flag(check, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+void gui_pill_option_list_set_selected(lv_obj_t * list, lv_obj_t * selected_row) {
+    if (!list || !selected_row || lv_obj_get_parent(selected_row) != list ||
+        !lv_obj_has_flag(selected_row, LV_OBJ_FLAG_USER_2)) return;
+    uint32_t count = lv_obj_get_child_count(list);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t * row = lv_obj_get_child(list, i);
+        if (!lv_obj_has_flag(row, LV_OBJ_FLAG_USER_2)) continue;
+        gui_pill_option_row_set_selected(row, row == selected_row);
+    }
+}
+
+void gui_pill_toggle_row_set_checked(lv_obj_t * row, bool checked) {
+    if (!row) return;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(row); ++i) {
+        lv_obj_t * child = lv_obj_get_child(row, i);
+        if (!lv_obj_check_type(child, &lv_switch_class)) continue;
+        if (checked) lv_obj_add_state(child, LV_STATE_CHECKED);
+        else lv_obj_remove_state(child, LV_STATE_CHECKED);
+        return;
+    }
+}
+
+lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool selected,
+                              lv_event_cb_t on_click, void * user_data) {
+    lv_obj_t * row = add_pill_row_base(parent, label_text);
+    /* Mark option rows so section headers are skipped by selection updates. */
+    lv_obj_add_flag(row, LV_OBJ_FLAG_USER_2);
+    lv_obj_t * check = lv_label_create(row);
+    lv_label_set_text(check, LV_SYMBOL_OK);
+    lv_obj_add_style(check, gui_theme_accent_style(), 0);
+    lv_obj_set_style_text_font(check, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
+    lv_obj_align(check, LV_ALIGN_RIGHT_MID, BOARD_SCALE_PX(-20), 0);
+    lv_obj_remove_flag(check, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(check, LV_OBJ_FLAG_HIDDEN);
+    gui_pill_option_row_set_selected(row, selected);
     return pill_row_clickable(row, on_click, user_data);
 }
 

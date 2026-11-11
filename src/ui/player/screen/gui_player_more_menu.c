@@ -10,6 +10,7 @@
 #include "../queue/player_queue_model.h"
 #include "../transport/player_volume_popup.h"
 #include "../../../audio/engine/audio.h"
+#include "../../../library/remote/remote_track.h"
 #include "../../../plugins/manager/plugin_manager.h"
 #include <stdlib.h>
 #include <string.h>
@@ -114,13 +115,8 @@ static void more_menu_delete_cb(lv_event_t * e) {
     gui_popup_show(&delete_song_popup);
 }
 
-void more_icon_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (player_queue_model_current() < 0) return;
-
-    menu_popup_row_t rows[PLUGIN_MAX_PLAYER_LIST_ITEMS + 3];
-    int row_count = 0;
-    rows[row_count++] = (menu_popup_row_t) { TR("Queue"), more_menu_queue_cb, false };
+/* Appends one row per plugin player-list item; returns the new row count. */
+static int more_menu_add_plugin_rows(menu_popup_row_t * rows, int row_count) {
     int plugin_count = plugin_manager_get_player_list_item_count();
     if (plugin_count > PLUGIN_MAX_PLAYER_LIST_ITEMS) plugin_count = PLUGIN_MAX_PLAYER_LIST_ITEMS;
     uint32_t generation = plugin_manager_get_list_registry_generation();
@@ -132,11 +128,26 @@ void more_icon_event_cb(lv_event_t * e) {
             false, &player_plugin_menu_callbacks[i]
         };
     }
+    return row_count;
+}
+
+void more_icon_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (player_queue_model_current() < 0) return;
+
+    menu_popup_row_t rows[PLUGIN_MAX_PLAYER_LIST_ITEMS + 3];
+    int row_count = 0;
+    rows[row_count++] = (menu_popup_row_t) { TR("Queue"), more_menu_queue_cb, false };
+    row_count = more_menu_add_plugin_rows(rows, row_count);
     rows[row_count++] = (menu_popup_row_t) { TR("Equalizer"), more_menu_eq_cb, false };
-    rows[row_count++] = (menu_popup_row_t) { TR("Delete"), more_menu_delete_cb, true };
+    const char * path = gui_player_get_current_track_path();
+    if (path && !is_http_url(path) && !remote_track_path_is_remote(path)) /* only files can be deleted */
+        rows[row_count++] = (menu_popup_row_t) { TR("Delete"), more_menu_delete_cb, true };
     hide_more_menu_popup();
-    open_song_context_menu_with_rows(gui_player_get_current_track_path(),
-        SONG_MENU_ALL & ~SONG_MENU_PLAYBACK, rows, row_count);
+    /* Kept short: the heart already toggles the favorite, and navigation
+     * and metadata refresh live in the library song menus. */
+    open_song_context_menu_with_rows(path,
+        SONG_MENU_PLAYLIST | SONG_MENU_INFORMATION, rows, row_count);
 }
 
 void player_more_menu_teardown(void) {

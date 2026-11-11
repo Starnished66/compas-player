@@ -32,22 +32,25 @@ static const struct {
     const char * labels[2];
 } sorting_orders[] = {
     { SORTING_CONTEXT_FILES, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
-    { SORTING_CONTEXT_FILES, 1, { N_("Newest Modified"), N_("Oldest Modified") } },
+    { SORTING_CONTEXT_FILES, 1, { N_("Newest modified"), N_("Oldest modified") } },
     { SORTING_CONTEXT_ALBUMS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
-    { SORTING_CONTEXT_ALBUMS, 1, { N_("Recently Added"), N_("Oldest Added") } },
-    { SORTING_CONTEXT_ALBUMS, 2, { N_("Release Year (oldest first)"), N_("Release Year (newest first)") } },
-    { SORTING_CONTEXT_ALBUMS, 3, { N_("Album Artist (A–Z)"), N_("Album Artist (Z–A)") } },
+    { SORTING_CONTEXT_ALBUMS, 1, { N_("Recently added"), N_("Oldest added") } },
+    { SORTING_CONTEXT_ALBUMS, 2, { N_("Release year (oldest first)"), N_("Release year (newest first)") } },
+    { SORTING_CONTEXT_ALBUMS, 3, { N_("Album artist (A–Z)"), N_("Album artist (Z–A)") } },
     { SORTING_CONTEXT_ARTISTS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
-    { SORTING_CONTEXT_ARTISTS, 1, { N_("Recently Added"), N_("Oldest Added") } },
-    { SORTING_CONTEXT_ARTISTS, 2, { N_("Release Year (oldest first)"), N_("Release Year (newest first)") } },
+    { SORTING_CONTEXT_ARTISTS, 1, { N_("Recently added"), N_("Oldest added") } },
+    { SORTING_CONTEXT_ARTISTS, 2, { N_("Release year (oldest first)"), N_("Release year (newest first)") } },
     { SORTING_CONTEXT_ALBUM_ARTISTS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
-    { SORTING_CONTEXT_ALBUM_ARTISTS, 1, { N_("Recently Added"), N_("Oldest Added") } },
-    { SORTING_CONTEXT_ALBUM_ARTISTS, 2, { N_("Release Year (oldest first)"), N_("Release Year (newest first)") } },
+    { SORTING_CONTEXT_ALBUM_ARTISTS, 1, { N_("Recently added"), N_("Oldest added") } },
+    { SORTING_CONTEXT_ALBUM_ARTISTS, 2, { N_("Release year (oldest first)"), N_("Release year (newest first)") } },
 };
 enum { SORTING_OPTION_COUNT = sizeof(sorting_orders) / sizeof(sorting_orders[0]) * 2 };
 static lv_obj_t * settings_sorting_options[SORTING_CONTEXT_COUNT];
 static lv_obj_t * dac_settings_screen;
 static lv_obj_t * dac_settings_list;
+static lv_obj_t * dac_filter_menu;
+static lv_obj_t * dac_dre_row;
+static lv_obj_t * dac_nos_row, * dac_nos_hint;
 static lv_obj_t * usb_dsd_settings_screen;
 static lv_obj_t * usb_dsd_settings_list;
 static lv_obj_t * dsd_gain_menu;
@@ -124,7 +127,7 @@ static lv_obj_t * build_music_audio_group_screen(const char * title, const char 
 }
 
 static lv_obj_t * build_download_profiles_screen(void) {
-    return build_music_audio_group_screen(TR("Download Profiles"), "profiles");
+    return build_music_audio_group_screen(TR("Download profiles"), "profiles");
 }
 
 void music_profiles_menu_cb(lv_event_t * e) {
@@ -262,7 +265,7 @@ static void dac_filter_selected(unsigned filter) {
     current_settings.dac_filter = (int)filter;
     apply_dac_preferences();
     settings_save_async(&current_settings);
-    if (dac_settings_list) populate_dac_settings_screen();
+    if (dac_filter_menu) gui_option_menu_set_selected(dac_filter_menu, filter);
 }
 
 static void dac_nos_event_cb(lv_event_t * e) {
@@ -276,9 +279,9 @@ static void dac_nos_event_cb(lv_event_t * e) {
 static void dac_dre_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     current_settings.dac_dre = !current_settings.dac_dre;
+    gui_pill_toggle_row_set_checked(dac_dre_row, current_settings.dac_dre);
     apply_dac_preferences();
     settings_save_async(&current_settings);
-    if (dac_settings_list) populate_dac_settings_screen();
 }
 
 static const char * const dac_filter_labels[4] = {
@@ -302,25 +305,35 @@ static const char * dac_filter_summary(void) {
 
 static void populate_dac_settings_screen(void) {
     if (!dac_settings_list) return;
-    lv_obj_clean(dac_settings_list);
+    if (lv_obj_get_child_count(dac_settings_list) != 0) {
+        gui_option_menu_set_selected(dac_filter_menu, (unsigned)current_settings.dac_filter);
+        bool nos = native_dac_nos_supported() && current_settings.dac_nos;
+        lv_obj_set_state(dac_filter_menu, LV_STATE_DISABLED, nos);
+        if (dac_nos_hint) lv_obj_set_flag(dac_nos_hint, LV_OBJ_FLAG_HIDDEN, !nos);
+        gui_pill_toggle_row_set_checked(dac_nos_row, nos);
+        gui_pill_toggle_row_set_checked(dac_dre_row, current_settings.dac_dre);
+        return;
+    }
     const char * const * labels = native_dac_nos_supported() ? dac_filter_labels : dac_filter_labels_no_nos;
     char options[512] = "";
     for (int i = 0; i < dac_filter_count(); ++i) {
         size_t used = strlen(options);
         snprintf(options + used, sizeof(options) - used, "%s%s", i ? "\n" : "", TR(labels[i]));
     }
-    lv_obj_t * filter = add_pill_option_menu_row(dac_settings_list, TR("Filter"), options,
+    dac_filter_menu = add_pill_option_menu_row(dac_settings_list, TR("Filter"), options,
         (unsigned)current_settings.dac_filter, dac_filter_selected);
-    if (native_dac_nos_supported() && current_settings.dac_nos) {
-        lv_obj_add_state(filter, LV_STATE_DISABLED);
-        add_wrapped_section_header(dac_settings_list, TR("Turn off NOS to choose a filter"));
+    if (native_dac_nos_supported()) {
+        dac_nos_hint = add_wrapped_section_header(dac_settings_list, TR("Turn off NOS to choose a filter"));
+        lv_obj_set_flag(dac_nos_hint, LV_OBJ_FLAG_HIDDEN, !current_settings.dac_nos);
+        lv_obj_set_state(dac_filter_menu, LV_STATE_DISABLED, current_settings.dac_nos);
+        dac_nos_row = add_pill_toggle_row(dac_settings_list, TR("NOS mode"),
+                                        current_settings.dac_nos, dac_nos_event_cb);
+        wrap_row_label(dac_nos_row);
     }
-    if (native_dac_nos_supported())
-        wrap_row_label(add_pill_toggle_row(dac_settings_list, TR("NOS Mode"),
-            current_settings.dac_nos, dac_nos_event_cb));
     if (native_dac_dre_supported()) {
-        wrap_row_label(add_pill_toggle_row(dac_settings_list, TR("DRE"),
-            current_settings.dac_dre, dac_dre_event_cb));
+        dac_dre_row = add_pill_toggle_row(dac_settings_list, TR("DRE"),
+            current_settings.dac_dre, dac_dre_event_cb);
+        wrap_row_label(dac_dre_row);
     }
     add_wrapped_section_header(dac_settings_list, native_dac_nos_supported()
         ? TR("Filters and NOS affect local PCM playback. NOS bypasses interpolation and ignores the selected filter. Changes apply when playback restarts.")
@@ -336,30 +349,36 @@ static void usb_dsd_output_event_cb(lv_event_t * e);
 
 static void populate_usb_dsd_settings_screen(void) {
     if (!usb_dsd_settings_list) return;
-    lv_obj_clean(usb_dsd_settings_list);
-    for (int i = USB_DSD_OUTPUT_PCM; i <= USB_DSD_OUTPUT_DOP; ++i) {
-        wrap_row_label(add_pill_option_row(usb_dsd_settings_list, TR(usb_dsd_output_labels[i]),
-            current_settings.usb_dsd_output == i, usb_dsd_output_event_cb, (void *) (intptr_t) i));
+    if (lv_obj_get_child_count(usb_dsd_settings_list) == 0) {
+        for (int i = USB_DSD_OUTPUT_PCM; i <= USB_DSD_OUTPUT_DOP; ++i) {
+            wrap_row_label(add_pill_option_row(usb_dsd_settings_list, TR(usb_dsd_output_labels[i]),
+                false, usb_dsd_output_event_cb, (void *) (intptr_t) i));
+        }
+        add_wrapped_section_header(usb_dsd_settings_list,
+            TR("Native DSD and DoP bypass software volume and DSP. Use DoP only with a compatible DAC. Unavailable formats or rates use PCM."));
     }
-    add_wrapped_section_header(usb_dsd_settings_list,
-        TR("Native DSD and DoP bypass software volume and DSP. Use DoP only with a compatible DAC. Unavailable formats or rates use PCM."));
+    gui_pill_option_row_set_selected(lv_obj_get_child(usb_dsd_settings_list,
+        current_settings.usb_dsd_output), true);
+    for (int i = USB_DSD_OUTPUT_PCM; i <= USB_DSD_OUTPUT_DOP; ++i)
+        if (i != current_settings.usb_dsd_output)
+            gui_pill_option_row_set_selected(lv_obj_get_child(usb_dsd_settings_list, i), false);
 }
 
 static void usb_dsd_output_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int output = (int) (intptr_t) lv_event_get_user_data(e);
     if (output < USB_DSD_OUTPUT_PCM || output > USB_DSD_OUTPUT_DOP) return;
+    gui_pill_option_list_set_selected(usb_dsd_settings_list, lv_event_get_current_target(e));
     current_settings.usb_dsd_output = output;
 #ifndef HOST_BUILD
     audio_output_set_usb_dsd_mode(output);
 #endif
     settings_save_async(&current_settings);
-    populate_usb_dsd_settings_screen();
 }
 
 static lv_obj_t * build_usb_dsd_settings_screen(void) {
     lv_obj_t * title = NULL;
-    lv_obj_t * scr = build_subsonic_list_screen(TR("USB Output"), &title, &usb_dsd_settings_list);
+    lv_obj_t * scr = build_subsonic_list_screen(TR("USB output"), &title, &usb_dsd_settings_list);
     (void) title;
     populate_usb_dsd_settings_screen();
     finalize_screen_navigation(scr);
@@ -404,7 +423,7 @@ static lv_obj_t * build_dac_settings_screen(void) {
             used = strlen(options);
             snprintf(options + used, sizeof(options) - used, TR("+%d dB"), db);
         }
-        dsd_gain_menu = add_pill_option_menu_row(list, TR("DSD Gain"), options,
+        dsd_gain_menu = add_pill_option_menu_row(list, TR("DSD gain"), options,
             (unsigned)current_settings.dsd_gain_db, dsd_gain_selected);
         add_wrapped_section_header(list,
             TR("Raises native DSD on this player's headphone outputs. It cannot go past the loudest volume step."));
@@ -556,7 +575,7 @@ static void sorting_select(int context, unsigned selected) {
     sorting_option_decode(option, &context, &sort, &reverse);
     if (context != SORTING_CONTEXT_FILES && sort != METADATA_DB_ALBUM_SORT_NAME &&
         !metadata_db_album_sort_available((metadata_db_album_sort_t) sort)) {
-        show_error_toast(TR("Update Music Database to enable this album order"));
+        show_error_toast(TR("Update music database to enable this album order"));
         return;
     }
     int * modes[SORTING_CONTEXT_COUNT];
@@ -582,7 +601,7 @@ static lv_obj_t * build_sorting_screen(void) {
     lv_obj_t * title, * list;
     lv_obj_t * screen = build_subsonic_list_screen(TR("Sorting"), &title, &list);
     static const char * group_titles[] = {
-        N_("Files (folders stay first)"), N_("Albums"), N_("Albums on an artist page"), N_("Albums on an album-artist page")
+        N_("Files (folders stay first)"), N_("Albums"), N_("Artist pages"), N_("Album artist pages")
     };
     static const gui_option_selected_cb_t callbacks[] = {
         sorting_files, sorting_albums, sorting_artists, sorting_album_artists
@@ -600,7 +619,7 @@ static lv_obj_t * build_sorting_screen(void) {
             options, 0, callbacks[context]);
     }
     add_wrapped_section_header(list,
-        TR("Files use modification dates. Albums use the newest track added; Release Year keeps missing years last. Update Music Database once to read years from existing files."));
+        TR("Files sort by modification date; albums by newest track added. Release year keeps unknown years last. Run Update music database to load years."));
     refresh_sorting_options();
     return screen;
 }
@@ -635,18 +654,18 @@ static void join_albums_switch_event_cb(lv_event_t * e) {
 static lv_obj_t * build_library_category_screen(void) {
     pill_list_item_t items[5 + PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS];
     lv_obj_t * native_rows[4] = { NULL };
-    items[0] = (pill_list_item_t){ .label = TR("Update Music Database"),
+    items[0] = (pill_list_item_t){ .label = TR("Update music database"),
         .accessory = PILL_ACCESSORY_CHEVRON, .on_click = update_music_database_row_cb,
         .out_row = &native_rows[0] };
-    items[1] = (pill_list_item_t){ .label = TR("Refresh All Metadata"),
+    items[1] = (pill_list_item_t){ .label = TR("Refresh all metadata"),
         .accessory = PILL_ACCESSORY_CHEVRON, .on_click = refresh_all_metadata_row_cb,
         .out_row = &native_rows[1] };
-    items[2] = (pill_list_item_t){ .label = TR("Refresh All Covers"),
+    items[2] = (pill_list_item_t){ .label = TR("Refresh all covers"),
         .accessory = PILL_ACCESSORY_CHEVRON, .on_click = refresh_all_covers_row_cb,
         .out_row = &native_rows[2] };
     items[3] = (pill_list_item_t){ .label = TR("Sorting"), .accessory = PILL_ACCESSORY_CHEVRON,
         .on_click = sorting_row_cb, .out_row = &native_rows[3] };
-    items[4] = (pill_list_item_t){ .label = TR("Join albums without Album Artist"),
+    items[4] = (pill_list_item_t){ .label = TR("Join albums without album artist"),
         .accessory = PILL_ACCESSORY_TOGGLE, .toggle_initial_state = current_settings.join_albums,
         .on_toggle_change = join_albums_switch_event_cb };
     int count = append_plugin_list_rows(items, 5, PLUGIN_MAX_MUSIC_LIBRARY_LIST_ITEMS,
@@ -694,6 +713,7 @@ void settings_music_teardown_screens(void) {
     delete_screen(&usb_dsd_settings_screen);
     delete_screen(&dac_settings_screen);
     dac_settings_list = NULL;
+    dac_filter_menu = dac_dre_row = dac_nos_row = dac_nos_hint = NULL;
     usb_dsd_settings_list = NULL;
     dsd_gain_menu = NULL;
     memset(audio_summaries, 0, sizeof(audio_summaries));

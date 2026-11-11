@@ -9,6 +9,9 @@
 /* Color depth: 16-bit (RGB565) is standard for many MIPS LCD screens */
 #define LV_COLOR_DEPTH 16
 
+/* Skip style searches for properties absent from an object's styles. */
+#define LV_OBJ_STYLE_CACHE 1
+
 /* Shape Arabic/Persian letters and detect each label's reading direction.
  * AUTO keeps Latin text left-to-right without mirroring container layouts. */
 #define LV_USE_BIDI 1

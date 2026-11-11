@@ -4,6 +4,7 @@
 #include "../../shell/gui_navigation.h"
 #include "../../shell/gui_notifications.h"
 #include "../../player/screen/gui_player.h"
+#include "../../widgets/builders/screen_builders.h"
 #include "../playlists/gui_playlist_target.h"
 #include "../../text/i18n/i18n.h"
 #include "../../../library/browser/paths/library_paths.h"
@@ -117,8 +118,7 @@ static bool folder_playlist_write(const char * source_dir, const char * name, co
 }
 
 static void hide_file_folder_menu(void) {
-    if (file_folder_menu_popup) lv_obj_add_flag(file_folder_menu_popup, LV_OBJ_FLAG_HIDDEN);
-    if (file_folder_menu_backdrop) lv_obj_add_flag(file_folder_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (file_folder_menu_backdrop) gui_popup_backdrop_hide(file_folder_menu_backdrop);
 }
 
 static void invalidate_file_folder_menu(void) {
@@ -232,17 +232,17 @@ static void file_folder_menu_backdrop_cb(lv_event_t * e) {
 
 void gui_folder_actions_build_menu(void) {
     const menu_popup_row_t rows[] = {
-        { TR("Play All (Sequential)"), file_folder_play_sequential_cb, false, false, NULL },
-        { TR("Play All (Shuffle)"), file_folder_play_shuffle_cb, false, false, NULL },
-        { TR("Add to Queue"), file_folder_add_queue_cb, false, false, NULL },
-        { TR("Add to Playlist"), file_folder_add_playlist_cb, false, false, NULL },
+        { TR("Play all (sequential)"), file_folder_play_sequential_cb, false, false, NULL },
+        { TR("Play all (shuffle)"), file_folder_play_shuffle_cb, false, false, NULL },
+        { TR("Add to queue"), file_folder_add_queue_cb, false, false, NULL },
+        { TR("Add to playlist"), file_folder_add_playlist_cb, false, false, NULL },
         { TR("Go to page"), file_folder_page_jump_cb, false, false, NULL },
         { TR("Cancel"), file_folder_menu_backdrop_cb, false, true, NULL },
     };
     file_folder_menu_popup = build_menu_popup(rows, (int)(sizeof(rows) / sizeof(rows[0])),
                                               file_folder_menu_backdrop_cb,
                                               &file_folder_menu_backdrop);
-    file_folder_menu_page_row = file_folder_menu_popup ? lv_obj_get_child(file_folder_menu_popup, 4) : NULL;
+    file_folder_menu_page_row = build_menu_popup_row(file_folder_menu_popup, 4);
 }
 
 static void file_folder_add_playlist_cb(lv_event_t * e) {
@@ -439,10 +439,8 @@ void gui_folder_actions_open_menu(const char *path, bool show_page_jump) {
         if (show_page_jump) lv_obj_remove_flag(file_folder_menu_page_row, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(file_folder_menu_page_row, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_obj_remove_flag(file_folder_menu_backdrop, LV_OBJ_FLAG_HIDDEN);
+    gui_popup_backdrop_show(file_folder_menu_backdrop);
     lv_obj_remove_flag(file_folder_menu_popup, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(file_folder_menu_backdrop);
-    lv_obj_move_foreground(file_folder_menu_popup);
 }
 
 void gui_folder_actions_menu_screen_unloaded_cb(lv_event_t *event) {
@@ -493,6 +491,7 @@ void gui_folder_actions_stop_work(void) {
 }
 
 void gui_folder_actions_teardown(void) {
+    if (file_folder_menu_backdrop) gui_popup_backdrop_hide(file_folder_menu_backdrop);
     if (file_folder_menu_popup) { lv_obj_delete(file_folder_menu_popup); file_folder_menu_popup = NULL; }
     file_folder_menu_page_row = NULL;
     if (file_folder_menu_backdrop) { lv_obj_delete(file_folder_menu_backdrop); file_folder_menu_backdrop = NULL; }

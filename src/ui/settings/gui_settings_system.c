@@ -159,7 +159,7 @@ static void creator_plugin_help_row_cb(lv_event_t * e) {
             TR("Create a plugin"),
             "https://compasplayer.org/plugins.html#quick-start",
             TR("Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card."),
-            TR("Open More > Plugins > Refresh Plugins. Scan for a working example and the full API guide."));
+            TR("Open More > Plugins > Refresh plugins. Scan for a working example and the full API guide."));
     }
     nav_push(creator_plugin_help_screen);
 }
@@ -220,9 +220,9 @@ static void reboot_to_boot_selector_row_cb(lv_event_t * e) {
 
 static const char * screenshot_row_label(void) {
 #if defined(BOARD_R3II_2025)
-    return TR("Screenshots (Power + Previous)");
+    return TR("Screenshots (power + previous)");
 #else
-    return TR("Screenshots (Power + Vol Down)");
+    return TR("Screenshots (power + vol down)");
 #endif
 }
 /* Defined later, alongside its confirmation popup (build_factory_reset_popup(),
@@ -250,7 +250,7 @@ static lv_obj_t * build_settings_tools_screen(void) {
                                         plugin_manager_get_settings_list_item_label,
                                         plugin_manager_get_settings_list_item_options,
                                         plugin_settings_list_item_click_cb);
-    lv_obj_t * scr = build_pill_list_screen(TR("Additional Tools"), generic_back_cb, items,
+    lv_obj_t * scr = build_pill_list_screen(TR("Additional tools"), generic_back_cb, items,
                                             count, gui_theme_accent_style(), GUI_ROW_GAP, 100);
     finalize_screen_navigation(scr);
     return scr;
@@ -278,7 +278,7 @@ static lv_obj_t * build_advanced_screen(void) {
     add_pill_list_rows(list, items, 4);
     add_section_header(list, TR("Maintenance"));
     add_pill_chevron_row(list, TR("Hostname"), hostname_row_cb);
-    add_pill_chevron_row(list, TR("Factory Reset"), factory_reset_btn_cb);
+    add_pill_chevron_row(list, TR("Factory reset"), factory_reset_btn_cb);
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -290,9 +290,9 @@ static void settings_plugins_layouts_updates_row_cb(lv_event_t * e) {
 
 static lv_obj_t * build_settings_updates_screen(void) {
     pill_list_item_t items[] = {
-        { TR("Firmware Update"), PILL_ACCESSORY_CHEVRON, false, firmware_update_row_cb, NULL, NULL },
-        { TR("Player Update"), PILL_ACCESSORY_CHEVRON, false, gui_updates_player_row_cb, NULL, NULL },
-        { TR("Plugins & Layouts"), PILL_ACCESSORY_CHEVRON, false, settings_plugins_layouts_updates_row_cb, NULL, NULL },
+        { TR("Firmware update"), PILL_ACCESSORY_CHEVRON, false, firmware_update_row_cb, NULL, NULL },
+        { TR("Player update"), PILL_ACCESSORY_CHEVRON, false, gui_updates_player_row_cb, NULL, NULL },
+        { TR("Plugins & layouts"), PILL_ACCESSORY_CHEVRON, false, settings_plugins_layouts_updates_row_cb, NULL, NULL },
     };
     lv_obj_t * scr = build_pill_list_screen(TR("Updates"), generic_back_cb, items,
                                             (int) (sizeof(items) / sizeof(items[0])),
@@ -321,11 +321,13 @@ static void language_choice_row_cb(lv_event_t * e) {
 
 static void populate_language_choice_screen(void) {
     if (!language_choice_list) return;
-    lv_obj_clean(language_choice_list);
     const char * active = i18n_get_language();
+    bool build = lv_obj_get_child_count(language_choice_list) == 0;
     for (size_t i = 0; i < i18n_language_count(); i++) {
-        add_pill_option_row(language_choice_list, i18n_language_name(i), strcmp(i18n_language_code(i), active) == 0,
-                            language_choice_row_cb, (void *) (intptr_t) i);
+        if (build) add_pill_option_row(language_choice_list, i18n_language_name(i), false,
+                                      language_choice_row_cb, (void *) (intptr_t) i);
+        gui_pill_option_row_set_selected(lv_obj_get_child(language_choice_list, i),
+                                         strcmp(i18n_language_code(i), active) == 0);
     }
 }
 
@@ -349,7 +351,7 @@ static lv_obj_t * build_settings_system_screen(void) {
     items[4] = (pill_list_item_t){ TR("Advanced"), PILL_ACCESSORY_CHEVRON, false, dev_options_row_cb, NULL, NULL };
     int count = 5;
     if (plugin_manager_get_settings_list_item_count() > 0) {
-        items[count++] = (pill_list_item_t){ TR("Additional Tools"), PILL_ACCESSORY_CHEVRON, false,
+        items[count++] = (pill_list_item_t){ TR("Additional tools"), PILL_ACCESSORY_CHEVRON, false,
                                              push_screen_slot_cb, NULL, &settings_tools_screen };
     }
     count = append_plugin_list_rows(items, count, PLUGIN_MAX_SYSTEM_LIST_ITEMS,
@@ -422,7 +424,7 @@ static void hostname_reboot_now_cb(lv_event_t * e) {
 
 void build_hostname_reboot_popup(void) {
     hostname_reboot_popup.popup = build_confirm_popup(
-        TR("Restart now to apply the new hostname?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Restart Now"), accent_lv_color(),
+        TR("Restart now to apply the new hostname?"), LV_LABEL_LONG_WRAP, NULL, NULL, TR("Restart now"), accent_lv_color(),
         hostname_reboot_now_cb, NULL, TR("Later"), lv_color_make(160, 160, 160), hostname_reboot_later_cb, NULL,
         hostname_reboot_later_cb, &hostname_reboot_popup.backdrop);
 }

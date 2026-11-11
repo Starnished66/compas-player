@@ -1,4 +1,9 @@
 #include "gui_shell_internal.h"
+#include "../../network/wifi/wifi_dhcp.h"
+#ifndef HOST_BUILD
+#include "../../audio/output/audio_output.h"
+#include "../../hardware/power/power_suspend.h"
+#endif
 
 lv_obj_t * home_screen = NULL;
 static lv_obj_t * dac_home_screen = NULL;
@@ -225,6 +230,7 @@ void gui_shell_init(uint32_t screen_width, uint32_t screen_height) {
     gui_shell_build_screens(screen_width, screen_height);
     start_bt_source_codec_reconcile_if_needed();
     start_bt_dac_startup_reapply_if_needed();
+    if (wifi_control_is_enabled()) wifi_dhcp_start(); /* a supplicant left running by a previous player run */
     if (current_settings.wifi_restore_at_startup && current_settings.wifi_last_on)
         gui_shell_wifi_ensure_enabled();
     if (current_settings.bt_restore_at_startup && current_settings.bt_last_on)
@@ -244,6 +250,9 @@ void gui_shell_poll(void) {
     poll_usb_audio_output();
     poll_sleep_timer();
     poll_wifi_toggle();
+#ifndef HOST_BUILD
+    if (power_suspend_take_wifi_restore()) wifi_resume(true);
+#endif
     poll_bt_toggle();
     start_bt_source_codec_reconcile_if_needed();
     poll_bt_source_codec_reconcile();
@@ -340,4 +349,21 @@ void gui_shell_set_home_indicator_visible(bool visible) {
     if (home_indicator_band) {
         lv_obj_set_flag(home_indicator_band, LV_OBJ_FLAG_HIDDEN, !visible);
     }
+}
+
+lv_style_t * gui_shell_slider_glyph_style(void) {
+    shell_theme_styles_init();
+    return &shell_drawer_slider_glyph_style;
+}
+
+const char * gui_shell_output_icon_src(const char * wired_src) {
+#ifdef HOST_BUILD
+    bool bluetooth_route = gui_shell_is_bt_audio_connected();
+#else
+    audio_output_info_t info;
+    audio_output_get_info(&info);
+    audio_output_route_t route = info.active ? info.route : info.requested_route;
+    bool bluetooth_route = route == AUDIO_OUTPUT_ROUTE_BLUETOOTH;
+#endif
+    return bluetooth_route ? topbar_icon("bluetooth") : wired_src;
 }

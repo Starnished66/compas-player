@@ -33,7 +33,7 @@ static void bt_snoop_stop(pid_t pid) {
  * failed start or a card that appears or becomes writable later. */
 static void * bt_snoop_worker(void * arg) {
     (void) arg;
-    subprocess_kill_all_matching("btmon -w " BT_SNOOP_PATH); /* left by a crashed previous run */
+    subprocess_kill_all_matching("btmon"); /* left by a crashed previous run */
     bool applied = false;
     for (;;) {
         pthread_mutex_lock(&bt_snoop_mutex);

@@ -102,16 +102,24 @@ bool subprocess_popen_stdin(char * const argv[], pid_t * out_pid, int * out_writ
  * waitpid(). */
 void subprocess_terminate(pid_t pid);
 
-/* Finds every process whose `ps` command line contains `needle` (a plain
- * substring match, not a pattern) and SIGKILLs them all -- for a daemon/
+/* Starts argv as a direct child with stdin/stdout/stderr on /dev/null and
+ * returns at once; for a long-running client the caller later stops and
+ * reaps with subprocess_terminate() (or waitpid() when it exits on its own).
+ * Returns false if it could not be spawned. */
+bool subprocess_start(char * const argv[], pid_t * out_pid);
+
+/* True when a `ps` line's command (basename of its first word) equals name.
+ * Exposed for the host test. */
+bool subprocess_ps_line_is_command(const char * line, const char * name);
+
+/* SIGKILLs every process whose command name is `name` -- for a daemon/
  * script this app doesn't itself own the pid of (started detached via
  * subprocess_spawn_daemon(), by a stock shell script, or otherwise outside
  * this process's own child list), where subprocess_terminate()'s pid-based
- * approach doesn't apply. Originally private to bluetooth_control.c (its
- * own bt-agent/bluealsa/dbus-daemon cleanup); shared here once wifi_control.c
- * needed the identical "kill any stray instance before starting a fresh
- * one" shape for udhcpc. Capped at 16 matches with margin to spare. */
-void subprocess_kill_all_matching(const char * needle);
+ * approach doesn't apply. Matches the command name only, never its
+ * arguments, so a hook script that merely names the daemon in its path is
+ * left alone. Capped at 16 matches with margin to spare. */
+void subprocess_kill_all_matching(const char * name);
 
 /* For callers that build their own posix_spawn() file actions: queues a
  * close of every fd above stderr that is not already close-on-exec, so the

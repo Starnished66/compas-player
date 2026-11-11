@@ -11,7 +11,7 @@ static const char * const music_keys[UI_MUSIC_COUNT] = {
     "files", "artists", "albums", "album_artist", "genres", "all_songs", "playlists", "cover_flow"
 };
 static const char * const music_labels[UI_MUSIC_COUNT] = {
-    N_("Files"), N_("Artists"), N_("Albums"), N_("Album Artist"), N_("Genres"), N_("All Songs"), N_("Playlists"),
+    N_("Files"), N_("Artists"), N_("Albums"), N_("Album artist"), N_("Genres"), N_("All songs"), N_("Playlists"),
     N_("Cover Flow")
 };
 static const char * const toolbar_keys[UI_MUSIC_TOOLBAR_COUNT] = {
@@ -25,8 +25,8 @@ static const char * const drawer_keys[UI_DRAWER_COUNT] = {
     "remote_control", "car_mode", "plugins"
 };
 static const char * const drawer_labels[UI_DRAWER_COUNT] = {
-    N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep Timer"), N_("Crossfade"), N_("AirPlay"), N_("Bluetooth DAC"), N_("DLNA"),
-    N_("Gapless"), N_("Remote Control"), N_("Car Mode"), N_("Plugins")
+    N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep timer"), N_("Crossfade"), N_("AirPlay"), N_("Bluetooth DAC"), N_("DLNA"),
+    N_("Gapless"), N_("Remote control"), N_("Car mode"), N_("Plugins")
 };
 
 typedef struct {

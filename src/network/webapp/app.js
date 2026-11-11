@@ -14,6 +14,7 @@ var ICONS = {
   album: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
   playlist: '<path d="M4 6h11M4 11h11M4 16h6"/><circle cx="17.5" cy="17" r="2.5"/><path d="M20 17V8l2-1"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  download: '<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 17v3h16v-3"/>',
   folder: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   folderPlus: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/>',
   folderUp: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 16.5v-5M9.5 14l2.5-2.5 2.5 2.5"/>',
@@ -581,7 +582,7 @@ routes.home = function (root) {
     api('/api/queue?offset=0&limit=6').then(function (d) {
       upNext.textContent = '';
       if (!d.songs || !d.songs.length) { upNext.appendChild(emptyState('queue', 'Nothing queued', 'Play an album or add songs to the queue.')); return; }
-      d.songs.forEach(function (s, i) { upNext.appendChild(queueRow(s, i + 1, d.revision)); });
+      appendQueueSections(upNext, d.songs, d.current_position, d.queued_count, d.revision, false);
     }).catch(function () { upNext.textContent = ''; upNext.appendChild(emptyState('wifiOff', 'Queue unavailable')); });
   }
   queueViewRefresh = loadUpNext;
@@ -590,33 +591,62 @@ routes.home = function (root) {
   setArt(artKey ? artUrl : null);
 };
 
-function queueRow(song, number, revision) {
-  var row = songRow(song, number, '', [
+function queueRow(song, number, revision, full, removable) {
+  var removeUrl = '/api/queue/remove?offset=' + song.offset + '&revision=' + revision + (full ? '&full=1' : '');
+  var playUrl = '/api/queue/play?offset=' + song.offset + '&revision=' + revision + (full ? '&full=1' : '');
+  var actions = removable === false ? [] : [
     { icon: 'trash', label: 'Remove from queue', danger: true, run: function () {
-      post('/api/queue/remove?offset=' + song.offset + '&revision=' + revision, 'Removed from queue').then(refreshQueueViews);
+      post(removeUrl, 'Removed from queue').then(refreshQueueViews);
     } }
-  ]);
-  row.onclick = function () { post('/api/queue/play?offset=' + song.offset + '&revision=' + revision).then(function () { setTimeout(poll, 300); refreshQueueViews(); }); };
+  ];
+  var row = songRow(song, number, '', actions);
+  row.onclick = function () { post(playUrl).then(function () { setTimeout(poll, 300); refreshQueueViews(); }); };
   return row;
 }
 
+function appendQueueSections(list, songs, currentPosition, queuedCount, revision, full) {
+  var current = Number(currentPosition);
+  if (!isFinite(current)) current = -1;
+  var pending = Math.max(0, Number(queuedCount) || 0);
+  var queuedEnd = current + 1 + pending;
+  var section = null;
+  (songs || []).forEach(function (song, i) {
+    var pos = Number(song.offset);
+    if (!isFinite(pos)) pos = i;
+    var number = pos + 1;
+    if (!full) pos += current + 1;
+    var name = pos < current ? 'Played' : pos === current ? 'Now Playing' : pos < queuedEnd ? 'In queue · ' + pending : 'Continue Playing';
+    if (name !== section) {
+      section = name;
+      list.appendChild(h('h3.queue-section', name));
+    }
+    list.appendChild(queueRow(song, number, revision, full, pos > current));
+  });
+}
+
 routes.queue = function (root, params) {
-  var offset = Math.max(0, Number(params.get('offset')) || 0), PAGE = 50;
+  var offset = Math.max(0, Math.floor(Number(params.get('offset')) || 0)), PAGE = 25, loadRequest = 0;
   var list = h('div.list', skeleton());
   var head = viewHead('Queue', 'Up next on the player');
   root.appendChild(head);
   root.appendChild(list);
   function load() {
-    api('/api/queue?offset=' + offset + '&limit=' + PAGE).then(function (d) {
+    var request = ++loadRequest;
+    api('/api/queue?full=1&offset=' + offset + '&limit=' + PAGE).then(function (d) {
+      if (!root.isConnected || request !== loadRequest) return;
+      if (offset > 0 && offset >= (d.total || 0)) {
+        go('queue', { offset: d.total ? Math.floor((d.total - 1) / PAGE) * PAGE : 0 });
+        return;
+      }
       list.textContent = '';
-      head.querySelector('p').textContent = d.total ? plural(d.total, 'track', 'tracks') + ' up next' : 'Up next on the player';
-      if (!d.songs || !d.songs.length) { list.appendChild(emptyState('queue', 'The queue is empty', 'Play something or add songs from your library.')); return; }
-      d.songs.forEach(function (s, i) { list.appendChild(queueRow(s, offset + i + 1, d.revision)); });
+      head.querySelector('p').textContent = d.total ? plural(d.total, 'track', 'tracks') + ' in the queue' : 'Up next on the player';
+      if (!d.songs || !d.songs.length) { list.appendChild(emptyState('queue', 'Queue is empty', 'Play an album or playlist to see its songs here.')); return; }
+      appendQueueSections(list, d.songs, d.current_position, d.queued_count, d.revision, true);
       var pager = h('div.more');
       if (offset > 0) pager.appendChild(h('button.btn.sm', { onclick: function () { go('queue', { offset: Math.max(0, offset - PAGE) }); } }, 'Previous'));
       if (offset + d.songs.length < d.total) pager.appendChild(h('button.btn.sm', { onclick: function () { go('queue', { offset: offset + PAGE }); } }, 'Next'));
       pager.appendChild(h('button.btn.sm.ghost', { onclick: function () {
-        dialog({ title: 'Clear the queue?', text: 'This removes every upcoming track.', confirm: 'Clear', danger: true }).then(function (ok) {
+        dialog({ title: 'Clear the queue?', text: 'This removes every other track and keeps the current one.', confirm: 'Clear', danger: true }).then(function (ok) {
           if (ok) post('/api/queue/clear?revision=' + d.revision, 'Queue cleared').then(refreshQueueViews);
         });
       } }, 'Clear queue'));
@@ -757,8 +787,10 @@ var AUDIO_EXT = /\.(flac|mp3|wav|m4a|aac|ogg|oga|opus|ape|wv|dsf|dff|aiff?|alac|
 var IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp)$/i;
 var T = {
   state: 'unknown', error: '', path: '', entries: [], total: 0, nextOffset: null, loading: false,
-  queue: [], running: false, xhr: null, madeDirs: {}, uploadedSinceFinish: 0, ui: null
+  queue: [], running: false, xhr: null, madeDirs: {}, uploadedSinceFinish: 0, ui: null,
+  showHidden: false, browseRequest: 0
 };
+try { T.showHidden = localStorage.getItem('compas-remote-show-hidden') === '1'; } catch (e) { /* storage may be blocked */ }
 
 function importUrl(path, params) { return '/api/import/files' + path + (params ? '?' + new URLSearchParams(params).toString() : ''); }
 function joinPath(a, b) { return a ? (b ? a + '/' + b : a) : b; }
@@ -820,18 +852,22 @@ function waitForImport(target) {
 
 function browse(path, append) {
   if (T.state !== 'ready') return;
+  var request = ++T.browseRequest;
   T.loading = true;
   if (!append) { T.path = path; T.entries = []; T.total = 0; T.nextOffset = null; }
   drawTransfer();
   var requested = T.path;
-  api(importUrl('', { path: requested, offset: append ? T.nextOffset || 0 : 0, limit: 100 })).then(function (d) {
-    if (requested !== T.path) return;
+  var query = { path: requested, offset: append ? T.nextOffset || 0 : 0, limit: 100 };
+  if (T.showHidden) query.show_hidden = 1;
+  api(importUrl('', query)).then(function (d) {
+    if (request !== T.browseRequest || requested !== T.path) return;
     T.entries = (append ? T.entries : []).concat(d.entries || []);
     T.total = d.total || 0;
     T.nextOffset = d.next_offset;
     T.loading = false;
     drawTransfer();
   }).catch(function (err) {
+    if (request !== T.browseRequest || requested !== T.path) return;
     T.loading = false;
     if (err.code === 'import_not_ready') { setTransferState('stopped'); return; }
     T.error = transferErrorText(err);
@@ -873,6 +909,13 @@ function deleteEntry(entry) {
       .then(function () { toast('Deleted'); browse(T.path); })
       .catch(function (err) { toast(transferErrorText(err)); });
   });
+}
+
+function downloadEntry(entry) {
+  var link = h('a', { href: importUrl('/download', { path: entry.path }), download: entry.name });
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 /* Queue entries keep their own destination, so browsing elsewhere while a
@@ -1069,7 +1112,9 @@ function drawTransfer() {
       h('span.size', entry.isDirectory ? '—' : fmtBytes(entry.size)),
       h('button.icon-btn', { 'aria-label': 'Options for ' + entry.name, html: icon('more'), onclick: function (e) {
         e.stopPropagation();
-        menu(e.currentTarget, (entry.isDirectory ? [{ icon: 'folder', label: 'Open', run: function () { browse(entry.path); } }] : []).concat([
+        menu(e.currentTarget, (entry.isDirectory ? [{ icon: 'folder', label: 'Open', run: function () { browse(entry.path); } }] : [
+          { icon: 'download', label: 'Download', run: function () { downloadEntry(entry); } }
+        ]).concat([
           { icon: 'rename', label: 'Rename…', run: function () { renameEntry(entry); } },
           { icon: 'trash', label: 'Delete', danger: true, run: function () { deleteEntry(entry); } }
         ]));
@@ -1077,7 +1122,13 @@ function drawTransfer() {
   });
   files.appendChild(h('div.files-foot',
     h('span', T.loading ? 'Loading…' : plural(T.total, 'item', 'items')),
-    T.nextOffset != null && T.nextOffset < T.total ? h('button.btn.sm', { onclick: function () { browse(T.path, true); } }, 'Load more') : h('span')));
+    h('div.foot-actions',
+      h('label.hidden-toggle', h('input', { type: 'checkbox', checked: T.showHidden, onchange: function (e) {
+        T.showHidden = e.currentTarget.checked;
+        try { localStorage.setItem('compas-remote-show-hidden', T.showHidden ? '1' : '0'); } catch (err) { /* storage may be blocked */ }
+        browse(T.path);
+      } }), 'Show hidden files'),
+      T.nextOffset != null && T.nextOffset < T.total ? h('button.btn.sm', { onclick: function () { browse(T.path, true); } }, 'Load more') : null)));
 
   var depth = 0;
   files.addEventListener('dragenter', function (e) { e.preventDefault(); depth++; files.classList.add('dragover'); });

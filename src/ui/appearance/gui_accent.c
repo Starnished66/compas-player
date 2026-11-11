@@ -132,7 +132,7 @@ static lv_obj_t * build_accent_color_screen(void) {
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_screen_header(scr, TR("Accent Color"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Accent color"), generic_back_cb, NULL, NULL);
 
     int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
     int32_t card_w = BOARD_SCREEN_WIDTH - 2 * BOARD_SCALE_PX(20);

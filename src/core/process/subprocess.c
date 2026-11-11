@@ -346,7 +346,30 @@ void subprocess_terminate(pid_t pid) {
     waitpid(pid, NULL, 0);
 }
 
-void subprocess_kill_all_matching(const char * needle) {
+bool subprocess_start(char * const argv[], pid_t * out_pid) {
+    return subprocess_spawn(argv, SUBPROCESS_STDIN_DEVNULL, -1, out_pid, false) == 0;
+}
+
+/* BusyBox ps: "  PID USER       TIME  COMMAND". The command's basename must
+ * equal name, so "sh /usr/share/udhcpc/default.script" is not "udhcpc". */
+bool subprocess_ps_line_is_command(const char * line, const char * name) {
+    const char * p = line + strspn(line, " ");
+    if (*p < '0' || *p > '9') return false; /* header or blank */
+    for (int field = 0; field < 3; field++) { /* PID, USER, TIME */
+        p += strcspn(p, " ");
+        p += strspn(p, " ");
+    }
+    size_t len = strcspn(p, " \n");
+    for (size_t i = len; i > 0; i--) {
+        if (p[i - 1] != '/') continue;
+        p += i;
+        len -= i;
+        break;
+    }
+    return len == strlen(name) && memcmp(p, name, len) == 0;
+}
+
+void subprocess_kill_all_matching(const char * name) {
     char out[4096];
     char * argv[] = { (char *) "ps", NULL };
     if (!subprocess_run(argv, out, sizeof(out))) return;
@@ -356,7 +379,7 @@ void subprocess_kill_all_matching(const char * needle) {
     char * line_save = NULL;
     char * line = strtok_r(out, "\n", &line_save);
     while (line && pid_count < 16) {
-        if (strstr(line, needle)) {
+        if (subprocess_ps_line_is_command(line, name)) {
             int pid = atoi(line);
             if (pid > 0) pids[pid_count++] = pid;
         }

@@ -100,8 +100,8 @@ bool remote_control_consume_queue_index(int64_t * out_index, char * out_catalog_
                                          size_t revision_size);
 bool remote_control_consume_queue_remove(int * out_offset, uint64_t * out_revision);
 bool remote_control_consume_queue_clear(uint64_t * out_revision);
-/* POST /api/queue/move and /api/queue/play: Up Next offsets checked against
- * the published revision; the UI rechecks the revision before applying. */
+/* Queue requests use displayed indices after HTTP offset normalization.
+ * The UI rechecks the published revision before applying. */
 bool remote_control_consume_queue_move(int * out_from, int * out_to, uint64_t * out_revision);
 bool remote_control_consume_queue_play(int * out_offset, uint64_t * out_revision);
 /* POST /api/folders/play: absolute path of a playable file to play with its
@@ -112,7 +112,7 @@ bool remote_control_consume_folder_play(char * out_path, size_t path_size);
 bool remote_control_consume_favorite_changed(void);
 
 /* Snapshot the live playback queue for GET /api/queue. */
-void remote_control_sync_queue(const char * const * paths, int count, uint64_t revision);
+bool remote_control_sync_queue(const char * const * paths, int count, int current, int pending, uint64_t revision);
 
 /* Consume requested song id to play. Scope strings (playlist, artist,
  * album_artist, album) narrow the context for building the playback queue. */

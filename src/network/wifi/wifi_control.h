@@ -22,10 +22,12 @@ bool wifi_control_is_enabled(void);
 
 /* Enable/disable Wi-Fi via the stock firmware's own scripts
  * (/usr/bin/wifi_on.sh, /usr/bin/wifi_off.sh) rather than reimplementing
- * the ifconfig/wpa_supplicant/udhcpc dance ourselves. Brings wlan0 up,
- * starts wpa_supplicant against /data/wpa_supplicant.conf (auto-reconnecting
- * to any saved network), and gets a DHCP lease. Blocking for a second or
- * so; call off the UI thread. */
+ * the ifconfig/wpa_supplicant dance ourselves. Brings wlan0 up and starts
+ * wpa_supplicant against /data/wpa_supplicant.conf (auto-reconnecting to
+ * any saved network); DHCP is then owned by wifi_dhcp.h, which follows
+ * wpa_supplicant's association events. Blocking for as long as the script
+ * runs (a few seconds, up to the radio script budget); call off the UI
+ * thread. */
 void wifi_control_enable(void);
 void wifi_control_disable(void);
 

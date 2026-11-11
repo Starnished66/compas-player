@@ -218,6 +218,9 @@ svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColo
 /* Transfer page */
 .transfer-head .status { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 14px; }
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); margin-bottom: 16px; }
+.hidden-toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.hidden-toggle input { accent-color: var(--accent); }
+.queue-section { margin: 18px 10px 6px; color: var(--muted); font-size: 14px; font-weight: 650; }
 .crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; }
 .crumbs button { padding: 6px 9px; border-radius: 8px; font-weight: 600; color: var(--muted); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .crumbs button:hover { background: var(--surface-hover); color: var(--text); }
@@ -239,6 +242,7 @@ svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColo
 .file.image .ico { color: #f6b26b; background: rgba(246, 178, 107, 0.13); }
 .file .size { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
 .files-foot { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); }
+.foot-actions { display: flex; align-items: center; gap: 12px; }
 .dropzone { position: absolute; inset: 8px; border: 2px dashed var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
   display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-weight: 650; z-index: 3; }
 .dropzone svg { width: 40px; height: 40px; color: var(--accent); }

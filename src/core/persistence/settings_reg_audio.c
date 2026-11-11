@@ -9,7 +9,7 @@ _Static_assert(sizeof(usb_dsd_mode_t) == sizeof(int), "registry reads enum field
 #define FIELD(f) offsetof(player_settings_t, f), sizeof(((player_settings_t *) 0)->f)
 
 static const set_option_t replaygain_options[] = {
-    { 0, N_("Off") }, { 1, N_("Per Track") }, { 2, N_("Per Album") },
+    { 0, N_("Off") }, { 1, N_("Per track") }, { 2, N_("Per album") },
 };
 static const set_option_t dac_filter_options[] = {
     { 0, "Fast roll-off, low latency" }, { 1, "Fast roll-off, phase compensated" },
@@ -19,10 +19,10 @@ static const set_option_t usb_dsd_options[] = {
     { 0, "PCM" }, { 1, "Native DSD" }, { 2, "DoP" },
 };
 static const set_option_t resume_options[] = {
-    { 0, N_("Off") }, { 1, N_("Resume and Play") }, { 2, N_("Resume, but Paused") },
+    { 0, N_("Off") }, { 1, N_("Resume and play") }, { 2, N_("Resume, but paused") },
 };
 static const set_option_t play_mode_options[] = {
-    { 0, "Sequential" }, { 1, "Repeat All" }, { 2, "Repeat One" },
+    { 0, "Sequential" }, { 1, "Repeat all" }, { 2, "Repeat one" },
     { 3, "Shuffle with repeat" }, { 4, "Shuffle once" },
 };
 
@@ -35,12 +35,12 @@ const setting_desc_t settings_reg_audio[] = {
     BOOL_ENTRY("gapless_enabled", "sound", "Gapless", gapless_enabled, SET_APPLY_LIVE),
     BOOL_ENTRY("crossfade_enabled", "sound", "Crossfade", crossfade_enabled, SET_APPLY_LIVE,
                .depends = "gapless_enabled"),
-    { .key = "max_volume_percent", .group = "sound", .label = N_("Max Volume"), .type = SET_INT,
+    { .key = "max_volume_percent", .group = "sound", .label = N_("Max volume"), .type = SET_INT,
       FIELD(max_volume_percent), .min = 1, .max = 100, .unit = "%", .apply = SET_APPLY_LIVE,
       .flags = SET_F_CONFIRM },
-    BOOL_ENTRY("startup_volume_fixed_enabled", "sound", "Startup Volume", startup_volume_fixed_enabled,
+    BOOL_ENTRY("startup_volume_fixed_enabled", "sound", "Startup volume", startup_volume_fixed_enabled,
                SET_APPLY_NEXT_BOOT),
-    { .key = "startup_volume_fixed_percent", .group = "sound", .label = N_("Startup Volume"), .type = SET_INT,
+    { .key = "startup_volume_fixed_percent", .group = "sound", .label = N_("Startup volume"), .type = SET_INT,
       FIELD(startup_volume_fixed_percent), .min = 0, .max = 100, .unit = "%", .apply = SET_APPLY_NEXT_BOOT },
     { .key = "dac_filter", .group = "sound", .label = N_("Filter type"), .type = SET_ENUM, FIELD(dac_filter),
       .options = dac_filter_options, .option_count = 4, .apply = SET_APPLY_NEXT_TRACK, .flags = SET_F_DAC },
@@ -48,18 +48,18 @@ const setting_desc_t settings_reg_audio[] = {
     BOOL_ENTRY("dac_dre", "sound", "DRE", dac_dre, SET_APPLY_NEXT_TRACK, .flags = SET_F_DAC | SET_F_DRE),
     { .key = "usb_dsd_output", .group = "sound", .label = N_("USB DSD Output"), .type = SET_ENUM,
       FIELD(usb_dsd_output), .options = usb_dsd_options, .option_count = 3, .apply = SET_APPLY_NEXT_TRACK },
-    { .key = "dsd_gain_db", .group = "sound", .label = N_("DSD Gain"), .type = SET_INT,
+    { .key = "dsd_gain_db", .group = "sound", .label = N_("DSD gain"), .type = SET_INT,
       FIELD(dsd_gain_db), .min = 0, .max = 6, .unit = "dB", .apply = SET_APPLY_LIVE },
-    { .key = "resume_mode", .group = "playback", .label = N_("Resume Last Track"), .type = SET_ENUM,
+    { .key = "resume_mode", .group = "playback", .label = N_("Resume last track"), .type = SET_ENUM,
       FIELD(resume_mode), .options = resume_options, .option_count = 3, .apply = SET_APPLY_NEXT_BOOT },
-    { .key = "play_mode", .group = "playback", .label = N_("Play Mode"), .type = SET_ENUM, FIELD(play_mode),
+    { .key = "play_mode", .group = "playback", .label = N_("Play mode"), .type = SET_ENUM, FIELD(play_mode),
       .options = play_mode_options, .option_count = 5, .apply = SET_APPLY_LIVE },
-    BOOL_ENTRY("volume_lock_screen_off", "playback", "Volume Lock (Screen Off)", volume_lock_screen_off,
+    BOOL_ENTRY("volume_lock_screen_off", "playback", "Volume lock (screen off)", volume_lock_screen_off,
                SET_APPLY_LIVE),
-    { .key = "hw_seek_step_seconds", .group = "playback", .label = N_("Seek Step"), .type = SET_INT,
+    { .key = "hw_seek_step_seconds", .group = "playback", .label = N_("Seek step"), .type = SET_INT,
       FIELD(hw_seek_step_seconds), .min = 1, .max = 30, .unit = "s", .apply = SET_APPLY_LIVE },
-    BOOL_ENTRY("car_mode_enabled", "playback", "Car Mode", car_mode_enabled, SET_APPLY_LIVE),
-    { .key = "car_mode_volume_percent", .group = "playback", .label = N_("Car Mode Volume"), .type = SET_INT,
+    BOOL_ENTRY("car_mode_enabled", "playback", "Car mode", car_mode_enabled, SET_APPLY_LIVE),
+    { .key = "car_mode_volume_percent", .group = "playback", .label = N_("Car mode volume"), .type = SET_INT,
       FIELD(car_mode_volume_percent), .min = 0, .max = 100, .unit = "%", .apply = SET_APPLY_NEXT_USE },
     BOOL_ENTRY("lyrics_enabled", "playback", "Lyrics", lyrics_enabled, SET_APPLY_LIVE),
 };

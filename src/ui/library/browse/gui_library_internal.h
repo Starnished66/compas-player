@@ -167,6 +167,7 @@ extern lv_obj_t * genres_list;
 extern lv_obj_t * group_songs_list;
 extern lv_obj_t * group_songs_screen;
 extern lv_obj_t * group_songs_search_list;
+void gui_library_group_songs_list_changed(void);
 extern char * group_songs_source_title;
 extern lv_obj_t * group_songs_title_label;
 void invalidate_library_views_after_publication(library_rescan_mode_t completed_mode,

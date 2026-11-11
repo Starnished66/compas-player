@@ -177,6 +177,8 @@ static void player_ui_timer_cb(lv_timer_t * timer) {
     gui_player_poll_confirmed_playback();
     gui_player_poll_waveform();
 
+    /* Keep playback completion work running behind the frozen popup. */
+    if (gui_player_sync_popup_pause()) return;
     if (!backlight_screen_is_on()) return;
     if (gui_navigation_transition_in_progress() || gui_player_lyrics_animation_in_progress()) return;
     if (!gui_player_has_active_track() || gui_player_is_seeking()) return;

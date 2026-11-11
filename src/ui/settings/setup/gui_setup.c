@@ -1285,7 +1285,7 @@ static void render_async(void * unused) {
         lv_obj_set_height(hero, BOARD_SCALE_PX(150));
         lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         brand_image(hero, &brand_wordmark, SETUP_TEXT);
-        add_page_title(setup_body, TR("Quick Setup Complete"), NULL);
+        add_page_title(setup_body, TR("Quick setup complete"), NULL);
         button(footer, TR("Continue"), true, complete_cb);
         return;
     }

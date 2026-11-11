@@ -34,19 +34,23 @@ bool group_songs_album_layout(void);
 int group_songs_page_end(void);
 void group_songs_place_now_playing_bar(bool laid_out);
 int group_songs_visible_count(void);
+void group_songs_compact_play(int index);
+void group_songs_compact_context(int index);
+void group_songs_compact_probe_update(int page_index, const char * detail, unsigned seconds);
+void group_songs_compact_update_label(int source_index, const char * detail, unsigned seconds);
+int group_songs_compact_row_count(void);
+int group_songs_compact_row_source(int row);
+lv_obj_t * group_songs_create_list(lv_obj_t * parent, bool compact);
+void group_songs_compact_clear(void);
+void group_songs_compact_header_refresh(void);
 
 /* gui_group_songs_rows.c */
 bool group_song_has_cover(int index);
 void group_song_row_show_detail(lv_obj_t * row, const char * detail);
 void group_song_row_text_offset(lv_obj_t * row, bool with_thumbnail);
 void group_songs_add_disc_header(int i);
-void group_songs_build_pause(void);
-void group_songs_build_reset(void);
-void group_songs_build_resume(void);
 void group_songs_forget_row_objects(void);
 lv_obj_t * group_songs_new_row(int i, const char * title, int32_t reserve);
-void group_songs_scroll_cb(lv_event_t * e);
-void group_songs_wake_cb(lv_event_t * e);
 
 /* gui_group_songs_edit.c */
 lv_obj_t * add_group_songs_select_all_row(void);

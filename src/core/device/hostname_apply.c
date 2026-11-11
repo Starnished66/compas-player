@@ -4,18 +4,27 @@
 #include <stdio.h>
 #include <string.h>
 
+#define STOCK_HOSTNAME_PATH "/usr/resource/hostname"
+
 #ifndef HOST_BUILD
 #include <sys/mount.h>
 #include <unistd.h>
 
 #define HOSTNAME_OVERRIDE_FILE "/usr/data/hostname_override.txt"
-#define STOCK_HOSTNAME_PATH "/usr/resource/hostname"
 #define STOCK_BT_NAME_PATH "/usr/resource/bt_name"
 
 static bool bind_mount_over(const char * source, const char * target) {
     return mount(source, target, NULL, MS_BIND, NULL) == 0;
 }
 #endif
+
+void hostname_device_name(char * out, size_t out_size) {
+    snprintf(out, out_size, "HiBy_Music"); /* the stock scripts' own fallback */
+    FILE * f = fopen(STOCK_HOSTNAME_PATH, "r");
+    if (!f) return;
+    if (fgets(out, (int) out_size, f)) out[strcspn(out, "\n")] = '\0';
+    fclose(f);
+}
 
 bool hostname_apply(const char * hostname) {
     if (!hostname || hostname[0] == '\0') return true;

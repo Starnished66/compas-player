@@ -5,10 +5,12 @@
 #include "../../core/process/subprocess.h"
 #include "../../core/persistence/settings.h"
 #include "../../network/wifi/wifi_control.h"
+#include "../../network/wifi/wifi_dhcp.h"
 #include "../../network/radio/aic_radio.h"
 
 #include <errno.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,12 +101,20 @@ static void log_suspend_diagnostics(uint32_t slept_ms, bool suspend_write_ok, in
                 wakeup_irq[0] ? wakeup_irq : "(unavailable)");
 }
 
+/* Wi-Fi comes back through the shell's toggle worker (gui_shell_poll picks
+ * this up), so a tap during the restore cannot start a second wifi_on.sh. */
+static atomic_bool wifi_restore_pending;
+
+bool power_suspend_take_wifi_restore(void) {
+    return atomic_exchange(&wifi_restore_pending, false);
+}
+
 static void radio_restore_perform(bool wifi_was_on, bool bt_was_on) {
     if (bt_was_on) {
         bt_control_init_chip();
         bt_control_enable();
     }
-    if (wifi_was_on) wifi_control_enable();
+    if (wifi_was_on) atomic_store(&wifi_restore_pending, true);
 }
 
 /* Restores Bluetooth and Wi-Fi in a detached thread after resume so that
@@ -183,6 +193,7 @@ void power_suspend_now(void) {
         /* The backend blocks new bringups before stopping both physical radios.
          * A completed child is insufficient: require its actual exit status. */
         if (bt_was_on) bt_control_disable(); /* Graceful D-Bus link shutdown. */
+        if (wifi_was_on) wifi_dhcp_stop(); /* the backend kills udhcpc; reap ours first */
         int prepare_status = experimental_radio_action("suspend-prepare", RADIO_UI_ACTION_TIMEOUT_MS);
         if (prepare_status != 0) {
             SUSPEND_LOG("cancelled: experimental radio shutdown failed");

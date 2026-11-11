@@ -107,6 +107,11 @@ extern lv_style_t icon_press_style;
 
 /* Enables the shared constant-speed row marquee with a 2-second pause. */
 void row_label_enable_marquee(lv_obj_t * label);
+/* Opt a scrollable list root into the visible-row marquee cap and scroll pause policy. */
+void ui_marquee_list_enable(lv_obj_t * list);
+/* Notify after rebinding rows, including text changes with unchanged geometry. */
+void ui_marquee_list_changed(lv_obj_t * list);
+void screen_builders_configure_content_scrollbar(lv_obj_t * list);
 /* Restarts every circular-scroll label under root from offset 0 with its
  * pause, so a screen that was built before it became visible does not show
  * marquees already mid-scroll. */
@@ -182,6 +187,43 @@ void screen_builders_init_list_row_style(void);
 /* Styles the settings dropdown and its native option list. */
 void gui_style_settings_dropdown(lv_obj_t * dropdown);
 
+/* Prints the text for one setting value (seconds, minutes, percent...). */
+typedef void (*setting_value_fmt_t)(char * buf, size_t size, int value);
+
+#if defined(BOARD_TEMPOTEC_V1)
+#define FILL_SLIDER_HEIGHT BOARD_SCALE_PY(55)
+#else
+#define FILL_SLIDER_HEIGHT BOARD_SCALE_PY(72)
+#endif
+#define FILL_SLIDER_RADIUS BOARD_SCALE_PX(23)
+
+typedef struct {
+    int32_t width, height, radius, min, max, value;
+    const char * caption; /* Optional left text when there is no icon. */
+    bool symmetrical;
+    const void * icon_src;
+    bool icon_clickable;
+    const int * steps; /* Optional table; min/max/value are indices, min must be 0. */
+    setting_value_fmt_t fmt; /* Use either fmt or value_format. */
+    const char * value_format; /* One integer conversion; must outlive the widget. */
+    lv_event_cb_t event_cb;
+    void * user_data;
+} fill_slider_cfg_t;
+
+typedef struct {
+    lv_obj_t * slider, * icon, * label;
+    const char * value_format;
+    const int * steps;
+    setting_value_fmt_t fmt;
+} fill_slider_t;
+
+void style_fill_slider(lv_obj_t * slider, int32_t radius);
+fill_slider_t build_fill_slider(lv_obj_t * parent, const fill_slider_cfg_t * cfg);
+void fill_slider_set_greyed(lv_obj_t * slider, bool greyed);
+/* In step mode, value is an index into the caller-owned steps table. */
+void fill_slider_set_value(fill_slider_t * ui, int32_t value);
+void fill_slider_set_enabled(fill_slider_t * ui, bool enabled);
+
 typedef struct {
     const char * icon_asset;          /* e.g. "launcher/music.png" */
     const char * icon_asset_selected; /* "_s" variant, e.g. "launcher/music_s.png" */
@@ -243,10 +285,10 @@ lv_obj_t * build_icon_grid_screen(const icon_grid_item_t * items, int item_count
  * codebase). click_cb may be NULL for a purely decorative icon. */
 lv_obj_t * build_top_right_icon_button(lv_obj_t * scr, const char * icon_asset, lv_event_cb_t click_cb);
 /* For title-bar images built by hand: the Breeze replacement for a resolved
- * asset path, or NULL when there is none (keep the asset and its styling). */
+ * asset path, or NULL when there is none (keep the stock asset). */
 const char * titlebar_breeze_icon(const char * asset);
 /* Text color, or the accent while "Tint title bar icons" is on. */
-void style_titlebar_breeze_icon(lv_obj_t * image);
+void style_titlebar_icon(lv_obj_t * image, bool breeze);
 /* Drag handle art for reorder rows: pre-tinted Breeze handle-sort, else the
  * stock grip in the text color. */
 void set_reorder_handle_icon(lv_obj_t * grip);
@@ -530,6 +572,12 @@ typedef struct {
 } gui_popup_t;
 
 void gui_popup_show(gui_popup_t * p);
+void gui_popup_backdrop_show(lv_obj_t * backdrop);
+void gui_popup_backdrop_hide(lv_obj_t * backdrop);
+/* True while any popup built on build_popup_surface() is showing. */
+bool gui_popup_backdrop_visible(void);
+/* Closes the top popup as a tap outside it would; false when none is open. */
+bool gui_popup_dismiss_top(void);
 void gui_popup_hide(gui_popup_t * p);
 void gui_popup_teardown(gui_popup_t * p);
 bool gui_popup_is_visible(const gui_popup_t * p);
@@ -550,6 +598,9 @@ lv_obj_t * add_pill_toggle_row(lv_obj_t * parent, const char * label_text, bool 
 lv_obj_t * add_pill_chevron_row(lv_obj_t * parent, const char * label_text, lv_event_cb_t on_click);
 lv_obj_t * add_pill_option_row(lv_obj_t * parent, const char * label_text, bool selected,
                               lv_event_cb_t on_click, void * user_data);
+void gui_pill_option_row_set_selected(lv_obj_t * row, bool selected);
+void gui_pill_option_list_set_selected(lv_obj_t * list, lv_obj_t * selected_row);
+void gui_pill_toggle_row_set_checked(lv_obj_t * row, bool checked);
 lv_obj_t * add_section_header(lv_obj_t * parent, const char * text);
 /* add_section_header() that always wraps at the full list width. */
 lv_obj_t * add_wrapped_section_header(lv_obj_t * parent, const char * text);
@@ -558,17 +609,14 @@ lv_obj_t * build_check_box(lv_obj_t * parent, bool checked);
 
 int find_nearest_step_index(const int * steps, int count, int value);
 
-/* Prints the text for one setting value (seconds, minutes, percent...). */
-typedef void (*setting_value_fmt_t)(char * buf, size_t size, int value);
-
 typedef struct {
     const char * toggle_label;  /* NULL: no toggle row, only the control area */
     bool checked;               /* initial toggle state */
     lv_event_cb_t switch_cb;    /* VALUE_CHANGED on the switch */
-    const char * caption;       /* muted text left of the value */
+    const char * caption;       /* text left of the value */
     int32_t min_index, max_index, index;  /* slider range and position */
     const int * steps;          /* value of each index; NULL: the index is the value */
-    setting_value_fmt_t fmt;    /* formats the value, the range ends and the readout */
+    setting_value_fmt_t fmt;    /* formats the value readout */
     lv_event_cb_t slider_cb;    /* all events of the slider */
     bool control_always_on;     /* do not grey the control while the toggle is off */
 } setting_slider_cfg_t;
@@ -576,7 +624,7 @@ typedef struct {
 typedef struct {
     lv_obj_t * card;
     lv_obj_t * toggle;          /* the switch; NULL without a toggle row */
-    lv_obj_t * control;         /* caption, slider and range ends */
+    lv_obj_t * control;         /* fill slider with caption and value */
     lv_obj_t * slider;
     lv_obj_t * value_label;
     lv_obj_t * min_label;
@@ -585,11 +633,9 @@ typedef struct {
     setting_value_fmt_t fmt;
 } setting_slider_t;
 
-/* One row-style card for a single-slider setting: optional toggle row, a
- * divider, then caption and value, the slider and its range ends. The control
- * greys out (and the slider disables) while the toggle is off; it never hides.
- * Includes the gesture-bubble removal and swipe dead zone. The caller places
- * s.card. */
+/* Content column with an optional pill toggle followed by a fill slider.
+ * The control greys out while the toggle is off unless control_always_on.
+ * The caller places s.card; the fill slider manages its swipe dead zone. */
 setting_slider_t build_setting_slider(lv_obj_t * parent, const setting_slider_cfg_t * cfg);
 /* Vertical scrolling column below the header for settings pages that stack
  * cards and notes, so layout follows content-size changes (font refresh). */
@@ -609,7 +655,7 @@ void ui_set_greyed(lv_obj_t * obj, bool greyed);
 void setting_slider_set_enabled(const setting_slider_t * s, bool enabled);
 /* Updates the value text for slider position `index`. */
 void setting_slider_set_index(const setting_slider_t * s, int32_t index);
-/* Lowers or raises the slider's top end, and the right range-end text. */
+/* Changes the slider's top end and refreshes the clamped readout. */
 void setting_slider_set_max_index(const setting_slider_t * s, int32_t max_index);
 
 lv_obj_t * build_font_change_mask(int target);

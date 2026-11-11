@@ -366,6 +366,9 @@ void quick_drawer_animate_expansion(bool expand) {
     quick_drawer_expansion_motion = true;
     quick_drawer_expansion_pending_target = expand;
     quick_drawer_prepare_motion_cache();
+    /* The cached frames already hold the refreshed tiles; presenting them now
+     * skips a full LVGL redraw of the drawer before the motion starts. */
+    quick_drawer_begin_expansion_composition();
     /* Let refreshed labels/icons settle before the first animated frame. */
     quick_drawer_expansion_start_timer = lv_timer_create(quick_drawer_expansion_start_timer_cb, 1, NULL);
     if (!quick_drawer_expansion_start_timer) {

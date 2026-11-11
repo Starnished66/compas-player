@@ -52,6 +52,66 @@ const cover_file_id_t * player_cover_file(void) { return &current_cover_file; }
 
 static cover_decode_request_t last_local_cover_request;
 static bool last_local_cover_request_valid;
+static bool reflection_refresh_pending;
+static uint32_t reflection_refresh_retry_at;
+
+void player_cover_request_reflection_refresh(void) {
+    reflection_refresh_pending = true;
+    reflection_refresh_retry_at = 0;
+}
+
+static void retry_reflection_refresh(void) {
+    reflection_refresh_pending = true;
+    reflection_refresh_retry_at = lv_tick_get() + 350;
+}
+
+static void service_reflection_refresh(void) {
+    if (!reflection_refresh_pending || !current_cover_bytes || current_cover_edge <= 0 ||
+        player_artwork_jobs_active() || player_artwork_jobs_pending() ||
+        player_artwork_jobs_reload_active()) return;
+    uint32_t now = lv_tick_get();
+    if (reflection_refresh_retry_at && (int32_t)(now - reflection_refresh_retry_at) < 0) return;
+
+    player_frost_params_t params = resolve_player_frost_params();
+    if (params.flat) {
+        reflection_refresh_pending = false;
+        return;
+    }
+    size_t bytes = (size_t)current_cover_edge * current_cover_edge * 2;
+    uint8_t * copy = malloc(bytes);
+    if (!copy) {
+        reflection_refresh_retry_at = now + 350;
+        return;
+    }
+    memcpy(copy, current_cover_bytes, bytes);
+    cover_decode_request_t request = {
+        .for_index = current_cover_for_index,
+        .generation = player_artwork_jobs_generation(),
+        .reflection_only = true,
+        .source_cover_generation = current_cover_generation,
+        .edge = current_cover_edge,
+        .shown_cover = current_cover_file,
+        .picture_data = copy,
+        .picture_size = (uint32_t)bytes,
+        .flat = false,
+        .has_bg_color = params.has_bg_color,
+        .bg_color = params.bg_color,
+        .blur_radius = params.blur_radius,
+        .blur_passes = params.blur_passes,
+        .darken_num = params.darken_num,
+        .darken_den = params.darken_den,
+        .tint_rgb = params.tint_rgb,
+        .tint_weight = params.tint_weight,
+    };
+    if (player_artwork_jobs_try_submit_reflection(request)) {
+        reflection_refresh_pending = false;
+        reflection_refresh_retry_at = 0;
+    } else {
+        /* Refusal also frees the copied input. Never put a frost-only job in
+         * the real cover's one-slot pending queue. */
+        reflection_refresh_retry_at = now + 350;
+    }
+}
 
 void cover_decode_request_snapshot_frost(cover_decode_request_t * req) {
     player_frost_params_t p = resolve_player_frost_params();
@@ -72,6 +132,8 @@ void gui_player_invalidate_cover_negatives(void) {
 void launch_cover_decode_req(cover_decode_request_t r) {
     player_cover_prefetch_cancel();
     if (r.generation == 0) {
+        reflection_refresh_pending = false;
+        reflection_refresh_retry_at = 0;
 #ifdef UI_PERF_TRACE
         r.request_perf_us = ui_perf_now_us();
 #endif
@@ -248,14 +310,12 @@ static void apply_decoded_cover_pixels(uint16_t * pixels, int edge, int for_inde
     gui_shell_refresh_quick_drawer_cover();
     gui_lock_screen_refresh(true);
 
-    /* The old reflection belongs to the old cover. Keep the background
-     * empty until this request's effect pass completes; flat styling is
-     * resolved from live layout state on the UI thread. */
+    /* Keep the last reflection visible until this cover's final effect pass
+     * is ready. Flat styling is immediate and does not need worker output. */
     player_frost_params_t live = resolve_player_frost_params();
     if (live.flat) apply_player_flat_background(live.has_bg_color, live.bg_color);
     else {
-        drop_current_reflection();
-        player_panel_show_reflection();
+        if (gui_player_get_current_reflection_dsc()) player_panel_show_reflection();
     }
     gui_theme_set_cover_accent(accent_valid, accent);
     gui_lyrics_on_cover_changed(for_index);
@@ -295,6 +355,7 @@ void poll_cover_decode(void) {
         player_artwork_jobs_reload_active()) return;
     poll_cover_decode_partial();
     if (!player_artwork_jobs_active()) {
+        service_reflection_refresh();
         maybe_prefetch_next_cover();
         return;
     }
@@ -305,19 +366,43 @@ void poll_cover_decode(void) {
     bool result_generation_current = cover_result.generation == player_artwork_jobs_generation();
 
 #ifdef UI_PERF_TRACE
-    if (result_generation_current && cover_result.for_index == player_queue_model_current()) {
+    if (!cover_result.reflection_only && result_generation_current &&
+        cover_result.for_index == player_queue_model_current()) {
         printf("PERF player_cover_request_to_apply_ms elapsed=%u index=%d\n",
                (unsigned)((ui_perf_now_us() - cover_result.request_perf_us) / 1000), player_queue_model_current());
     }
 #endif
 
-    if (result_generation_current && cover_result.format.valid &&
+    if (!cover_result.reflection_only && result_generation_current && cover_result.format.valid &&
         strcmp(cover_result.format.path, gui_player_get_current_track_path()) == 0) {
         player_track_source_set_cached_format(&cover_result.format);
         refresh_format_badge();
     }
 
-    if (!result_generation_current || cover_result.for_index != player_queue_model_current()) {
+    if (cover_result.reflection_only) {
+        player_frost_params_t live = resolve_player_frost_params();
+        /* Reject stale cover or effect settings so old blur cannot replace the live backdrop. */
+        bool current = result_generation_current && !player_artwork_jobs_reload_active() &&
+            cover_result.source_cover_generation == current_cover_generation && current_cover_bytes &&
+            cover_result.edge == current_cover_edge && cover_result.for_index == current_cover_for_index &&
+            (cover_result.file.valid == current_cover_file.valid &&
+             (!current_cover_file.valid || cover_file_id_same(&cover_result.file, &current_cover_file))) && !live.flat &&
+            live.blur_radius == cover_result.blur_radius && live.blur_passes == cover_result.blur_passes &&
+            live.darken_num == cover_result.darken_num && live.darken_den == cover_result.darken_den &&
+            live.tint_rgb == cover_result.tint_rgb && live.tint_weight == cover_result.tint_weight;
+        free(cover_result.pixels);
+        if (current && cover_result.ok && cover_result.reflection) {
+            player_backdrop_adopt_reflection(cover_result.reflection, &live);
+            cover_result.reflection = NULL;
+            reflection_refresh_pending = false;
+            reflection_refresh_retry_at = 0;
+            gui_shell_refresh_quick_drawer_cover();
+            player_transition_mark_dirty();
+        } else {
+            free(cover_result.reflection);
+            if (!live.flat) retry_reflection_refresh();
+        }
+    } else if (!result_generation_current || cover_result.for_index != player_queue_model_current()) {
         free(cover_result.pixels);
         free(cover_result.reflection);
     } else if (cover_result.ok && cover_result.same && current_cover_bytes &&
@@ -340,6 +425,8 @@ void poll_cover_decode(void) {
             player_artwork_jobs_park_retry(retry);
         }
     } else if (!cover_result.ok) {
+        reflection_refresh_pending = false;
+        reflection_refresh_retry_at = 0;
         free(cover_result.reflection);
         player_inline_lyrics_invalidate_cover_source();
         /* Retarget every live image object before releasing the backing
@@ -415,18 +502,19 @@ void poll_cover_decode(void) {
                    live_params.tint_weight != cover_result.tint_weight));
 
         if (snapshot_is_stale) {
-            /* Discard the worker's now-outdated result and recompute
-             * synchronously against the live config and the cover art
-             * just installed above -- a one-off UI-thread recompute here
-             * is the same acceptable tradeoff gui_player_refresh_frosted_
-             * background()'s own live-refresh callers already make. */
+            /* Discard the worker's outdated result; the live refresh path
+             * schedules replacement work without blocking the UI thread. */
             free(cover_result.reflection);
             gui_player_refresh_frosted_background();
         } else if (cover_result.flat) {
             free(cover_result.reflection);
             apply_player_flat_background(cover_result.has_bg_color, cover_result.bg_color);
-        } else {
+        } else if (cover_result.reflection) {
             player_backdrop_adopt_reflection(cover_result.reflection, &live_params);
+            reflection_refresh_pending = false;
+            reflection_refresh_retry_at = 0;
+        } else {
+            retry_reflection_refresh();
         }
 
         /* The drawer shows this same frosted copy, so it can only be
@@ -445,6 +533,7 @@ void poll_cover_decode(void) {
         if (player_artwork_jobs_take_pending(&pending))
             launch_cover_decode_req(pending); /* original submit wrapper, after result application */
     }
+    service_reflection_refresh();
     maybe_prefetch_next_cover();
 }
 
@@ -478,6 +567,8 @@ void player_cover_resync_raster(void) {
 }
 
 void gui_player_begin_cover_reload(void) {
+    reflection_refresh_pending = false;
+    reflection_refresh_retry_at = 0;
     player_next_cover_prefetch_reset();
     player_artwork_jobs_begin_reload();
     player_reflection_cache_clear();
@@ -522,6 +613,8 @@ void gui_player_finish_cover_reload(void) {
 }
 
 void gui_player_cancel_cover_reload(void) {
+    reflection_refresh_pending = false;
+    reflection_refresh_retry_at = 0;
     player_next_cover_prefetch_reset();
     player_artwork_jobs_end_reload();
     player_artwork_jobs_advance_generation();

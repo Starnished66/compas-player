@@ -177,7 +177,7 @@ typedef struct {
     char subsonic_download_subfolder[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX]; /* relative to SD root; empty means SD root */
     int subsonic_download_layout; /* 0 Album Artist/Album, 1 Album Artist - Album. */
 
-    /* Saved Subsonic server profiles (the "Saved Servers" list). Tagcache
+    /* Saved Subsonic server profiles (the "Saved servers" list). Tagcache
      * cannot store these. The live list is the /usr/data sidecar
      * (subsonic_saved_servers.c, via metadata_db.h); this array is a
      * mirror loaded/saved with the rest of credentials so they survive an

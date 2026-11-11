@@ -6,6 +6,7 @@
 #include "lvgl/src/widgets/label/lv_label_private.h"
 
 #include <string.h>
+#include <stdlib.h>
 
 lv_style_t list_row_style;
 lv_style_t list_row_pressed_style;
@@ -14,6 +15,42 @@ lv_style_t native_row_min_style;
 lv_style_t icon_press_style;
 static lv_style_t row_marquee_style;
 static lv_anim_t row_marquee_anim;
+
+typedef struct marquee_list_policy {
+    lv_obj_t * list;
+    lv_timer_t * timer;
+    bool scrolling;
+    bool visible;
+    uint32_t resume_at;
+    uint32_t last_scroll;
+    struct marquee_list_policy * next;
+} marquee_list_policy_t;
+
+static marquee_list_policy_t * marquee_lists;
+static void marquee_policy_reconcile(marquee_list_policy_t * policy);
+
+static void marquee_policy_schedule(marquee_list_policy_t * policy, uint32_t delay) {
+    if (!policy->timer) return;
+    lv_timer_set_period(policy->timer, delay);
+    lv_timer_reset(policy->timer);
+    lv_timer_resume(policy->timer);
+}
+
+void ui_marquee_list_changed(lv_obj_t * list) {
+    for (lv_obj_t * obj = list; obj; obj = lv_obj_get_parent(obj)) {
+        for (marquee_list_policy_t * p = marquee_lists; p; p = p->next) {
+            if (p->list != obj) continue;
+            marquee_policy_schedule(p, 20);
+            return;
+        }
+    }
+}
+
+static void marquee_label_changed_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_SIZE_CHANGED || code == LV_EVENT_STYLE_CHANGED)
+        ui_marquee_list_changed(lv_event_get_target(e));
+}
 
 /* Card tiles: a rounded card with a hairline Breeze outline. */
 #define ICON_GRID_TILE_RADIUS BOARD_SCALE_PX(20)
@@ -95,6 +132,7 @@ lv_obj_t * build_song_list_body(lv_obj_t * screen) {
     lv_obj_set_style_pad_gap(list, GUI_ROW_GAP, 0);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    ui_marquee_list_enable(list);
     ui_scroll_blit_enable(list);
     return list;
 }
@@ -420,6 +458,114 @@ void screen_builders_refresh_all_font_geometry(void) {
 void row_label_enable_marquee(lv_obj_t * label) {
     lv_obj_add_style(label, &row_marquee_style, LV_PART_MAIN);
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    /* Style and geometry changes can recreate label animations. */
+    lv_obj_remove_event_cb(label, marquee_label_changed_cb);
+    lv_obj_add_event_cb(label, marquee_label_changed_cb, LV_EVENT_ALL, NULL);
+    ui_marquee_list_changed(label);
+}
+
+/* Limit moving text to two visible labels so idle rows do not redraw the whole list. */
+static void marquee_policy_walk(marquee_list_policy_t * policy, lv_obj_t * obj,
+                                const lv_area_t * viewport, uint32_t * allowed) {
+    if (obj != policy->list) {
+        for (marquee_list_policy_t * nested = marquee_lists; nested; nested = nested->next)
+            if (nested != policy && nested->list == obj) return;
+    }
+    if (lv_obj_check_type(obj, &lv_label_class) &&
+        lv_label_get_long_mode(obj) == LV_LABEL_LONG_SCROLL_CIRCULAR) {
+        lv_anim_t * anim = lv_anim_get(obj, NULL);
+        if (anim) {
+            lv_area_t coords;
+            lv_obj_get_coords(obj, &coords);
+            bool intersects = coords.x1 <= viewport->x2 && coords.x2 >= viewport->x1 &&
+                              coords.y1 <= viewport->y2 && coords.y2 >= viewport->y1;
+            uint32_t now = lv_tick_get();
+            bool delay_done = !policy->resume_at || (int32_t)(now - policy->resume_at) >= 0;
+            bool run = lv_obj_is_visible(policy->list) && !policy->scrolling &&
+                       !lv_obj_is_scrolling(policy->list) && delay_done &&
+                       lv_obj_is_visible(obj) && intersects && *allowed < 2;
+            if (run) {
+                (*allowed)++;
+                if (lv_anim_is_paused(anim)) lv_anim_resume(anim);
+            } else if (!lv_anim_is_paused(anim)) {
+                lv_anim_pause(anim);
+            }
+        }
+    }
+    uint32_t count = lv_obj_get_child_count(obj);
+    for (uint32_t i = 0; i < count; i++)
+        marquee_policy_walk(policy, lv_obj_get_child(obj, i), viewport, allowed);
+}
+
+static void marquee_policy_reconcile(marquee_list_policy_t * policy) {
+    if (!policy || !policy->list) return;
+    lv_obj_update_layout(policy->list);
+    policy->visible = lv_obj_is_visible(policy->list);
+    if (policy->timer) lv_timer_pause(policy->timer);
+    if (policy->resume_at && (int32_t)(lv_tick_get() - policy->resume_at) >= 0)
+        policy->resume_at = 0;
+    lv_area_t viewport;
+    lv_obj_get_coords(policy->list, &viewport);
+    uint32_t allowed = 0;
+    marquee_policy_walk(policy, policy->list, &viewport, &allowed);
+    if (policy->resume_at) {
+        int32_t remaining = (int32_t)(policy->resume_at - lv_tick_get());
+        marquee_policy_schedule(policy, remaining > 0 ? (uint32_t)remaining : 1);
+    }
+}
+
+static void marquee_policy_timer_cb(lv_timer_t * timer) {
+    marquee_policy_reconcile(lv_timer_get_user_data(timer));
+}
+
+static void marquee_policy_scroll_cb(lv_event_t * e) {
+    marquee_list_policy_t * policy = lv_event_get_user_data(e);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_CHILD_CHANGED) {
+        marquee_policy_schedule(policy, 20);
+        return;
+    }
+    if (code == LV_EVENT_SCROLL) {
+        if (lv_tick_elaps(policy->last_scroll) < 100) return;
+        policy->last_scroll = lv_tick_get();
+        marquee_policy_schedule(policy, 20);
+        return;
+    }
+    if (code == LV_EVENT_SCROLL_BEGIN) {
+        policy->scrolling = true;
+        policy->resume_at = 0;
+    } else if (code == LV_EVENT_SCROLL_END) {
+        policy->scrolling = false;
+        /* Let the final scroll redraw settle before restarting moving text. */
+        policy->resume_at = lv_tick_get() + 180;
+    }
+    marquee_policy_reconcile(policy);
+}
+
+static void marquee_policy_delete_cb(lv_event_t * e) {
+    marquee_list_policy_t * policy = lv_event_get_user_data(e);
+    marquee_list_policy_t ** link = &marquee_lists;
+    while (*link && *link != policy) link = &(*link)->next;
+    if (*link) *link = policy->next;
+    if (policy->timer) lv_timer_delete(policy->timer);
+    free(policy);
+}
+
+void ui_marquee_list_enable(lv_obj_t * list) {
+    if (!list) return;
+    for (marquee_list_policy_t * p = marquee_lists; p; p = p->next)
+        if (p->list == list) return;
+    marquee_list_policy_t * policy = calloc(1, sizeof(*policy));
+    if (!policy) return;
+    policy->list = list;
+    policy->next = marquee_lists;
+    marquee_lists = policy;
+    lv_obj_add_event_cb(list, marquee_policy_scroll_cb, LV_EVENT_SCROLL_BEGIN, policy);
+    lv_obj_add_event_cb(list, marquee_policy_scroll_cb, LV_EVENT_SCROLL_END, policy);
+    lv_obj_add_event_cb(list, marquee_policy_scroll_cb, LV_EVENT_SCROLL, policy);
+    lv_obj_add_event_cb(list, marquee_policy_scroll_cb, LV_EVENT_CHILD_CHANGED, policy);
+    lv_obj_add_event_cb(list, marquee_policy_delete_cb, LV_EVENT_DELETE, policy);
+    policy->timer = lv_timer_create(marquee_policy_timer_cb, 20, policy);
 }
 
 /* The scroll animation, and with it the 2s start pause, is created when the
@@ -438,12 +584,34 @@ void ui_restart_marquees(lv_obj_t * root) {
 }
 
 static void marquee_screen_loaded_cb(lv_event_t * e) {
-    ui_restart_marquees(lv_event_get_param(e));
+    lv_obj_t * screen = lv_event_get_param(e);
+    bool loaded = lv_event_get_code(e) == LV_EVENT_SCREEN_LOADED;
+    if (loaded) ui_restart_marquees(screen);
+    for (marquee_list_policy_t * p = marquee_lists; p; p = p->next) {
+        if (lv_obj_get_screen(p->list) != screen) continue;
+        if (loaded) marquee_policy_schedule(p, 20);
+        else marquee_policy_reconcile(p);
+    }
+}
+
+static void marquee_visibility_changed_cb(lv_event_t * e) {
+    (void)e;
+    /* Hidden flags only dirty layout, so detect visibility changes after layout. */
+    for (marquee_list_policy_t * p = marquee_lists; p; p = p->next) {
+        bool visible = lv_obj_is_visible(p->list);
+        if (visible == p->visible) continue;
+        p->visible = visible;
+        marquee_policy_schedule(p, 20);
+    }
 }
 
 void ui_marquee_init(void) {
+    lv_display_add_event_cb(lv_display_get_default(), marquee_visibility_changed_cb,
+                            LV_EVENT_UPDATE_LAYOUT_COMPLETED, NULL);
     lv_display_add_event_cb(lv_display_get_default(), marquee_screen_loaded_cb,
                             LV_EVENT_SCREEN_LOADED, NULL);
+    lv_display_add_event_cb(lv_display_get_default(), marquee_screen_loaded_cb,
+                            LV_EVENT_SCREEN_UNLOADED, NULL);
 }
 
 int32_t ui_list_row_height(void) {

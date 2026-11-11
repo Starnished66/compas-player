@@ -2,6 +2,11 @@
 #define HOSTNAME_APPLY_H
 
 #include <stdbool.h>
+#include <stddef.h>
+
+/* The name this device advertises on the network (DHCP hostname, AirPlay),
+ * read from /usr/resource/hostname like the stock Wi-Fi scripts do. */
+void hostname_device_name(char * out, size_t out_size);
 
 /* Applies the configured hostname by writing it to writable storage (/usr/data)
  * and bind-mounting it over the read-only /usr/resource/hostname and

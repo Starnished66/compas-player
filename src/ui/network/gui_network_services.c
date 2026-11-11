@@ -389,7 +389,7 @@ static void dlna_toggle_cb(lv_event_t * e);
 
 static void populate_dlna_screen(void) {
     lv_obj_clean(dlna_list);
-    add_pill_toggle_row(dlna_list, TR("DLNA Renderer"), current_settings.dlna_renderer_enabled, dlna_toggle_cb);
+    add_pill_toggle_row(dlna_list, TR("DLNA renderer"), current_settings.dlna_renderer_enabled, dlna_toggle_cb);
 
     add_network_explanation(dlna_list,
                       TR("When on, this device is visible to DLNA/UPnP controller apps on your Wi-Fi network. Cast "
@@ -475,7 +475,7 @@ void remote_control_refresh_pin_label(void) {
 /* Bluetooth route line of the Remote Control screen. */
 static const char * remote_control_bt_line(bool powered, bt_remote_control_status_t status,
                                            bool available) {
-    if (available) return TR("Bluetooth: Compas Remote Control");
+    if (available) return TR("Bluetooth: Compas remote control");
     if (powered && status == BT_REMOTE_CONTROL_FAILED) return TR("Bluetooth: registration failed; retrying");
     if (powered) return TR("Bluetooth: waiting for service registration");
     return "";
@@ -496,8 +496,9 @@ void remote_control_refresh_address(void) {
     }
 
     wifi_settings_snapshot_start();
-    bool wifi_available = gui_shell_wifi_effective_enabled() && wifi_cached_info_is_current() &&
-                          wifi_cached_info_connected && wifi_cached_info.ip[0] != '\0';
+    bool wifi_associated = gui_shell_wifi_effective_enabled() && wifi_cached_info_is_current() &&
+                           wifi_cached_info_connected;
+    bool wifi_available = wifi_associated && wifi_cached_info.ip[0] != '\0';
     bool bluetooth_available = false;
     bool bluetooth_powered = false;
     bt_remote_control_status_t bluetooth_status = BT_REMOTE_CONTROL_DISABLED;
@@ -511,6 +512,8 @@ void remote_control_refresh_address(void) {
             lv_label_set_text(remote_control_status_label, TR("Bluetooth remote service is unavailable; retrying."));
         else if (bluetooth_powered)
             lv_label_set_text(remote_control_status_label, TR("Bluetooth remote service is starting…"));
+        else if (wifi_associated) /* DHCP still running */
+            lv_label_set_text(remote_control_status_label, TR("Waiting for a network address"));
         else
             lv_label_set_text(remote_control_status_label, TR("Enable Wi-Fi or Bluetooth to connect."));
         lv_label_set_text(remote_control_url_label, "");
@@ -631,9 +634,9 @@ static void build_remote_control_new_pin_popup(void) {
  * details follow as wrapped text lines. */
 static lv_obj_t * build_remote_control_screen(void) {
     lv_obj_t * list;
-    lv_obj_t * scr = network_list_screen(TR("Remote Control"), &list);
+    lv_obj_t * scr = network_list_screen(TR("Remote control"), &list);
 
-    lv_obj_t * toggle_row = add_pill_toggle_row(list, TR("Remote Control"), current_settings.remote_control_enabled,
+    lv_obj_t * toggle_row = add_pill_toggle_row(list, TR("Remote control"), current_settings.remote_control_enabled,
                                                 remote_control_toggle_cb);
     /* add_pill_toggle_row() creates the label first and the switch last;
      * gui_network_toggle_remote_control() drives this switch's state. */

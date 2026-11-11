@@ -133,8 +133,10 @@ const char * gui_album_header_row_title(const char * title, char * buf, size_t s
 
 void gui_album_header_decorate_row(lv_obj_t * row, int index) {
     bool known = A.state && index >= 0 && index < A.count && A.state[index] == 1;
-    gui_album_view_decorate_row(row, shown_track_number(index), A.view.num_w,
-                                known ? (int) (A.dur[index].duration_ms / 1000.0 + 0.5) : -1);
+    int seconds = known ? (int) (A.dur[index].duration_ms / 1000.0 + 0.5) : -1;
+    if (lv_obj_check_type(row, &lv_label_class))
+        gui_album_view_decorate_compact_row(row, shown_track_number(index), A.view.num_w, seconds);
+    else gui_album_view_decorate_row(row, shown_track_number(index), A.view.num_w, seconds);
 }
 
 void gui_album_header_row_set_duration(lv_obj_t * row, unsigned seconds) {

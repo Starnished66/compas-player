@@ -30,7 +30,7 @@
  * owned copy of the small result set, so the DB-returned path array can be
  * released immediately.
  *
- * User-created .m3u playlists (Player screen's "Add to Playlist", or
+ * User-created .m3u playlists (Player screen's "Add to playlist", or
  * dropped into MUSIC_ROOT_DIR/Playlists by hand) are listed below those
  * from that folder only. ---- */
 
@@ -316,11 +316,11 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
         } else if (strcmp(playlist_name, "@most_played") == 0 || strcmp(playlist_name, "Most Played") == 0) {
             metadata_db_load_top_played_songs(MOST_PLAYED_LIMIT, &paths, &count);
             loaded = true;
-            snprintf(scoped_title, sizeof(scoped_title), "%s", TR("Most Played"));
+            snprintf(scoped_title, sizeof(scoped_title), "%s", TR("Most played"));
         } else if (strcmp(playlist_name, "@recently_added") == 0 || strcmp(playlist_name, "Recently Added") == 0) {
             metadata_db_load_recently_added_songs(RECENTLY_ADDED_LIMIT, &paths, &count);
             loaded = true;
-            snprintf(scoped_title, sizeof(scoped_title), "%s", TR("Recently Added"));
+            snprintf(scoped_title, sizeof(scoped_title), "%s", TR("Recently added"));
         } else if (strcmp(playlist_name, "@recently_played") == 0) {
             metadata_db_load_recently_played_songs(METADATA_DB_RECENTLY_PLAYED_MAX, &paths, &count);
             loaded = true;
@@ -422,7 +422,7 @@ static void show_most_played(void) {
     metadata_db_load_top_played_songs(MOST_PLAYED_LIMIT, &paths, &count);
 
     group_song_entry_t * entries = build_group_song_entries_from_paths(paths, count);
-    if (entries) show_group_songs(TR("Most Played"), entries, count);
+    if (entries) show_group_songs(TR("Most played"), entries, count);
     free_group_song_entries(entries, count);
     for (int i = 0; i < count; i++) free(paths[i]);
     free(paths);

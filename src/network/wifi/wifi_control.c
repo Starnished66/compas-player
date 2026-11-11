@@ -1,4 +1,5 @@
 #include "wifi_control.h"
+#include "wifi_dhcp.h"
 #include "wifi_status.h"
 #include "../../core/process/subprocess.h"
 #include "../radio/aic_radio.h"
@@ -72,9 +73,6 @@ bool wifi_control_is_enabled(void) {
     return access("/var/run/wpa_supplicant/" WIFI_INTERFACE, F_OK) == 0;
 }
 
-/* Enables WiFi by running wifi_on.sh, then polls wpa_cli status up to ~10s
- * for an IP address or completed association. If associated without an IP address,
- * terminates existing udhcpc instances and triggers udhcpc to obtain a lease. */
 void wifi_control_enable(void) {
     char * argv[] = { (char *) "/usr/bin/wifi_on.sh", NULL };
     if (aic_radio_active()) {
@@ -87,26 +85,11 @@ void wifi_control_enable(void) {
     } else {
         subprocess_run(argv, NULL, 0);
     }
-
-    bool associated = false, got_ip = false;
-    for (int i = 0; i < 20 && !got_ip; i++) {
-        usleep(500000);
-        char status_buf[512];
-        char * status_argv[] = { (char *) "wpa_cli", (char *) "-i", (char *) WIFI_INTERFACE, (char *) "status",
-                                 NULL };
-        if (!subprocess_run(status_argv, status_buf, sizeof(status_buf))) continue;
-        associated = strstr(status_buf, "wpa_state=COMPLETED") != NULL;
-        got_ip = strstr(status_buf, "\nip_address=") != NULL;
-    }
-    if (associated && !got_ip) {
-        subprocess_kill_all_matching("udhcpc");
-        char * dhcp_argv[] = { (char *) "udhcpc", (char *) "-b", (char *) "-i", (char *) WIFI_INTERFACE,
-                               (char *) "-q", NULL };
-        subprocess_run(dhcp_argv, NULL, 0);
-    }
+    wifi_dhcp_start(); /* takes over from the script's own one-shot udhcpc */
 }
 
 void wifi_control_disable(void) {
+    wifi_dhcp_stop(); /* before the script kills wpa_supplicant, so the client is reaped here */
     char * argv[] = { (char *) "/usr/bin/wifi_off.sh", NULL };
     if (aic_radio_active()) {
         aic_radio_wifi_disable();

@@ -80,6 +80,7 @@ static void refresh_text_reader_favorite_icon(void) {
     const char * asset = asset_path(is_favorite ? "playing_plane/collect_in.png" : "playing_plane/collect_out.png");
     const char * breeze = titlebar_breeze_icon(asset);
     lv_image_set_src(text_reader_favorite_icon, breeze ? breeze : asset);
+    style_titlebar_icon(text_reader_favorite_icon, breeze != NULL);
 }
 
 static void text_reader_favorite_icon_event_cb(lv_event_t * e) {

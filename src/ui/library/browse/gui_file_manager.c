@@ -91,7 +91,7 @@ static bool storage_writable(void) {
 static void update_title(void) {
     if (!title_label) return;
     if (!file_browser_is_selecting(browser)) {
-        lv_label_set_text(title_label, TR("File Manager"));
+        lv_label_set_text(title_label, TR("File manager"));
         return;
     }
     int count = (int) file_browser_selected_count(browser);
@@ -434,7 +434,7 @@ static void build_screen(void) {
     screen = lv_obj_create(NULL);
     lv_obj_add_style(screen, &style_theme_screen_bg, 0);
     lv_obj_add_event_cb(screen, screen_delete_cb, LV_EVENT_DELETE, NULL);
-    title_label = build_screen_header(screen, TR("File Manager"), back_cb, asset_path("navigation/more.png"),
+    title_label = build_screen_header(screen, TR("File manager"), back_cb, asset_path("navigation/more.png"),
                                       menu_button_cb);
     const file_browser_options_t options = {
         .on_select = on_file_browser_selected,

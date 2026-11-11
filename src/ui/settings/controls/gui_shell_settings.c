@@ -280,7 +280,7 @@ static void add_quick_drawer_toggles(lv_obj_t * list) {
     struct { const char * label; bool value; intptr_t which; } toggles[] = {
         { N_("Enabled"), current_settings.ui_customization.drawer_enabled, 0 },
         { N_("Equalizer"), current_settings.ui_customization.drawer_eq_visible, 1 },
-        { N_("Volume Slider"), current_settings.quick_drawer_volume_visible, 2 },
+        { N_("Volume slider"), current_settings.quick_drawer_volume_visible, 2 },
     };
     for (size_t i = 0; i < sizeof(toggles) / sizeof(toggles[0]); ++i) {
         lv_obj_t * row = add_pill_toggle_row(list, TR(toggles[i].label), toggles[i].value, NULL);
@@ -302,20 +302,16 @@ static const topbar_visibility_option_t topbar_visibility_options[] = {
     { N_("Clock"), TOPBAR_HIDE_CLOCK },
     { N_("Wi-Fi"), TOPBAR_HIDE_WIFI },
     { N_("Bluetooth"), TOPBAR_HIDE_BLUETOOTH },
-    { N_("Wired Headphones"), TOPBAR_HIDE_HEADPHONES },
-    { N_("Bluetooth Audio (A2DP)"), TOPBAR_HIDE_A2DP },
-    { N_("USB Audio"), TOPBAR_HIDE_USB_AUDIO },
-    { N_("Playback Status"), TOPBAR_HIDE_PLAYBACK },
-    { N_("Bluetooth Codec"), TOPBAR_HIDE_CODEC },
-    { N_("Battery Icon"), TOPBAR_HIDE_BATTERY },
+    { N_("Wired headphones"), TOPBAR_HIDE_HEADPHONES },
+    { N_("Bluetooth audio (A2DP)"), TOPBAR_HIDE_A2DP },
+    { N_("USB audio"), TOPBAR_HIDE_USB_AUDIO },
+    { N_("Playback status"), TOPBAR_HIDE_PLAYBACK },
+    { N_("Bluetooth codec"), TOPBAR_HIDE_CODEC },
+    { N_("Battery icon"), TOPBAR_HIDE_BATTERY },
 };
 
 static void populate_topbar_settings_screen(void);
 static void populate_topbar_clock_position_screen(void);
-static void topbar_clock_position_rebuild_async_cb(void * user_data) {
-    (void)user_data;
-    populate_topbar_clock_position_screen();
-}
 
 static void topbar_set_clicked_row_switch(lv_event_t * e, bool checked) {
     lv_obj_t * row = lv_event_get_target(e);
@@ -364,26 +360,30 @@ static void topbar_clock_position_option_cb(lv_event_t * e) {
     int index = (int)(intptr_t)lv_event_get_user_data(e);
     if (index < 0 || (size_t)index >= sizeof(topbar_clock_position_options) / sizeof(topbar_clock_position_options[0])) return;
     current_settings.topbar_clock_position = topbar_clock_position_options[index].position;
+    gui_pill_option_list_set_selected(settings_topbar_clock_position_list, lv_event_get_current_target(e));
     settings_save_async(&current_settings);
     gui_shell_apply_topbar_settings();
-    lv_async_call(topbar_clock_position_rebuild_async_cb, NULL);
 }
 
 static void populate_topbar_clock_position_screen(void) {
     if (!settings_topbar_clock_position_list) return;
-    lv_obj_clean(settings_topbar_clock_position_list);
-    for (size_t i = 0; i < sizeof(topbar_clock_position_options) / sizeof(topbar_clock_position_options[0]); ++i) {
-        add_pill_option_row(settings_topbar_clock_position_list,
-                            TR(topbar_clock_position_options[i].label),
-                            current_settings.topbar_clock_position == topbar_clock_position_options[i].position,
-                            topbar_clock_position_option_cb, (void *)(intptr_t)i);
+    size_t count = sizeof(topbar_clock_position_options) / sizeof(topbar_clock_position_options[0]);
+    if (lv_obj_get_child_count(settings_topbar_clock_position_list) == 0) {
+        for (size_t i = 0; i < count; ++i) {
+            add_pill_option_row(settings_topbar_clock_position_list,
+                                TR(topbar_clock_position_options[i].label), false,
+                                topbar_clock_position_option_cb, (void *)(intptr_t)i);
+        }
     }
+    for (size_t i = 0; i < count; ++i)
+        gui_pill_option_row_set_selected(lv_obj_get_child(settings_topbar_clock_position_list, i),
+            current_settings.topbar_clock_position == topbar_clock_position_options[i].position);
 }
 
 static lv_obj_t * build_topbar_clock_position_screen(void) {
     lv_obj_t * title_label;
     settings_topbar_clock_position_screen = build_subsonic_list_screen(
-        TR("Clock Position"), &title_label, &settings_topbar_clock_position_list);
+        TR("Clock position"), &title_label, &settings_topbar_clock_position_list);
     populate_topbar_clock_position_screen();
     finalize_screen_navigation(settings_topbar_clock_position_screen);
     return settings_topbar_clock_position_screen;
@@ -399,24 +399,28 @@ static void topbar_clock_position_row_cb(lv_event_t * e) {
 
 static void populate_topbar_settings_screen(void) {
     if (!settings_topbar_list) return;
-    lv_obj_clean(settings_topbar_list);
-    for (size_t i = 0; i < sizeof(topbar_visibility_options) / sizeof(topbar_visibility_options[0]); ++i) {
-        lv_obj_t * row = add_pill_toggle_row(settings_topbar_list,
-            TR(topbar_visibility_options[i].label),
-            (current_settings.topbar_hidden_elements & topbar_visibility_options[i].hidden_bit) == 0,
-            NULL);
-        lv_obj_add_event_cb(row, topbar_visibility_toggle_cb, LV_EVENT_CLICKED,
-                            (void *)(uintptr_t)topbar_visibility_options[i].hidden_bit);
+    size_t count = sizeof(topbar_visibility_options) / sizeof(topbar_visibility_options[0]);
+    if (lv_obj_get_child_count(settings_topbar_list) == 0) {
+        for (size_t i = 0; i < count; ++i) {
+            lv_obj_t * row = add_pill_toggle_row(settings_topbar_list,
+                TR(topbar_visibility_options[i].label), false, NULL);
+            lv_obj_add_event_cb(row, topbar_visibility_toggle_cb, LV_EVENT_CLICKED,
+                                (void *)(uintptr_t)topbar_visibility_options[i].hidden_bit);
+        }
+        add_pill_toggle_row(settings_topbar_list, TR("Battery percentage"), false,
+                            topbar_battery_percentage_toggle_cb);
+        add_pill_chevron_row(settings_topbar_list, TR("Clock position"), topbar_clock_position_row_cb);
     }
-    add_pill_toggle_row(settings_topbar_list, TR("Battery Percentage"),
-                        current_settings.show_battery_percent,
-                        topbar_battery_percentage_toggle_cb);
-    add_pill_chevron_row(settings_topbar_list, TR("Clock Position"), topbar_clock_position_row_cb);
+    for (size_t i = 0; i < count; ++i)
+        gui_pill_toggle_row_set_checked(lv_obj_get_child(settings_topbar_list, i),
+            (current_settings.topbar_hidden_elements & topbar_visibility_options[i].hidden_bit) == 0);
+    gui_pill_toggle_row_set_checked(lv_obj_get_child(settings_topbar_list, count),
+                                    current_settings.show_battery_percent);
 }
 
 static lv_obj_t * build_topbar_settings_screen(void) {
     lv_obj_t * title_label;
-    settings_topbar_screen = build_subsonic_list_screen(TR("Top Bar"), &title_label,
+    settings_topbar_screen = build_subsonic_list_screen(TR("Top bar"), &title_label,
                                                          &settings_topbar_list);
     populate_topbar_settings_screen();
     finalize_screen_navigation(settings_topbar_screen);

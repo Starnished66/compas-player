@@ -24,6 +24,7 @@ static const struct {
     const char * stock;
     const char * breeze;
 } titlebar_breeze_icons[] = {
+    { "breeze_rows/library_sorting.png", "titlebar/breeze_sort.png" },
     { "navigation/back.png", "titlebar/breeze_back.png" },
     { "navigation/search.png", "titlebar/breeze_search.png" },
     { "navigation/more.png", "titlebar/breeze_menu.png" },
@@ -51,9 +52,12 @@ const char * titlebar_breeze_icon(const char * asset) {
     return NULL;
 }
 
-/* Breeze glyphs are pre-tinted in the text color (text_glyph_asset()); only
- * "Tint title bar icons" recolors them, to follow the live accent. */
-void style_titlebar_breeze_icon(lv_obj_t * image) {
+/* Stock art follows the text color; Breeze art is already pre-tinted.
+ * Add the optional accent last so it wins over the stock fallback. */
+void style_titlebar_icon(lv_obj_t * image, bool breeze) {
+    lv_obj_remove_style(image, &style_theme_text_primary, 0);
+    lv_obj_remove_style(image, gui_theme_titlebar_tint_style(), 0);
+    if (!breeze) lv_obj_add_style(image, &style_theme_text_primary, 0);
     lv_obj_add_style(image, gui_theme_titlebar_tint_style(), 0);
 }
 
@@ -143,8 +147,7 @@ static lv_obj_t * build_header_icon_button(lv_obj_t * scr, const char * asset,
     if (asset) {
         const char * breeze = titlebar_breeze_icon(asset);
         lv_obj_t * image = header_button_add_image(btn, breeze ? breeze : asset, back);
-        if (breeze) style_titlebar_breeze_icon(image);
-        else if (back) lv_obj_add_style(image, &style_theme_text_primary, 0);
+        style_titlebar_icon(image, breeze != NULL);
     }
     return btn;
 }
@@ -189,9 +192,14 @@ void align_screen_header_action(lv_obj_t * action, int32_t right_inset) {
  * placed like the Wi-Fi/Bluetooth Rescan action. The glyph is small, so its
  * touch area is widened. */
 static void header_refresh_rotation_cb(void * var, int32_t angle) {
-    /* Images rotate in their own draw; the fallback glyph needs a transform. */
-    if (lv_obj_check_type((lv_obj_t *) var, &lv_image_class)) lv_image_set_rotation((lv_obj_t *) var, angle);
-    else lv_obj_set_style_transform_rotation((lv_obj_t *) var, angle, 0);
+    /* Fourteen steps per 900 ms turn keep redraws near 15 Hz. */
+    angle = ((angle * 14 / 3600) % 14) * 3600 / 14;
+    lv_obj_t * icon = var;
+    if (lv_obj_check_type(icon, &lv_image_class)) {
+        if (lv_image_get_rotation(icon) != angle) lv_image_set_rotation(icon, angle);
+    } else if (lv_obj_get_style_transform_rotation(icon, 0) != angle) {
+        lv_obj_set_style_transform_rotation(icon, angle, 0);
+    }
 }
 
 lv_obj_t * build_header_refresh_action(lv_obj_t * scr, lv_event_cb_t click_cb) {
@@ -204,14 +212,14 @@ lv_obj_t * build_header_refresh_action(lv_obj_t * scr, lv_event_cb_t click_cb) {
     if (breeze && access(breeze, R_OK) == 0) {
         lv_obj_t * image = header_button_add_image(
             button, text_glyph_asset("titlebar/breeze_refresh.png"), false);
-        style_titlebar_breeze_icon(image);
+        style_titlebar_icon(image, true);
         set_header_refresh_action_busy(button, false);
         return button;
     }
 
     lv_obj_t * icon = lv_label_create(button);
     lv_label_set_text(icon, LV_SYMBOL_REFRESH);
-    lv_obj_add_style(icon, gui_theme_accent_style(), 0);
+    style_titlebar_icon(icon, false);
     lv_obj_set_style_text_font(icon, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_align(icon, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_transform_pivot_x(icon, lv_pct(50), 0);

@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Small path-cache-adjacent sidecar for gui.c's "Saved Servers" Subsonic
+/* Small path-cache-adjacent sidecar for gui.c's "Saved servers" Subsonic
  * setup flow -- a multi-field, URL-keyed upsert record, unlike the plain
  * path lists path_cache.c holds (a server profile isn't a path) and
  * unlike remote_state.c's accumulate-by-play-count shape (this is a

@@ -6,6 +6,7 @@
 #include "../appearance/gui_theme.h"
 #include "../application/gui.h"
 #include "../widgets/builders/screen_builders.h"
+#include "../widgets/lists/scroll_blit.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -310,9 +311,31 @@ lv_obj_t * gui_busy_get_screen(void) {
 lv_obj_t * build_menu_popup(const menu_popup_row_t * rows, int row_count, lv_event_cb_t backdrop_cb,
                             lv_obj_t ** out_backdrop) {
     lv_obj_t * popup = build_popup_surface(backdrop_cb, out_backdrop);
+    /* Keep the returned card opaque and stationary. The inner transparent
+     * body owns scrolling so the card can shield the list from the screen. */
+    lv_obj_remove_flag(popup, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(popup, LV_DIR_NONE);
+    lv_obj_t * body = lv_obj_create(popup);
+    lv_obj_set_size(body, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(body, 0, 0);
+    lv_obj_set_style_radius(body, 0, 0);
+    lv_obj_set_style_pad_all(body, 0, 0);
+    int32_t popup_border = lv_obj_get_style_border_width(popup, LV_PART_MAIN);
+    int32_t popup_pad = lv_obj_get_style_pad_top(popup, LV_PART_MAIN);
+    lv_obj_set_style_max_height(body,
+        lv_display_get_vertical_resolution(lv_display_get_default()) - 2 * STATUS_BAR_CLEARANCE -
+            2 * popup_pad - 2 * popup_border, 0);
+    lv_obj_set_scroll_dir(body, LV_DIR_VER);
+    screen_builders_configure_content_scrollbar(body);
+    lv_obj_set_style_pad_row(body, GUI_ROW_GAP, 0);
+    lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    ui_marquee_list_enable(body);
+    ui_scroll_blit_enable(body);
 
     for (int i = 0; i < row_count; i++) {
-        lv_obj_t * row = lv_obj_create(popup);
+        lv_obj_t * row = lv_obj_create(body);
         style_popup_action_row(row);
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, rows[i].cb, LV_EVENT_CLICKED, rows[i].user_data);
@@ -322,12 +345,19 @@ lv_obj_t * build_menu_popup(const menu_popup_row_t * rows, int row_count, lv_eve
         lv_label_set_text(label, rows[i].label);
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
-        if (rows[i].destructive) lv_obj_set_style_text_color(label, lv_color_hex(GUI_BREEZE_NEGATIVE), 0);
-        else if (rows[i].cancel) lv_obj_set_style_text_color(label, lv_color_make(255, 120, 120), 0);
+        if (rows[i].destructive && !rows[i].cancel)
+            lv_obj_set_style_text_color(label, lv_color_hex(GUI_BREEZE_NEGATIVE), 0);
         lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     }
 
     return popup;
+}
+
+lv_obj_t * build_menu_popup_row(lv_obj_t * popup, uint32_t row_index) {
+    if (!popup || lv_obj_get_child_count(popup) == 0) return NULL;
+    lv_obj_t * body = lv_obj_get_child(popup, 0);
+    if (!body || row_index >= lv_obj_get_child_count(body)) return NULL;
+    return lv_obj_get_child(body, row_index);
 }

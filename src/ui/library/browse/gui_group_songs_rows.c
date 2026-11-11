@@ -1,4 +1,4 @@
-/* The Songs page rows: the incremental row builder, populate, covers and the now-playing marker. */
+/* The Songs page rows: compact browsing, editable rows, covers and now-playing state. */
 #include "../../text/i18n/i18n.h"
 #include "gui_album_header.h"
 #include "gui_album_view.h"
@@ -13,7 +13,203 @@
 #include <string.h>
 #include "gui_group_songs_internal.h"
 
+typedef enum { GROUP_COMPACT_SONG, GROUP_COMPACT_PREV, GROUP_COMPACT_NEXT, GROUP_COMPACT_DISC } group_compact_kind_t;
+typedef struct {
+    compact_list_item_t item;
+    char * title;
+    char * subtitle;
+    size_t subtitle_capacity;
+    int source_index;
+    group_compact_kind_t kind;
+} group_compact_row_t;
+static group_compact_row_t * group_compact_rows;
+static compact_list_item_t * group_compact_items;
+static int group_compact_count;
+static lv_obj_t * group_compact_header;
+int group_songs_compact_row_count(void) { return group_compact_count; }
+int group_songs_compact_row_source(int row) {
+    return row >= 0 && row < group_compact_count && group_compact_rows[row].kind == GROUP_COMPACT_SONG
+        ? group_compact_rows[row].source_index : -1;
+}
+
+void group_songs_compact_update_label(int source_index, const char * detail, unsigned seconds) {
+    if (!group_compact_rows || !compact_list_is_live(group_songs_list)) return;
+    for (int i = 0; i < group_compact_count; ++i) {
+        group_compact_row_t * row = &group_compact_rows[i];
+        if (row->kind != GROUP_COMPACT_SONG || row->source_index != source_index) continue;
+        if (group_songs_album_layout()) {
+            compact_list_refresh_item(group_songs_list, i);
+        } else {
+            if (row->subtitle) snprintf(row->subtitle, row->subtitle_capacity, "%s", detail ? detail : "");
+            compact_list_refresh_item(group_songs_list, i);
+        }
+        (void) seconds;
+        return;
+    }
+}
+
+static void group_compact_release(void) {
+    if (group_compact_rows)
+        for (int i = 0; i < group_compact_count; ++i) {
+            free(group_compact_rows[i].title);
+            free(group_compact_rows[i].subtitle);
+        }
+    free(group_compact_rows); group_compact_rows = NULL;
+    free(group_compact_items); group_compact_items = NULL;
+    group_compact_count = 0;
+}
+
+void group_songs_compact_clear(void) {
+    if (compact_list_is_live(group_songs_list)) compact_list_set_items(group_songs_list, NULL, 0);
+    group_compact_release();
+    group_compact_header = NULL;
+}
+
+static void group_compact_click(int index) {
+    if (index < 0 || index >= group_compact_count) return;
+    group_compact_row_t * row = &group_compact_rows[index];
+    if (row->kind == GROUP_COMPACT_PREV) {
+        group_songs_page_start -= GROUP_SONGS_PAGE_SIZE;
+        if (group_songs_page_start < 0) group_songs_page_start = 0;
+        populate_group_songs_rows(); return;
+    }
+    if (row->kind == GROUP_COMPACT_NEXT) {
+        group_songs_page_start += GROUP_SONGS_PAGE_SIZE;
+        populate_group_songs_rows(); return;
+    }
+    if (row->kind == GROUP_COMPACT_SONG) group_songs_compact_play(row->source_index);
+}
+
+static void group_compact_long_press(int index) {
+    if (index < 0 || index >= group_compact_count) return;
+    group_compact_row_t * row = &group_compact_rows[index];
+    if (row->kind == GROUP_COMPACT_SONG) group_songs_compact_context(row->source_index);
+}
+
+static void group_compact_add(group_compact_kind_t kind, const char * title, const char * subtitle, int source) {
+    group_compact_row_t * row = &group_compact_rows[group_compact_count];
+    row->title = strdup(title ? title : "");
+    size_t subtitle_len = subtitle ? strlen(subtitle) : 0;
+    row->subtitle_capacity = subtitle_len + 1;
+    if (row->subtitle_capacity < 256) row->subtitle_capacity = 256;
+    row->subtitle = calloc(row->subtitle_capacity, 1);
+    if (row->subtitle && subtitle) snprintf(row->subtitle, row->subtitle_capacity, "%s", subtitle);
+    row->source_index = source;
+    row->kind = kind;
+    row->item.label = row->title ? row->title : "";
+    row->item.subtitle = row->subtitle ? row->subtitle : "";
+    row->item.identity = kind == GROUP_COMPACT_SONG ? group_songs_entries[source].song_id : 0;
+    row->item.artwork_key = kind == GROUP_COMPACT_SONG ? group_songs_entries[source].artwork_key : 0;
+    row->item.trailing_asset = kind == GROUP_COMPACT_SONG
+        ? song_quality_asset_for_path(group_songs_entries[source].path) : NULL;
+    row->item.is_action = kind == GROUP_COMPACT_PREV || kind == GROUP_COMPACT_NEXT;
+    row->item.is_section_header = kind == GROUP_COMPACT_DISC;
+    group_compact_items[group_compact_count] = row->item;
+    group_compact_count++;
+}
+
+static void group_compact_populate(int page_end, bool album_layout, bool restore_scroll, int32_t old_scroll) {
+    int start = group_songs_page_start;
+    int count = page_end - start;
+    /* A page can add one disc heading per song plus both navigation rows. */
+    int capacity = count * 2 + 2;
+    group_compact_release();
+    group_compact_rows = calloc((size_t)capacity, sizeof(*group_compact_rows));
+    group_compact_items = calloc((size_t)capacity, sizeof(*group_compact_items));
+    if (!group_compact_rows || !group_compact_items) {
+        group_compact_release(); return;
+    }
+    if (start > 0) {
+        char nav[96]; snprintf(nav, sizeof(nav), TR("Previous  •  %d–%d of %d"), start + 1, page_end, group_songs_count);
+        group_compact_add(GROUP_COMPACT_PREV, nav, NULL, -1);
+    }
+    for (int i = start; i < page_end; ++i) {
+        if (group_songs_entries[i].show_disc_header) {
+            char disc[32]; snprintf(disc, sizeof(disc), TR("Disc %d"), group_songs_entries[i].disc_number);
+            group_compact_add(GROUP_COMPACT_DISC, disc, NULL, -1);
+        }
+        const char * full = group_songs_entries[i].title ? group_songs_entries[i].title : "";
+        const char * detail = strchr(full, '\n');
+        size_t n = detail ? (size_t)(detail - full) : strlen(full);
+        char * title = malloc(n + 1);
+        if (!title) continue;
+        memcpy(title, full, n); title[n] = 0;
+        if (detail) detail++;
+        /* Compact-list item strings outlive this temporary split of the source title. */
+        group_compact_add(GROUP_COMPACT_SONG, title, album_layout ? NULL : detail, i);
+        free(title);
+    }
+    if (page_end < group_songs_count) {
+        char nav[96]; snprintf(nav, sizeof(nav), TR("Next  •  %d–%d of %d"), start + 1, page_end, group_songs_count);
+        group_compact_add(GROUP_COMPACT_NEXT, nav, NULL, -1);
+    }
+    compact_list_set_items(group_songs_list, group_compact_items, group_compact_count);
+    compact_list_set_row_height(group_songs_list, album_layout ? BOARD_SCALE_PX(76) : ui_music_row_height());
+    compact_list_set_now_playing(group_songs_list, -1);
+    if (group_songs_anchor_pending) {
+        for (int i = 0; i < group_compact_count; ++i) {
+            if (group_compact_rows[i].kind != GROUP_COMPACT_SONG ||
+                group_compact_rows[i].source_index != group_songs_anchor_index) continue;
+            int32_t top, bottom, viewport;
+            if (compact_list_row_span(group_songs_list, i, &top, &bottom, &viewport))
+                lv_obj_scroll_to_y(group_songs_list, top - group_songs_anchor_offset, LV_ANIM_OFF);
+            (void)bottom; (void)viewport;
+            group_songs_anchor_pending = false;
+            restore_scroll = false;
+            break;
+        }
+        group_songs_anchor_pending = false;
+    }
+    if (restore_scroll) lv_obj_scroll_to_y(group_songs_list, old_scroll, LV_ANIM_OFF);
+}
+
 static bool group_songs_rows_rebuilding;
+static bool group_songs_compact_mode;
+static void group_compact_click(int index);
+static void group_compact_long_press(int index);
+static void group_compact_decorate(lv_obj_t * list, lv_obj_t * row, lv_obj_t * image,
+                                   int logical, int slot, int64_t identity,
+                                   uint64_t artwork_key, const char * artwork_name, void * ctx) {
+    (void) artwork_name; (void) ctx;
+    if (logical < 0 || logical >= group_compact_count) return;
+    group_compact_row_t * item = &group_compact_rows[logical];
+    if (item->kind != GROUP_COMPACT_SONG) {
+        gui_album_view_clear_compact_row(row);
+        lv_obj_set_style_pad_left(row, LIST_ROW_LABEL_INSET, 0);
+        lv_image_set_src(image, NULL);
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (group_songs_album_layout()) {
+        lv_image_set_src(image, NULL);
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+        gui_album_header_decorate_row(row, item->source_index);
+        return;
+    }
+    gui_album_view_clear_compact_row(row);
+    if (identity > 0 && artwork_key)
+        library_thumbnails_decorate_group_row(list, row, image, logical, slot, identity, artwork_key);
+    else {
+        lv_obj_set_style_pad_left(row, BOARD_SCALE_PX(14), 0);
+        lv_image_set_src(image, NULL);
+        lv_obj_add_flag(image, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+lv_obj_t * group_songs_create_list(lv_obj_t * parent, bool compact) {
+    group_songs_compact_mode = compact;
+    lv_obj_t * list = compact
+        ? build_compact_list_widget(parent, NULL, 0, group_compact_click, group_compact_long_press,
+                                    LIST_ROW_WIDTH, true, gui_theme_accent_style())
+        : build_song_list_body(parent);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_width(list, BOARD_SCALE_PX(3), LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(list, BOARD_SCALE_PX(2), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(list, LV_OPA_50, LV_PART_SCROLLBAR);
+    lv_obj_add_style(list, gui_theme_accent_style(), LV_PART_SCROLLBAR);
+    if (compact) compact_list_set_row_decorator(list, group_compact_decorate, NULL);
+    return list;
+}
 
 static void group_songs_prev_page_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || group_songs_page_start <= 0) return;
@@ -92,50 +288,6 @@ bool landing_pointer_busy(void) {
     return false;
 }
 
-/* ---- Long song pages are built in pieces ------------------------------------
- * A page of up to GROUP_SONGS_PAGE_SIZE rows (an artist's "All songs", a genre, a big album)
- * costs about 5 ms a row on the R1, so building them all before the page appears kept the
- * first frame waiting for a second. The header and the rows of the first screens are built
- * at once; one spacer child, exactly as tall as everything still to come, keeps the content
- * height (scroll range, scrollbar) what the finished page has. The rest is built by a timer,
- * a few milliseconds per rendered frame (less during a gesture, none while the screen is off
- * or another screen is shown), plus the rows the next frame of a scroll shows. Editing builds
- * every row; the anchor and scroll restore only need the rows they point at (the spacer
- * keeps the scroll range exact); a repopulate forgets the rest. The tail
- * (spacer, Next row, now-playing bar) is recreated after each piece so the child order of the
- * finished list is the one a single pass produces. */
-#define GROUP_ROWS_INCREMENTAL_MIN 48
-#define GROUP_ROWS_CHUNK_MS 6          /* one chunk of an idle page */
-#define GROUP_ROWS_GESTURE_CHUNK_MS 3  /* one chunk while a finger or a fling moves the list */
-#define GROUP_ROWS_TIMER_MS 16         /* one chunk per rendered frame at most */
-#define GROUP_ROWS_TIMER_OFF_MS 500    /* backlight off: nothing is rendered */
-static struct {
-    bool active;
-    bool album_layout;
-    uint8_t bare_mask[(GROUP_SONGS_PAGE_SIZE + 7) / 8]; /* entries that had no detail line when the page began */
-    bool layout_dirty;
-    int next, end;           /* entries still to build: [next, end) */
-    int rows_bare_left, rows_detail_left, headers_left; /* rows without / with a detail line, disc headers */
-    int32_t row_h_bare, row_h_detail, header_h;         /* what each takes, measured on the built ones */
-    uint32_t overhead_us;    /* the last chunk's layout and tail work, kept inside the next chunk's budget */
-    lv_obj_t * spacer;
-    lv_obj_t * next_row;
-    lv_timer_t * timer;
-    uint32_t timer_period;
-} gsb;
-
-static bool gsb_slot_bare(int slot) {
-    return (gsb.bare_mask[slot >> 3] >> (slot & 7)) & 1;
-}
-
-static int group_songs_initial_rows(void) {
-    int32_t stride = ui_music_row_height();
-    if (stride > BOARD_SCALE_PX(76)) stride = BOARD_SCALE_PX(76); /* album rows are the shortest */
-    stride += GUI_ROW_GAP;
-    int32_t screen_h = lv_display_get_vertical_resolution(lv_display_get_default());
-    return (int) ((screen_h * 3 / 2) / stride) + 2;
-}
-
 /* The "Disc N" header above the entry that starts a disc. */
 void group_songs_add_disc_header(int i) {
     if (!group_songs_entries[i].show_disc_header) return;
@@ -153,47 +305,7 @@ lv_obj_t * group_songs_new_row(int i, const char * title, int32_t reserve) {
     return row;
 }
 
-/* One entry of the plain (not editing) page: its disc header when it starts a disc, then the row. */
-static void group_songs_add_plain_entry(int i, bool album_layout, bool was_bare) {
-    group_songs_add_disc_header(i);
-    /* One lv_label via the shared list_row_style, not a container +
-     * child label each with their own local style properties -- see
-     * list_row_style's own doc comment (screen_builders.h). */
-    char album_title[384];
-    /* Most pages carry "title\nFLAC" from the start and every row takes that path. An entry that
-     * had no detail line when the page began (`was_bare`) and holds "title\ndetail" now, because a
-     * probe or the duration cache landed meanwhile, is built bare and gets the detail the way the
-     * probe applies it (below): its height and text positions are those a single pass would have
-     * given it (a row with a subtitle can be taller than one without in the larger fonts). Every
-     * other entry takes the builder a single pass would. */
-    const char * title = group_songs_entries[i].title;
-    const char * detail = album_layout || !was_bare ? NULL : strchr(title, '\n');
-    char * bare = NULL;
-    if (detail) {
-        size_t len = (size_t) (detail - title);
-        bare = malloc(len + 1);
-        if (bare) { memcpy(bare, title, len); bare[len] = '\0'; title = bare; }
-        detail++;
-        if (!bare) detail = NULL;
-    }
-    lv_obj_t * row = group_songs_new_row(i,
-        album_layout ? gui_album_header_row_title(title, album_title, sizeof(album_title)) : title,
-        BOARD_SCALE_PX(70));
-    free(bare);
-    /* Room for the cover from the first frame: the cover (or its
-     * placeholder) is added later, and moving the text then made
-     * every row jump sideways. */
-    if (group_song_has_cover(i)) group_song_row_text_offset(row, true);
-
-    gui_album_view_row_badge(row, song_quality_asset_for_path(group_songs_entries[i].path));
-    if (album_layout) gui_album_header_decorate_row(row, i);
-    if (detail && detail[0]) group_song_row_show_detail(row, detail); /* as apply_group_probe_row() does */
-
-    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, group_song_row_click_cb, LV_EVENT_SHORT_CLICKED, (void *) (intptr_t) i);
-    lv_obj_add_event_cb(row, group_song_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
-}
-
+/* The Next row is retained by the real-row edit list. */
 static lv_obj_t * group_songs_add_next_row(int page_end) {
     if (page_end >= group_songs_count) return NULL;
     return group_songs_add_page_nav_row(TR("Next  •  %d–%d of %d"), page_end, group_songs_next_page_cb);
@@ -226,276 +338,9 @@ static lv_obj_t * group_songs_create_now_playing_bar(void) {
     return bar;
 }
 
-/* The spacer's height: what the entries still to build will take, gaps included. The gap
- * before the next row is the one already between the spacer and its neighbour. */
-static int32_t group_songs_spacer_height(void) {
-    int children = gsb.rows_bare_left + gsb.rows_detail_left + gsb.headers_left;
-    if (children <= 0) return 0;
-    int32_t gap = lv_obj_get_style_pad_row(group_songs_list, LV_PART_MAIN);
-    return gsb.rows_bare_left * gsb.row_h_bare + gsb.rows_detail_left * gsb.row_h_detail +
-           gsb.headers_left * gsb.header_h + (children - 1) * gap;
-}
-
-/* What the next row of the unbuilt rest is expected to take, gap included (the mean of what is left). */
-static int32_t group_songs_stride_estimate(void) {
-    int rows = gsb.rows_bare_left + gsb.rows_detail_left;
-    int32_t gap = lv_obj_get_style_pad_row(group_songs_list, LV_PART_MAIN);
-    int32_t rows_h = rows > 0 ? (gsb.rows_bare_left * gsb.row_h_bare + gsb.rows_detail_left * gsb.row_h_detail + rows / 2) / rows
-                              : LV_MAX(gsb.row_h_bare, gsb.row_h_detail);
-    return rows_h + gap;
-}
-
 static void group_songs_tail_create(int page_end) {
-    gsb.spacer = NULL;
-    if (gsb.active) {
-        gsb.spacer = lv_obj_create(group_songs_list);
-        lv_obj_remove_style_all(gsb.spacer);
-        lv_obj_remove_flag(gsb.spacer, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE);
-        lv_obj_set_size(gsb.spacer, 1, group_songs_spacer_height());
-    }
-    gsb.next_row = group_songs_add_next_row(page_end);
+    group_songs_add_next_row(page_end);
     group_songs_now_playing_bar = group_songs_create_now_playing_bar();
-    gsb.layout_dirty = true;
-}
-
-/* The page is being replaced or left: forget the unbuilt rest. The objects go with lv_obj_clean(). */
-void group_songs_build_reset(void) {
-    gsb.active = false;
-    gsb.spacer = NULL;
-    gsb.next_row = NULL;
-    if (gsb.timer) lv_timer_pause(gsb.timer);
-}
-
-/* The real clock. lv_tick_get() stands still for a whole handler pass (main.c hands LVGL its
- * ticks once per loop turn), so a budget measured with it never ran out and one chunk built
- * every row that was left. */
-static uint64_t group_rows_now_us(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t) ts.tv_sec * 1000000u + (uint32_t) ts.tv_nsec / 1000u;
-}
-
-/* Builds up to `max_rows` more entries (and stops once `budget_ms` is used up when it is not 0,
- * always after at least one row). The budget covers the layout before and after the rows and the
- * tail work too: the last chunk's share of those is held back from this one. */
-static void group_songs_build_more(int max_rows, uint32_t budget_ms) {
-    if (!gsb.active || !group_songs_list) return;
-    UI_TRACE_SPAN_BEGIN(perf_chunk);
-    uint64_t started = group_rows_now_us();
-    /* Work that is entirely below the viewport is not drawn: nothing visible changes, so no
-     * invalidation is recorded for it (the new rows are created at the content origin and moved
-     * by the layout, which would otherwise redraw the top of the list and its scrollbar every
-     * chunk). The layout pending on the rest of the screen is flushed first, with invalidation
-     * on, so only this chunk's own layout runs while it is off. */
-    lv_display_t * disp = lv_obj_get_display(group_songs_list);
-    bool quiet = false;
-    int32_t content_before = 0;
-    if (gsb.spacer && disp && lv_display_is_invalidation_enabled(disp)) {
-        lv_obj_update_layout(group_songs_list);
-        gsb.layout_dirty = false;
-        quiet = lv_obj_get_y(gsb.spacer) >= lv_obj_get_scroll_y(group_songs_list) + lv_obj_get_height(group_songs_list);
-        if (quiet) {
-            content_before = lv_obj_get_scroll_bottom(group_songs_list);
-            lv_display_enable_invalidation(disp, false);
-        }
-    }
-    uint64_t rows_started = group_rows_now_us();
-    int first = gsb.next, built = 0;
-    while (gsb.next < gsb.end && built < max_rows) {
-        if (group_songs_entries[gsb.next].show_disc_header) gsb.headers_left--;
-        int slot = gsb.next - group_songs_page_start;
-        bool bare = gsb_slot_bare(slot);
-        if (bare) gsb.rows_bare_left--; else gsb.rows_detail_left--;
-        group_songs_add_plain_entry(gsb.next++, gsb.album_layout, bare);
-        built++;
-        if (budget_ms && group_rows_now_us() - started + gsb.overhead_us >= (uint64_t) budget_ms * 1000u) break;
-    }
-    uint64_t rows_ended = group_rows_now_us();
-    gsb.active = gsb.next < gsb.end;
-    /* The tail objects (spacer, Next row, now-playing bar) stay: the new rows were created after
-     * them, so the spacer shrinks in place and the tail goes back to the end of the list. The move
-     * is not drawn (the objects keep their pixels; the layout moves what is visible and draws that). */
-    if (gsb.spacer) {
-        if (gsb.active) lv_obj_set_height(gsb.spacer, group_songs_spacer_height());
-        else { lv_obj_delete(gsb.spacer); gsb.spacer = NULL; }
-    }
-    if (built) {
-        bool was_enabled = disp && lv_display_is_invalidation_enabled(disp);
-        if (was_enabled) lv_display_enable_invalidation(disp, false);
-        if (gsb.spacer) lv_obj_move_foreground(gsb.spacer);
-        if (gsb.next_row) lv_obj_move_foreground(gsb.next_row);
-        if (group_songs_now_playing_bar) lv_obj_move_foreground(group_songs_now_playing_bar);
-        if (was_enabled) lv_display_enable_invalidation(disp, true);
-    }
-    /* Laid out now, before anything else in this pass (a fling's next step reads the scroll
-     * range) looks at the list. */
-    lv_obj_update_layout(group_songs_list);
-    gsb.layout_dirty = false;
-    if (now_playing_path[0]) { /* the playing row may be one of the new ones */
-        for (int i = first; i < gsb.next; i++)
-            if (strcmp(group_songs_entries[i].path, now_playing_path) == 0) {
-                group_songs_place_now_playing_bar(true);
-                break;
-            }
-    }
-    if (quiet) {
-        lv_display_enable_invalidation(disp, true);
-        /* The scroll range moved (a row took another height than the spacer assumed): the
-         * scrollbar must be drawn again. */
-        if (lv_obj_get_scroll_bottom(group_songs_list) != content_before) lv_obj_invalidate(group_songs_list);
-    }
-    if (!gsb.active && gsb.timer) lv_timer_pause(gsb.timer);
-    gsb.overhead_us = (uint32_t) ((rows_started - started) + (group_rows_now_us() - rows_ended));
-    UI_TRACE_SPAN_END(UI_TRACE_SPAN_GROUP_ROWS_CHUNK, perf_chunk);
-}
-
-static void group_songs_build_timer_cb(lv_timer_t * timer) {
-    if (!gsb.active || !group_songs_list) { lv_timer_pause(timer); return; }
-    /* Another screen is shown: stop until SCREEN_LOADED brings this one back (a page left
-     * half built must not keep the main loop awake for the whole listening session). */
-    if (lv_screen_active() != group_songs_screen) { lv_timer_pause(timer); return; }
-    /* Screen off: nothing is drawn, so only an occasional look. */
-    bool screen_on = backlight_screen_is_on();
-    uint32_t period = screen_on ? GROUP_ROWS_TIMER_MS : GROUP_ROWS_TIMER_OFF_MS;
-    if (gsb.timer_period != period) { gsb.timer_period = period; lv_timer_set_period(timer, period); }
-    if (!screen_on || gui_navigation_transition_in_progress()) return; /* not under a slide either */
-    /* A finger or a fling gets a smaller piece so its frames stay short. */
-    group_songs_build_more(INT_MAX, landing_pointer_busy() ? GROUP_ROWS_GESTURE_CHUNK_MS : GROUP_ROWS_CHUNK_MS);
-}
-
-/* Builds the rows a list position up to `reach` (content coordinates) needs, nothing more. */
-static void group_songs_build_to_reach(int32_t reach) {
-    if (!gsb.active || !gsb.spacer || !group_songs_list) return;
-    if (gsb.layout_dirty) { lv_obj_update_layout(group_songs_list); gsb.layout_dirty = false; }
-    /* The estimate of what a row takes can be a little high (disc headers, rows of another
-     * height): measure again after each piece, so the spacer never stays in view. */
-    while (gsb.active && gsb.spacer) {
-        int32_t top = lv_obj_get_y(gsb.spacer);
-        if (top >= reach) return;
-        int32_t stride = group_songs_stride_estimate();
-        group_songs_build_more((int) ((reach - top) / (stride > 0 ? stride : 1)) + 1, 0);
-    }
-}
-
-/* Every entry up to and including `index` exists when this returns. */
-static void group_songs_build_through(int index) {
-    if (gsb.active && index >= gsb.next) group_songs_build_more(index - gsb.next + 1, 0);
-}
-
-/* Scrolling toward rows that are not built yet: build the ones the next frame shows (plus one
- * for a fling's next step) and leave the margin beyond them to the chunk timer, which also
- * runs during gestures. */
-void group_songs_scroll_cb(lv_event_t * e) {
-    (void) e;
-    if (!gsb.active || !gsb.spacer || !group_songs_list || group_songs_rows_rebuilding) return;
-    if (gsb.timer && lv_timer_get_paused(gsb.timer)) lv_timer_resume(gsb.timer); /* a missed SCREEN_LOADED */
-    int32_t stride = group_songs_stride_estimate();
-    group_songs_build_to_reach(lv_obj_get_scroll_y(group_songs_list) + lv_obj_get_height(group_songs_list) + stride);
-}
-
-/* A touch after the screen was off: back to the normal period at once, not after up to 500 ms. */
-void group_songs_wake_cb(lv_event_t * e) {
-    (void) e;
-    gui_library_screen_woke();
-}
-
-/* The screen came back on (any touch, key or other wake, not only a press of this list). */
-void gui_library_screen_woke(void) {
-    if (gsb.timer && gsb.timer_period != GROUP_ROWS_TIMER_MS && backlight_screen_is_on()) {
-        gsb.timer_period = GROUP_ROWS_TIMER_MS;
-        lv_timer_set_period(gsb.timer, GROUP_ROWS_TIMER_MS);
-        if (gsb.active && !lv_timer_get_paused(gsb.timer)) lv_timer_ready(gsb.timer);
-    }
-}
-
-/* What a row of one class (with / without a detail line) takes, measured on a row built the way
- * group_songs_add_plain_entry() builds it and deleted at once, unseen. Used when the first rows hold
- * no row of that class to measure: the larger fonts give the two classes different heights. */
-static int32_t group_songs_probe_row_height(bool detail, bool album_layout) {
-    lv_display_t * disp = lv_obj_get_display(group_songs_list);
-    bool was_enabled = disp && lv_display_is_invalidation_enabled(disp);
-    if (was_enabled) lv_display_enable_invalidation(disp, false);
-    char album_title[384];
-    const char * title = detail ? "Ag\nFLAC" : "Ag";
-    lv_obj_t * row = build_music_list_row(group_songs_list,
-        album_layout ? gui_album_header_row_title(title, album_title, sizeof(album_title)) : title,
-        NULL, BOARD_SCALE_PX(70));
-    if (group_songs_music_submenu) {
-        lv_obj_set_width(row, lv_pct(100));
-        layout_music_submenu_row_text(row);
-    }
-    /* Album pages size every real row in the decorator: measure the row the same way. */
-    if (album_layout) gui_album_header_decorate_row(row, -1);
-    lv_obj_update_layout(group_songs_list);
-    int32_t height = lv_obj_get_height(row);
-    lv_obj_delete(row);
-    if (was_enabled) lv_display_enable_invalidation(disp, true);
-    return height;
-}
-
-/* The first rows are built: measure what a row and a disc header take and queue the rest. */
-static void group_songs_build_begin(int next, int end, bool album_layout) {
-    gsb.active = next < end;
-    if (!gsb.active) return;
-    gsb.album_layout = album_layout;
-    memset(gsb.bare_mask, 0, sizeof(gsb.bare_mask));
-    for (int i = group_songs_page_start; i < end; i++)
-        if (!strchr(group_songs_entries[i].title, '\n')) {
-            int slot = i - group_songs_page_start;
-            gsb.bare_mask[slot >> 3] |= (uint8_t) (1u << (slot & 7));
-        }
-    gsb.next = next;
-    gsb.end = end;
-    gsb.rows_bare_left = gsb.rows_detail_left = 0;
-    gsb.headers_left = 0;
-    for (int i = next; i < end; i++) {
-        int slot = i - group_songs_page_start;
-        if (gsb_slot_bare(slot)) gsb.rows_bare_left++; else gsb.rows_detail_left++;
-        if (group_songs_entries[i].show_disc_header) gsb.headers_left++;
-    }
-    lv_obj_update_layout(group_songs_list);
-    /* Rows with and without a detail line can differ in height (the larger fonts): what each kind
-     * takes is the mean of the rows of that kind built so far, so the spacer is as tall as the rest
-     * will be. A kind not built yet takes what the other one did. */
-    int32_t sum[2] = {0, 0};
-    int cnt[2] = {0, 0};
-    for (int i = group_songs_page_start; i < next && i - group_songs_page_start < GROUP_SONGS_PAGE_SIZE; i++) {
-        int slot = i - group_songs_page_start;
-        lv_obj_t * row = group_songs_visible_rows[slot];
-        if (!row) continue;
-        int kind = gsb_slot_bare(slot);
-        sum[kind] += lv_obj_get_height(row);
-        cnt[kind]++;
-    }
-    int32_t fallback = group_songs_visible_rows[0] ? lv_obj_get_height(group_songs_visible_rows[0]) : ui_music_row_height();
-    gsb.row_h_detail = cnt[0] ? (sum[0] + cnt[0] / 2) / cnt[0] : (cnt[1] ? (sum[1] + cnt[1] / 2) / cnt[1] : fallback);
-    gsb.row_h_bare = cnt[1] ? (sum[1] + cnt[1] / 2) / cnt[1] : gsb.row_h_detail;
-    /* A class the first rows hold none of, but the rest does, is measured exactly instead of
-     * assumed to match the other one: the scroll range and the scrollbar then never change while
-     * the page is built. */
-    if (!cnt[0] && gsb.rows_detail_left) gsb.row_h_detail = group_songs_probe_row_height(true, album_layout);
-    if (!cnt[1] && gsb.rows_bare_left) gsb.row_h_bare = group_songs_probe_row_height(false, album_layout);
-    gsb.overhead_us = 0;
-    gsb.header_h = 0;
-    if (gsb.headers_left) {
-        char probe_text[32];
-        snprintf(probe_text, sizeof(probe_text), TR("Disc %d"), 1);
-        lv_obj_t * probe = add_section_header(group_songs_list, probe_text);
-        lv_obj_update_layout(group_songs_list);
-        gsb.header_h = lv_obj_get_height(probe);
-        lv_obj_delete(probe);
-    }
-    gsb.layout_dirty = false;
-    if (!gsb.timer) {
-        gsb.timer = lv_timer_create(group_songs_build_timer_cb, GROUP_ROWS_TIMER_MS, NULL);
-        gsb.timer_period = GROUP_ROWS_TIMER_MS;
-    }
-    if (gsb.timer) lv_timer_resume(gsb.timer);
-}
-
-/* The row to keep in place after a rebuild: the anchor, or the last entry when the list got shorter. */
-static int group_songs_clamped_anchor(void) {
-    return group_songs_anchor_index < group_songs_count ? group_songs_anchor_index : group_songs_count - 1;
 }
 
 /* The rows of the page shown are about to be replaced: end a drag, let go of the borrowed row objects, clear the list. */
@@ -508,11 +353,45 @@ static void group_songs_rows_detach(void) {
      * the replacement rows are complete. */
     group_songs_forget_row_objects();
     gui_album_header_forget();
-    lv_obj_clean(group_songs_list);
+    if (group_songs_compact_mode) {
+        if (group_compact_header) lv_obj_delete(group_compact_header);
+        group_compact_header = NULL;
+        compact_list_set_items(group_songs_list, NULL, 0);
+        group_compact_release();
+    } else lv_obj_clean(group_songs_list);
+}
+
+static void group_songs_ensure_list_mode(bool compact) {
+    if (!group_songs_list || group_songs_compact_mode == compact) return;
+    lv_obj_t * parent = lv_obj_get_parent(group_songs_list);
+    group_songs_reorder_detach();
+    group_songs_forget_row_objects();
+    gui_album_header_forget();
+    cancel_group_song_probes();
+    if (group_songs_compact_mode) group_songs_compact_clear();
+    library_thumbnails_forget_list(group_songs_list);
+    lv_obj_delete(group_songs_list);
+    group_songs_list = group_songs_create_list(parent, compact);
+    if (group_songs_screen) library_thumbnails_bind_list(group_songs_screen, group_songs_list,
+        LIBRARY_THUMB_LIST_GROUP_SONGS_CUSTOM);
+    gui_library_group_songs_list_changed();
+    group_songs_populated_page_start = -1;
 }
 
 /* The header of the page: edit actions, search button, album header or play bar, select-all row, empty message. */
 static void group_songs_rows_header(bool editing, bool album_layout) {
+    lv_obj_t * target = group_songs_list;
+    if (group_songs_compact_mode) {
+        group_compact_header = lv_obj_create(group_songs_list);
+        lv_obj_remove_style_all(group_compact_header);
+        lv_obj_set_width(group_compact_header, LIST_ROW_WIDTH);
+        lv_obj_set_height(group_compact_header, LV_SIZE_CONTENT);
+        lv_obj_set_style_pad_all(group_compact_header, 0, 0);
+        lv_obj_set_style_pad_gap(group_compact_header, GUI_ROW_GAP, 0);
+        lv_obj_set_flex_flow(group_compact_header, LV_FLEX_FLOW_COLUMN);
+        lv_obj_remove_flag(group_compact_header, LV_OBJ_FLAG_SCROLLABLE);
+        target = group_compact_header;
+    }
     bool editable = group_songs_edit_m3u_path != NULL;
     if (editable) {
         group_songs_update_edit_header();
@@ -527,7 +406,8 @@ static void group_songs_rows_header(bool editing, bool album_layout) {
     bool show_bar = !editing && !group_songs_loading && group_songs_count > 0;
     /* Every group-songs page keeps the app's side margins so the scrollbar clears the cards; they do not
      * depend on the bar, so M3U Edit / Done does not shift the cards. */
-    lv_obj_set_style_pad_hor(group_songs_list, GUI_LIST_SIDE_MARGIN, 0);
+    if (!group_songs_compact_mode)
+        lv_obj_set_style_pad_hor(group_songs_list, GUI_LIST_SIDE_MARGIN, 0);
     if (album_layout) {
         /* Albums get a header with Play and Shuffle. */
         gui_album_header_params_t header = {
@@ -537,10 +417,10 @@ static void group_songs_rows_header(bool editing, bool album_layout) {
             .play_cb = group_play_cb, .shuffle_cb = group_shuffle_cb,
             .quality_asset = song_quality_asset_for_path,
         };
-        gui_album_header_build(group_songs_list, &header);
+        gui_album_header_build(target, &header);
     } else if (show_bar) {
         /* The track count above a Play / Shuffle pill pair (the same buttons as an album page). */
-        gui_album_view_play_bar_build(group_songs_list, LIST_ROW_WIDTH, group_songs_count,
+        gui_album_view_play_bar_build(target, LIST_ROW_WIDTH, group_songs_count,
                                       group_play_cb, group_shuffle_cb);
     }
     if (editing) {
@@ -550,16 +430,36 @@ static void group_songs_rows_header(bool editing, bool album_layout) {
 
     if (group_songs_count == 0) {
         if (group_songs_loading)
-            build_list_message(group_songs_list, TR("Loading tracks…"), NULL);
+            build_list_message(target, TR("Loading tracks…"), NULL);
         else if (group_songs_edit_m3u_path)
-            build_list_message(group_songs_list, TR("Playlist is empty"), TR("Add songs from a song menu."));
+            build_list_message(target, TR("Playlist is empty"), TR("Add songs from a song menu."));
         else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_FAVORITES)
-            build_list_message(group_songs_list, TR("No favorites yet"), TR("Tap the heart on a song to keep it here."));
+            build_list_message(target, TR("No favorites yet"), TR("Tap the heart on a song to keep it here."));
         else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_MOST_PLAYED)
-            build_list_message(group_songs_list, TR("No plays yet"), TR("Songs you play most will appear here."));
+            build_list_message(target, TR("No plays yet"), TR("Songs you play most will appear here."));
         else
-            build_list_message(group_songs_list, TR("No tracks found"), TR("Refresh the music database to update this list."));
+            build_list_message(target, TR("No tracks found"), TR("Refresh the music database to update this list."));
     }
+    if (group_songs_compact_mode) {
+        lv_obj_update_layout(group_compact_header);
+        int32_t h = 0;
+        for (uint32_t i = 0; i < lv_obj_get_child_count(group_compact_header); ++i)
+            h += lv_obj_get_height(lv_obj_get_child(group_compact_header, (int32_t)i));
+        if (h > 0) h += GUI_ROW_GAP;
+        lv_obj_set_height(group_compact_header, h);
+        compact_list_set_header(group_songs_list, group_compact_header, h);
+    }
+}
+
+void group_songs_compact_header_refresh(void) {
+    if (!group_compact_header || !compact_list_is_live(group_songs_list)) return;
+    lv_obj_update_layout(group_compact_header);
+    int32_t height = 0;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(group_compact_header); ++i)
+        height += lv_obj_get_height(lv_obj_get_child(group_compact_header, (int32_t)i));
+    if (height > 0) height += GUI_ROW_GAP;
+    lv_obj_set_height(group_compact_header, height);
+    compact_list_set_header(group_songs_list, group_compact_header, height);
 }
 
 /* A shrunk list can leave the page start past its last page. */
@@ -567,36 +467,6 @@ static void group_songs_clamp_page(void) {
     if (group_songs_count <= GROUP_SONGS_PAGE_SIZE) group_songs_page_start = 0;
     if (group_songs_page_start >= group_songs_count && group_songs_count > 0) {
         group_songs_page_start = ((group_songs_count - 1) / GROUP_SONGS_PAGE_SIZE) * GROUP_SONGS_PAGE_SIZE;
-    }
-}
-
-/* Builds the rows the restored scroll position or anchor points into. */
-static void group_songs_rows_build_for_restore(bool restore_scroll, int32_t restore_scroll_y) {
-    /* The scroll position needs the rows it points into, not the rest: the spacer keeps
-     * the content height exact and the scroll event builds what the new position shows. */
-    if (gsb.active && restore_scroll && restore_scroll_y > 0)
-        group_songs_build_to_reach(restore_scroll_y + lv_obj_get_height(group_songs_list));
-    if (gsb.active && group_songs_anchor_pending) group_songs_build_through(group_songs_clamped_anchor());
-}
-
-/* Puts the list back where it was: the old scroll position, or the anchor row at its old offset. */
-static void group_songs_rows_apply_restore(bool restore_scroll, int32_t restore_scroll_y, int page_end) {
-    if (restore_scroll) lv_obj_scroll_to_y(group_songs_list, restore_scroll_y, LV_ANIM_OFF);
-    if (group_songs_anchor_pending) {
-        lv_area_t list_area;
-        lv_obj_get_coords(group_songs_list, &list_area);
-        int anchor_index = group_songs_clamped_anchor();
-        if (anchor_index >= group_songs_page_start && anchor_index < page_end) {
-            lv_obj_t * row = group_songs_visible_rows[anchor_index - group_songs_page_start];
-            if (row) {
-                lv_area_t row_area;
-                lv_obj_get_coords(row, &row_area);
-                int32_t scroll_y = lv_obj_get_scroll_y(group_songs_list) +
-                    row_area.y1 - list_area.y1 - group_songs_anchor_offset;
-                lv_obj_scroll_to_y(group_songs_list, scroll_y, LV_ANIM_OFF);
-            }
-        }
-        group_songs_anchor_pending = false;
     }
 }
 
@@ -611,14 +481,14 @@ static void group_songs_rows_apply_restore(bool restore_scroll, int32_t restore_
  * re-deriving the group or nav_push()ing a second copy of this screen. */
 void populate_group_songs_rows(void) {
     UI_TRACE_SPAN_BEGIN(perf_rows);
-    group_songs_build_reset();
     group_songs_rows_rebuilding = true;
+    bool editing = group_songs_edit_m3u_path && group_songs_edit_mode;
+    group_songs_ensure_list_mode(!editing);
     int32_t restore_scroll_y = 0;
     bool restore_scroll = group_songs_list && group_songs_populated_page_start == group_songs_page_start;
     if (restore_scroll) restore_scroll_y = lv_obj_get_scroll_y(group_songs_list);
     group_songs_rows_detach();
 
-    bool editing = group_songs_edit_m3u_path && group_songs_edit_mode;
     bool album_layout = group_songs_album_layout();
     group_songs_rows_header(editing, album_layout);
 
@@ -626,27 +496,44 @@ void populate_group_songs_rows(void) {
     if (group_songs_page_start != group_songs_populated_page_start) restore_scroll = false;
     int page_end = group_songs_page_end();
 
+    if (group_songs_compact_mode) {
+        group_compact_populate(page_end, album_layout, restore_scroll, restore_scroll_y);
+        group_songs_rows_rebuilding = false;
+        refresh_group_songs_now_playing_indicator();
+        refresh_group_thumbnail_binding();
+        lv_obj_update_layout(group_songs_list);
+        group_songs_populated_page_start = group_songs_page_start;
+        if (group_songs_screen && lv_screen_active() == group_songs_screen && !album_layout) ui_wake_notify();
+        UI_TRACE_SPAN_END(UI_TRACE_SPAN_GROUP_ROWS, perf_rows);
+        return;
+    }
+
     if (group_songs_page_start > 0) {
         group_songs_add_page_nav_row(TR("Previous  •  %d–%d of %d"), page_end, group_songs_prev_page_cb);
     }
 
-    /* A long page is built in pieces (see group_songs_build_begin()); editing builds everything. */
-    bool incremental = !editing && page_end - group_songs_page_start >= GROUP_ROWS_INCREMENTAL_MIN;
-    int build_end = incremental ? group_songs_page_start + group_songs_initial_rows() : page_end;
-    if (build_end > page_end) build_end = page_end;
-    for (int i = group_songs_page_start; i < build_end; i++) {
-        if (editing) group_songs_add_edit_entry(i);
-        else group_songs_add_plain_entry(i, album_layout, false);
-    }
-
-    if (incremental) group_songs_build_begin(build_end, page_end, album_layout);
+    for (int i = group_songs_page_start; i < page_end; i++)
+        group_songs_add_edit_entry(i);
     group_songs_tail_create(page_end);
-    group_songs_rows_build_for_restore(restore_scroll, restore_scroll_y);
     refresh_group_songs_now_playing_indicator();
     group_songs_rows_rebuilding = false;
     refresh_group_thumbnail_binding();
     lv_obj_update_layout(group_songs_list);
-    group_songs_rows_apply_restore(restore_scroll, restore_scroll_y, page_end);
+    if (restore_scroll) lv_obj_scroll_to_y(group_songs_list, restore_scroll_y, LV_ANIM_OFF);
+    if (group_songs_anchor_pending) {
+        int anchor = group_songs_anchor_index;
+        if (anchor >= group_songs_page_start && anchor < page_end) {
+            lv_obj_t * row = group_songs_visible_rows[anchor - group_songs_page_start];
+            if (row) {
+                lv_area_t list_area, row_area;
+                lv_obj_get_coords(group_songs_list, &list_area);
+                lv_obj_get_coords(row, &row_area);
+                int32_t scroll = lv_obj_get_scroll_y(group_songs_list) + row_area.y1 - list_area.y1 - group_songs_anchor_offset;
+                lv_obj_scroll_to_y(group_songs_list, scroll, LV_ANIM_OFF);
+            }
+        }
+        group_songs_anchor_pending = false;
+    }
     group_songs_populated_page_start = group_songs_page_start;
     /* The page's duration lookup starts from gui_library_poll_track_probes(): ask the loop for that
      * pass now instead of leaving it to whichever worker notifies next or the 500 ms housekeeping.
@@ -690,11 +577,17 @@ void group_song_row_text_offset(lv_obj_t * row, bool with_thumbnail) {
         if (width < 40) width = 40;
         lv_obj_set_x(label, target_x);
         lv_obj_set_width(label, width);
+        if (group_songs_edit_mode) lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
     }
 }
 
 void refresh_group_thumbnail_binding(void) {
     if (!group_songs_list || group_songs_rows_rebuilding) return;
+    if (compact_list_is_live(group_songs_list)) {
+        compact_list_refresh_decorations(group_songs_list);
+        if (group_songs_album_layout()) gui_album_header_refresh_cover(group_songs_list);
+        return;
+    }
     lv_obj_update_layout(group_songs_list);
     int page_end = group_songs_page_end();
     int32_t scroll_y = lv_obj_get_scroll_y(group_songs_list);
@@ -753,14 +646,4 @@ bool detach_group_song_thumbnail(const lv_image_dsc_t *dsc) {
     }
     if (gui_album_header_detach_cover(dsc)) detached = true;
     return detached;
-}
-
-/* The page is left for another screen: stop building until it is shown again. */
-void group_songs_build_pause(void) {
-    if (gsb.timer) lv_timer_pause(gsb.timer);
-}
-
-/* The page is shown again: carry on building what was left. */
-void group_songs_build_resume(void) {
-    if (gsb.active && gsb.timer) lv_timer_resume(gsb.timer);
 }

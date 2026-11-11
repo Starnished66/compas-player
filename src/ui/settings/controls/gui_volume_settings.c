@@ -84,7 +84,7 @@ static lv_obj_t * build_volume_screen(void) {
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
     build_screen_header(scr, TR("Volume limits"), generic_back_cb, NULL, NULL);
     lv_obj_t * content = build_settings_body(scr);
-    add_section_header(content, TR("Startup Volume"));
+    add_section_header(content, TR("Startup volume"));
     startup_volume_ui = build_setting_slider(content, &(setting_slider_cfg_t) {
         .toggle_label = TR("Launch at a fixed volume"),
         .checked = current_settings.startup_volume_fixed_enabled,
@@ -93,7 +93,7 @@ static lv_obj_t * build_volume_screen(void) {
         .index = current_settings.startup_volume_fixed_percent,
         .fmt = format_percent, .slider_cb = startup_volume_slider_event_cb,
     });
-    add_section_header(content, TR("Max Volume"));
+    add_section_header(content, TR("Max volume"));
     build_setting_hint(content, TR("Limits the player volume, including buttons, remote controls and plugins."));
     max_volume_ui = build_setting_slider(content, &(setting_slider_cfg_t) {
         .caption = TR("Volume"), .min_index = 1, .max_index = 100,
@@ -160,12 +160,12 @@ static lv_obj_t * build_car_mode_screen(void) {
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_screen_header(scr, TR("Car Mode"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Car mode"), generic_back_cb, NULL, NULL);
 
     lv_obj_t * body = build_settings_body(scr);
 
     car_mode_volume_ui = build_setting_slider(body, &(setting_slider_cfg_t) {
-        .toggle_label = TR("Car Mode"),
+        .toggle_label = TR("Car mode"),
         .checked = current_settings.car_mode_enabled,
         .switch_cb = car_mode_enable_switch_event_cb,
         .caption = TR("Volume"),

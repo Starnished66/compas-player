@@ -119,6 +119,7 @@ static lv_obj_t * lyrics_empty_label;
 static lv_obj_t * lyrics_plain_label; /* current_lyrics_plain_mode's own display -- see its own comment */
 static lv_obj_t * lyrics_active_marker;
 static lv_timer_t * lyrics_timer;
+static bool lyrics_follow_scroll_frame;
 static bool lyrics_embedded = false;
 /* Row width of the embedded pane (a layout's lyrics_area may be narrower than
  * the screen), reset when it is hidden, and the layout's look. */
@@ -144,6 +145,46 @@ static int lyrics_load_result_generation;
 static int lyrics_load_result_for_index;
 static bool lyrics_load_result_ok;
 static lyrics_doc_t lyrics_load_result_doc;
+static void lyrics_follow_scroll_exec_cb(void * var, int32_t value) {
+    lv_obj_t * list = var;
+    if (!list) return;
+    lyrics_follow_scroll_frame = true;
+    lv_obj_scroll_to_y(list, value, LV_ANIM_OFF);
+    lyrics_follow_scroll_frame = false;
+}
+
+static void lyrics_cancel_follow_scroll(void) {
+    if (lyrics_list) lv_anim_delete(lyrics_list, lyrics_follow_scroll_exec_cb);
+}
+
+static void lyrics_scroll_follow_to(int32_t target, bool animate) {
+    if (!lyrics_list) return;
+    lyrics_cancel_follow_scroll();
+    int32_t start = lv_obj_get_scroll_y(lyrics_list);
+    /* Adjacent lyric lines animate briefly; larger jumps go directly to the target. */
+    if (!animate || gui_anims_off() || start == target) {
+        lv_obj_scroll_to_y(lyrics_list, target, LV_ANIM_OFF);
+        return;
+    }
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, lyrics_list);
+    lv_anim_set_values(&anim, start, target);
+    lv_anim_set_duration(&anim, gui_anim_ms(120));
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&anim, lyrics_follow_scroll_exec_cb);
+    lv_anim_start(&anim);
+}
+
+static void lyrics_scroll_lifecycle_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_DELETE) {
+        lv_anim_delete(lv_event_get_current_target(e), lyrics_follow_scroll_exec_cb);
+    } else if (code == LV_EVENT_PRESSED) {
+        lyrics_cancel_follow_scroll();
+    }
+}
+
 /* Set alongside lyrics_load_result_ok when a source (sidecar or embedded
  * tag) had text but no [mm:ss.xx] timestamps to parse into lyrics_load_
  * result_doc -- see lyrics_load_thread_func()'s own comment. Mutually
@@ -509,6 +550,7 @@ static void lyrics_ensure_layout(bool force_layout_rebuild) {
  * force_layout_rebuild: gui_lyrics_refresh_layout() (font size / custom font
  * changed) must pass true -- see lyrics_ensure_layout() for the cache key. */
 static void lyrics_reset_pool(bool force_layout_rebuild) {
+    lyrics_cancel_follow_scroll();
     lyrics_update_empty_text();
     if (lyrics_active_marker) lv_obj_add_flag(lyrics_active_marker, LV_OBJ_FLAG_HIDDEN);
     int count = current_lyrics_doc_valid ? current_lyrics_doc.count : 0;
@@ -657,6 +699,7 @@ static void lyrics_list_click_cb(lv_event_t * e) {
  * costs nothing new on re-entry beyond that already-accepted, already-
  * documented gap. */
 void gui_lyrics_prepare_exit(void) {
+    lyrics_cancel_follow_scroll();
     lv_timer_pause(lyrics_timer);
     lv_obj_add_flag(lyrics_backdrop_img, LV_OBJ_FLAG_HIDDEN);
 }
@@ -708,7 +751,8 @@ static void lyrics_gesture_event_cb(lv_event_t * e) {
 static void lyrics_scroll_event_cb(lv_event_t * e) {
     (void) e;
     lv_indev_t * indev = lv_indev_active();
-    if (indev && lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
+    if (!lyrics_follow_scroll_frame && indev && lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED) {
+        lyrics_cancel_follow_scroll();
         lyrics_auto_follow = false;
         clock_gettime(CLOCK_MONOTONIC, &lyrics_last_manual_scroll_at);
     }
@@ -797,7 +841,10 @@ static void lyrics_timer_update(bool animate_scroll) {
     if (lyrics_auto_follow && active_index >= 0 && active_index != lyrics_last_centered_index) {
         int32_t target = lyrics_line_y(active_index) - LYRICS_ACTIVE_LINE_ANCHOR_Y;
         if (target < 0) target = 0;
-        lv_obj_scroll_to_y(lyrics_list, target, animate_scroll ? LV_ANIM_ON : LV_ANIM_OFF);
+        int previous = lyrics_last_centered_index;
+        int step = active_index - previous;
+        bool animate = animate_scroll && previous >= 0 && (step == 1 || step == -1);
+        lyrics_scroll_follow_to(target, animate);
         lyrics_last_centered_index = active_index;
     }
 
@@ -958,6 +1005,7 @@ void gui_lyrics_prepare_embedded(lv_obj_t * parent, int32_t x, int32_t y,
 
 void gui_lyrics_hide_embedded(void) {
     if (!lyrics_embedded) return;
+    lyrics_cancel_follow_scroll();
     lyrics_embedded_prepared_hidden = false;
     lyrics_prepared_parent = NULL;
     lyrics_prepared_width = 0;
@@ -1092,6 +1140,8 @@ static lv_obj_t * build_lyrics_screen(void) {
     lv_obj_set_pos(lyrics_spacer, 0, 0);
 
     lv_obj_add_event_cb(lyrics_list, lyrics_scroll_event_cb, LV_EVENT_SCROLL, NULL);
+    lv_obj_add_event_cb(lyrics_list, lyrics_scroll_lifecycle_event_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(lyrics_list, lyrics_scroll_lifecycle_event_cb, LV_EVENT_DELETE, NULL);
     lv_obj_add_event_cb(lyrics_list, lyrics_list_click_cb, LV_EVENT_CLICKED, NULL);
 
     /* Right-swipe-to-exit -- see lyrics_gesture_event_cb()'s own doc
@@ -1200,6 +1250,7 @@ void gui_lyrics_init(void) {
  * without leaking the old objects. */
 void gui_lyrics_teardown(void) {
     gui_lyrics_hide_embedded();
+    lyrics_cancel_follow_scroll();
     /* Unguarded lv_timer_create() at this screen's own build site -- same
      * leaked-old-timer hazard as gui_player_teardown()'s volume_popup_hide_
      * timer, see its own comment. */

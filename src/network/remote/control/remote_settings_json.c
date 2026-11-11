@@ -105,7 +105,7 @@ char * remote_settings_build_schema(void) {
         append_schema_entry(&sb, settings_registry_at(i));
     }
     grow_buf_appendf(&sb, "],\"actions\":[{\"id\":\"library.rescan\",\"group\":\"library\",");
-    append_label(&sb, "Update Music Database");
+    append_label(&sb, "Update music database");
     grow_buf_appendf(&sb, "}]}");
     if (sb.failed) { free(sb.data); return NULL; }
     return sb.data;

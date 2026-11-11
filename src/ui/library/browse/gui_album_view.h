@@ -48,5 +48,7 @@ int32_t gui_album_view_number_width(int widest);
 /* Restyles a build_music_list_row() into a numbered album row. seconds < 0 leaves the time blank. */
 void gui_album_view_decorate_row(lv_obj_t * row, int number, int num_w, int seconds);
 void gui_album_view_row_set_duration(lv_obj_t * row, unsigned seconds);
+void gui_album_view_decorate_compact_row(lv_obj_t * row, int number, int num_w, int seconds);
+void gui_album_view_clear_compact_row(lv_obj_t * row);
 /* The quality badge at the right end of a track row. */
 void gui_album_view_row_badge(lv_obj_t * row, const char * asset);

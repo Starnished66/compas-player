@@ -1,5 +1,6 @@
 #include "../application/gui.h"
 #include "gui_settings.h"
+#include "../assets/assets.h"
 #include "controls/gui_setting_switches.h"
 #include "../text/i18n/i18n.h"
 #include "../network/gui_network.h"
@@ -49,7 +50,7 @@ static void format_sleep_timer_duration(char * buf, size_t buf_size, int minutes
     else snprintf(buf, buf_size, TR("%d hr %d min"), hours, remainder);
 }
 
-/* Enables the duration control and shows the "Show Time Remaining" button
+/* Enables the duration control and shows the "Show time remaining" button
  * only while the timer is armed. */
 static void sleep_timer_apply_visibility(bool active) {
     setting_slider_set_enabled(&sleep_timer_ui, active);
@@ -85,8 +86,8 @@ static void sleep_timer_slider_event_cb(lv_event_t * e) {
     }
 }
 
-/* "Show Time Remaining" button -- same info ExtendedSleepTimer.lua's own
- * "Show Time Remaining" settings row surfaces via a toast, in the same
+/* "Show time remaining" button -- same info ExtendedSleepTimer.lua's own
+ * "Show time remaining" settings row surfaces via a toast, in the same
  * H:MM:SS (or M:SS under an hour) shape as that plugin's format_remaining().
  * Hidden whenever the timer is disarmed (sleep_timer_switch_event_cb /
  * gui_settings_sync_sleep_timer_toggle), so this is only ever reachable
@@ -103,7 +104,7 @@ static void sleep_timer_show_remaining_cb(lv_event_t * e) {
     show_info_toast(buf);
 }
 
-/* "Show Time Remaining" button below the duration card. */
+/* "Show time remaining" button below the duration card. */
 static void build_sleep_timer_remaining_btn(lv_obj_t * body) {
     sleep_timer_remaining_btn = lv_obj_create(body);
     lv_obj_set_size(sleep_timer_remaining_btn, lv_pct(90), BOARD_SCALE_PX(70));
@@ -115,14 +116,14 @@ static void build_sleep_timer_remaining_btn(lv_obj_t * body) {
     lv_obj_add_event_cb(sleep_timer_remaining_btn, sleep_timer_show_remaining_cb, LV_EVENT_CLICKED, NULL);
     if (!quick_drawer_sleep_timer_is_active()) lv_obj_add_flag(sleep_timer_remaining_btn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_t * remaining_label = lv_label_create(sleep_timer_remaining_btn);
-    lv_label_set_text(remaining_label, TR("Show Time Remaining"));
+    lv_label_set_text(remaining_label, TR("Show time remaining"));
     lv_obj_add_style(remaining_label, &style_theme_text_primary, 0);
     lv_obj_set_style_text_font(remaining_label, gui_theme_font(GUI_FONT_ROLE_BODY), 0);
     lv_obj_center(remaining_label);
 }
 
 /* Mirrors build_screen_timeout_screen()'s layout (enable row + slider
- * card), plus one more row: a "Show Time Remaining" button neither that
+ * card), plus one more row: a "Show time remaining" button neither that
  * screen nor this one needed before ExtendedSleepTimer.lua's own version
  * of this same feature demonstrated why one's genuinely useful here (the
  * status bar has nowhere to show a running countdown, unlike the quick
@@ -131,11 +132,11 @@ static lv_obj_t * build_sleep_timer_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
-    build_screen_header(scr, TR("Sleep Timer"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Sleep timer"), generic_back_cb, NULL, NULL);
 
     lv_obj_t * body = build_settings_body(scr);
     sleep_timer_ui = build_setting_slider(body, &(setting_slider_cfg_t) {
-        .toggle_label = TR("Enable Sleep Timer"),
+        .toggle_label = TR("Enable sleep timer"),
         .checked = quick_drawer_sleep_timer_is_active(),
         .switch_cb = sleep_timer_switch_event_cb,
         .caption = TR("Stop after"),
@@ -152,15 +153,12 @@ static lv_obj_t * build_sleep_timer_screen(void) {
     return scr;
 }
 
-/* All IDLE_SHUTDOWN_STEPS values are whole minutes, so unlike
- * format_screen_timeout() this never needs a seconds remainder -- "10m" /
- * "1h" / "2h", not "1h 30m", since 90 isn't one of the steps. */
 static void format_idle_shutdown(char * buf, size_t buf_size, int minutes) {
     if (minutes < 60) {
-        snprintf(buf, buf_size, "%dm", minutes);
+        snprintf(buf, buf_size, TR("%d min"), minutes);
         return;
     }
-    snprintf(buf, buf_size, "%dh", minutes / 60);
+    snprintf(buf, buf_size, TR("%d h"), minutes / 60);
 }
 
 static int idle_shutdown_minutes_to_step_index(int minutes) {
@@ -262,7 +260,7 @@ static void build_idle_action_section(lv_obj_t * content) {
     lv_obj_add_style(explain, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(explain, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
 
-    idle_action_poweroff_row = add_idle_action_row(idle_action_section, TR("Power Off"),
+    idle_action_poweroff_row = add_idle_action_row(idle_action_section, TR("Power off"),
         false, &idle_action_poweroff_check);
     idle_action_suspend_row = add_idle_action_row(idle_action_section, TR("Suspend to RAM"),
         true, &idle_action_suspend_check);
@@ -270,18 +268,13 @@ static void build_idle_action_section(lv_obj_t * content) {
     ui_set_greyed(idle_action_section, !current_settings.idle_shutdown_enabled);
 }
 
-/* Toggle and timeout slider in one card at the top; the idle-action choice
- * sits below it, so the card keeps the same look as every other slider page. */
-static void build_idle_timeout_card(lv_obj_t * content) {
+static void build_idle_timeout_controls(lv_obj_t * content) {
     idle_shutdown_ui = build_setting_slider(content, &(setting_slider_cfg_t) {
-        .toggle_label = TR("Automatically go idle"),
-        .checked = current_settings.idle_shutdown_enabled,
+        .toggle_label = TR("Idle shutdown"), .checked = current_settings.idle_shutdown_enabled,
         .switch_cb = idle_shutdown_switch_event_cb,
-        .caption = TR("Go idle after"),
-        .max_index = IDLE_SHUTDOWN_STEP_COUNT - 1,
+        .caption = TR("Stop after"), .max_index = IDLE_SHUTDOWN_STEP_COUNT - 1,
         .index = idle_shutdown_minutes_to_step_index(current_settings.idle_shutdown_minutes),
-        .steps = IDLE_SHUTDOWN_STEPS,
-        .fmt = format_idle_shutdown,
+        .steps = IDLE_SHUTDOWN_STEPS, .fmt = format_idle_shutdown,
         .slider_cb = idle_shutdown_slider_event_cb,
     });
 }
@@ -290,11 +283,11 @@ static lv_obj_t * build_idle_shutdown_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
-    build_screen_header(scr, TR("Idle Shutdown"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Idle shutdown"), generic_back_cb, NULL, NULL);
 
     lv_obj_t * content = build_settings_body(scr);
 
-    build_idle_timeout_card(content);
+    build_idle_timeout_controls(content);
     build_idle_action_section(content);
 
     finalize_screen_navigation(scr);
@@ -333,12 +326,12 @@ static void idle_shutdown_row_cb(lv_event_t * e) {
 static lv_obj_t * build_settings_power_screen(void) {
     lv_obj_t * list;
     lv_obj_t * scr = build_subsonic_list_screen(TR("Power"), NULL, &list);
-    add_pill_chevron_row(list, TR("Idle Shutdown"), idle_shutdown_row_cb);
+    add_pill_chevron_row(list, TR("Idle shutdown"), idle_shutdown_row_cb);
     add_section_header(list, TR("Charging"));
     pill_list_item_t items[] = {
-        { TR("Charge Limit (85%)"), PILL_ACCESSORY_TOGGLE,
+        { TR("Charge limit (85%)"), PILL_ACCESSORY_TOGGLE,
           current_settings.charge_limiter_enabled, NULL, charge_limiter_switch_event_cb, NULL },
-        { TR("Safe Charging (500mA)"), PILL_ACCESSORY_TOGGLE,
+        { TR("Safe charging (500mA)"), PILL_ACCESSORY_TOGGLE,
           current_settings.safe_charging_enabled, NULL, safe_charging_switch_event_cb, NULL },
         { TR("LED charge indicator"), PILL_ACCESSORY_TOGGLE,
           current_settings.led_indicator_enabled, NULL, led_indicator_switch_event_cb, NULL },
@@ -402,7 +395,7 @@ void settings_power_teardown_screens(void) {
  * gui_shell_drawer.c whenever the drawer icon arms/disarms the timer, or the
  * countdown expires on its own, so this screen never shows a stale state
  * the next time it's opened. Also enables/greys the duration control and shows/hides
- * the "Show Time Remaining" button, matching sleep_timer_switch_event_cb's
+ * the "Show time remaining" button, matching sleep_timer_switch_event_cb's
  * own behavior when the switch is toggled from this screen directly. */
 void gui_settings_sync_sleep_timer_toggle(void) {
     if (!sleep_timer_ui.toggle) return;

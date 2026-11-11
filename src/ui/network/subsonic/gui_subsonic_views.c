@@ -662,17 +662,12 @@ void subsonic_open_cover_flow(void) {
                                  subsonic_cover_flow_open_album);
 }
 
-/* Breeze download glyph where available; the stock art keeps its accent. */
+/* Download actions follow the shared title-bar color policy. */
 static void subsonic_set_download_icon(lv_obj_t * image) {
     const char * asset = asset_path("stream_media/download.png");
     const char * breeze = titlebar_breeze_icon(asset);
     lv_image_set_src(image, breeze ? breeze : asset);
-    if (breeze) {
-        style_titlebar_breeze_icon(image);
-        return;
-    }
-    lv_obj_set_style_image_recolor(image, accent_lv_color(), 0);
-    lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
+    style_titlebar_icon(image, breeze != NULL);
 }
 
 /* The same tall covered rows as the local library lists. */

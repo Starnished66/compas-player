@@ -253,7 +253,7 @@ static void power_action_clicked_cb(lv_event_t * e) {
         if (power_action_pending != action) {
             power_action_pending = action;
             lv_label_set_text(power_action_status, action == 0
-                ? TR("Tap Power off again to confirm") : TR("Tap Restart again to confirm"));
+                ? TR("Tap power off again to confirm") : TR("Tap restart again to confirm"));
             return;
         }
         power_action_hide();
@@ -280,7 +280,7 @@ void start_power_off_countdown(void) {
     if (quick_drawer_sleep_timer_is_active()) {
         lv_label_set_text_fmt(power_action_status, TR("Sleep timer: %d min remaining"), (remaining + 59) / 60);
     } else {
-        lv_label_set_text(power_action_status, TR("Sleep timer: Off"));
+        lv_label_set_text(power_action_status, TR("Sleep timer: off"));
     }
     if (power_action_overlay.popup) lv_obj_scroll_to_y(power_action_overlay.popup, 0, LV_ANIM_OFF);
     /* Snapshot+blur whatever screen is currently behind the overlay fresh

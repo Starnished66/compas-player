@@ -63,7 +63,7 @@ static lv_obj_t * build_screen_timeout_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
-    build_screen_header(scr, TR("Screen Timeout"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Screen timeout"), generic_back_cb, NULL, NULL);
 
     screen_timeout_ui = build_setting_slider(scr, &(setting_slider_cfg_t) {
         .toggle_label = TR("Turn off screen automatically"),
@@ -146,7 +146,7 @@ static lv_obj_t * build_screen_dimming_screen(void) {
     lv_obj_add_event_cb(scr, screen_dimming_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
-    build_screen_header(scr, TR("Screen Dimming"), generic_back_cb, NULL, NULL);
+    build_screen_header(scr, TR("Screen dimming"), generic_back_cb, NULL, NULL);
 
     screen_dimming_ui = build_setting_slider(scr, &(setting_slider_cfg_t) {
         .toggle_label = TR("Dim screen before timeout"),

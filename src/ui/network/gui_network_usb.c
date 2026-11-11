@@ -421,7 +421,7 @@ void usb_mode_settings_row_cb(lv_event_t * e) {
 }
 
 void gui_network_usb_build(void) {
-    usb_mode_screen = network_list_screen(TR("USB Mode"), &usb_mode_list);
+    usb_mode_screen = network_list_screen(TR("USB mode"), &usb_mode_list);
 }
 
 void gui_network_usb_teardown(void) {

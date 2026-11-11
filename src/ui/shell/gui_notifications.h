@@ -37,3 +37,6 @@ typedef struct {
 } menu_popup_row_t;
 
 lv_obj_t * build_menu_popup(const menu_popup_row_t * rows, int row_count, lv_event_cb_t backdrop_cb, lv_obj_t ** out_backdrop);
+/* Returns a menu action row by its logical row index, independent of the
+ * popup's internal card/body layout. */
+lv_obj_t * build_menu_popup_row(lv_obj_t * popup, uint32_t row_index);

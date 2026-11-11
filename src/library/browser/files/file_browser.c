@@ -1,5 +1,6 @@
 #include <stdatomic.h>
 #include "file_browser.h"
+#include "../../../core/files/file_visibility.h"
 #include "../../../ui/text/i18n/i18n.h"
 #include "../../../ui/assets/assets.h"
 #include "../../../ui/widgets/builders/screen_builders.h" /* STATUS_BAR_CLEARANCE / TITLE_ROW_HEIGHT / LIST_ROW_* */
@@ -195,10 +196,7 @@ enum {
 };
 
 static bool skip_name(const char * name, unsigned flags) {
-    if (strncmp(name, ".compas-download-", 17) == 0) return true;
-    if (name[0] != '.') return false;
-    if (!(flags & LIST_HIDDEN)) return true;
-    return strcmp(name, ".") == 0 || strcmp(name, "..") == 0;
+    return file_name_is_hidden(name, (flags & LIST_HIDDEN) != 0);
 }
 
 static bool is_cue_file(const char * name) {
@@ -1137,18 +1135,13 @@ static void page_jump_create(file_browser_t * fb) {
     lv_obj_set_width(title, lv_pct(100));
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
 
-    fb->page_jump_label = lv_label_create(popup);
-    lv_obj_add_style(fb->page_jump_label, &style_theme_text_muted, 0);
-    lv_obj_set_style_text_font(fb->page_jump_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_set_width(fb->page_jump_label, lv_pct(100));
-    lv_obj_set_style_text_align(fb->page_jump_label, LV_TEXT_ALIGN_CENTER, 0);
-
-    fb->page_jump_slider = lv_slider_create(popup);
-    lv_obj_set_width(fb->page_jump_slider, lv_pct(90));
-    lv_slider_set_range(fb->page_jump_slider, 1, browser_page_count(fb));
-    lv_obj_add_style(fb->page_jump_slider, gui_theme_accent_style(), LV_PART_INDICATOR);
-    lv_obj_add_style(fb->page_jump_slider, gui_theme_accent_knob_style(), LV_PART_KNOB);
-    lv_obj_add_event_cb(fb->page_jump_slider, page_jump_slider_cb, LV_EVENT_VALUE_CHANGED, fb);
+    fill_slider_t fill = build_fill_slider(popup, &(fill_slider_cfg_t) {
+        .width = lv_pct(100), .height = FILL_SLIDER_HEIGHT, .radius = FILL_SLIDER_RADIUS,
+        .min = 1, .max = browser_page_count(fb), .value = 1,
+        .caption = "", .value_format = "%d", .event_cb = page_jump_slider_cb, .user_data = fb,
+    });
+    fb->page_jump_slider = fill.slider;
+    fb->page_jump_label = fill.label;
     page_jump_action_row(popup, TR("Go to page"), page_jump_apply_cb, fb);
     page_jump_action_row(popup, TR("Cancel"), page_jump_cancel_cb, fb);
     fb->page_jump_popup = (gui_popup_t) { .popup = popup, .backdrop = backdrop };

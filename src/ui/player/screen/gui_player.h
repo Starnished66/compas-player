@@ -46,6 +46,7 @@ void gui_player_seed_selection_song(const char * path, const track_metadata_t * 
 void gui_player_service_artwork_cache(void);
 void poll_cover_decode(void);
 void gui_player_update_progress(void);
+bool gui_player_sync_popup_pause(void);
 void gui_format_time(double seconds, char * buf, size_t buf_size);
 void show_volume_popup(int32_t percent);
 void poll_volume_popup_timeout(void);
@@ -107,7 +108,7 @@ bool gui_player_queue_snapshot(int ** order, int * count, int * current, uint64_
 void gui_player_sync_remote_queue(void);
 bool gui_player_remote_queue_remove(int offset, uint64_t revision);
 bool gui_player_remote_queue_clear(uint64_t revision);
-/* Remote Control Up Next edits by offset (current track excluded); each
+/* Remote Control actions by displayed queue index; each
  * returns false and changes nothing when the revision is stale. */
 bool gui_player_remote_queue_move(int from_offset, int to_offset, uint64_t revision);
 bool gui_player_remote_queue_play(int offset, uint64_t revision);

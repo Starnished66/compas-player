@@ -1,4 +1,5 @@
 #include "gui_shell_internal.h"
+#include "../../network/wifi/wifi_dhcp.h"
 
 static bool wifi_toggle_active = false;
 /* While a manual toggle or the ordinary screen-off radio restore is in
@@ -387,6 +388,8 @@ void wifi_resume(bool wifi_was_on) {
         wifi_toggle_target_enabled = true;
         if (pthread_create(&wifi_toggle_thread, NULL, wifi_toggle_thread_func, NULL) != 0)
             wifi_toggle_active = false;
+    } else if (wifi_was_on) {
+        wifi_dhcp_start(); /* the radio never went down; only its DHCP owner was stopped */
     }
 }
 void wifi_suspend_launch(bool wifi_was_on) {

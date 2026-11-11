@@ -670,6 +670,10 @@ void register_search(search_binding_id_t id, lv_obj_t *screen, lv_obj_t *list,
     library_search_register(id, &config);
 }
 
+void gui_library_group_songs_list_changed(void) {
+    library_search_set_restore_thumbnail_list(SEARCH_BINDING_GROUP_SONGS, group_songs_list);
+}
+
 void gui_library_apply_sorting(gui_library_sort_scope_t scope) {
     if (scope == GUI_LIBRARY_SORT_FILES) {
         if (library_search_is_active(SEARCH_BINDING_FILES)) search_close_if_active_for_screen(files_screen);
@@ -1199,9 +1203,9 @@ static lv_obj_t * build_music_screen(void) {
         { "submenu/files.png", NULL, TR("Files"), music_files_tile_cb, NULL },
         { "submenu/artists.png", NULL, TR("Artists"), artists_tile_cb, NULL },
         { "submenu/albums.png", NULL, TR("Albums"), albums_tile_cb, NULL },
-        { "submenu/album_artist.png", NULL, TR("Album Artist"), album_artist_tile_cb, NULL },
+        { "submenu/album_artist.png", NULL, TR("Album artist"), album_artist_tile_cb, NULL },
         { "submenu/genres.png", NULL, TR("Genres"), genres_tile_cb, NULL },
-        { "submenu/all_songs.png", NULL, TR("All Songs"), all_songs_tile_cb, NULL },
+        { "submenu/all_songs.png", NULL, TR("All songs"), all_songs_tile_cb, NULL },
         { "submenu/playlists.png", NULL, TR("Playlists"), playlists_tile_cb, NULL },
         /* The Cover Flow icon ships with the firmware image; an older image shows the Albums one. */
         { row_icon_or("submenu/cover_flow.png", "submenu/albums.png"), NULL, TR("Cover Flow"),
@@ -1545,10 +1549,12 @@ void gui_library_teardown(void) {
     library_teardown_diag("sd_format_confirm_popup before");
     gui_popup_teardown(&sd_format_confirm_popup);
     library_teardown_diag("collection_menu_popup before");
+    if (collection_menu_backdrop) gui_popup_backdrop_hide(collection_menu_backdrop);
     if (collection_menu_popup) { lv_obj_delete(collection_menu_popup); collection_menu_popup = NULL; }
     library_teardown_diag("collection_menu_backdrop before");
     if (collection_menu_backdrop) { lv_obj_delete(collection_menu_backdrop); collection_menu_backdrop = NULL; }
     library_teardown_diag("album_collection_menu_popup before");
+    if (album_collection_menu_backdrop) gui_popup_backdrop_hide(album_collection_menu_backdrop);
     if (album_collection_menu_popup) { lv_obj_delete(album_collection_menu_popup); album_collection_menu_popup = NULL; }
     library_teardown_diag("album_collection_menu_backdrop before");
     if (album_collection_menu_backdrop) {

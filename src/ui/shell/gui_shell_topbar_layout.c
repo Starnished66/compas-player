@@ -1,5 +1,11 @@
 #include "gui_shell_internal.h"
+#include "lvgl/src/core/lv_obj_private.h"
 
+
+/* Resolve pending geometry only; polling an unchanged bar needs no layout walk. */
+static void topbar_update_layout(lv_obj_t * obj) {
+    if (obj && lv_obj_get_screen(obj)->scr_layout_inv) lv_obj_update_layout(obj);
+}
 
 /* Normalizes input codec string by stripping non-alphanumeric chars and lowercasing,
  * then maps to a known codec type enum. */
@@ -240,7 +246,7 @@ void layout_codec_topbar_image(lv_obj_t * image) {
 /* Defined further down (near wifi_icon/bt_status_icon's own setup) --
  * forward-declared here so refresh_battery_topbar() (gui_shell_topbar.c) can re-run it
  * whenever battery_topbar_group's own visibility might have changed
- * (unknown percent, or Settings > Power > "Battery Percentage" toggling),
+ * (unknown percent, or Settings > Power > "Battery percentage" toggling),
  * since that group is one of the two anchors that logic positions the
  * wifi/bt topbar icons against. */
 
@@ -277,7 +283,7 @@ static void topbar_align(lv_obj_t * obj, lv_align_t align, int32_t x_ofs, int32_
 /* lv_obj_align_to() for LV_ALIGN_OUT_LEFT_MID / LV_ALIGN_OUT_RIGHT_MID, with
  * the same coordinate and RTL arithmetic but the guarded align write. */
 static void topbar_align_beside(lv_obj_t * obj, lv_obj_t * base, bool left_of, int32_t x_ofs) {
-    lv_obj_update_layout(obj);
+    topbar_update_layout(obj);
     lv_obj_t * parent = lv_obj_get_parent(obj);
     int32_t pleft = lv_obj_get_style_space_left(parent, LV_PART_MAIN);
     int32_t ptop = lv_obj_get_style_space_top(parent, LV_PART_MAIN);
@@ -352,7 +358,7 @@ static void topbar_align_left_of(lv_obj_t * obj, lv_obj_t * anchor, int gap_px) 
 #if defined(BOARD_TEMPOTEC_V1)
 static int32_t topbar_v1_visible_width(lv_obj_t * obj, bool visible) {
     if (!obj || !visible) return 0;
-    lv_obj_update_layout(obj);
+    topbar_update_layout(obj);
     return lv_obj_get_width(obj);
 }
 static void topbar_v1_place(lv_obj_t * obj, int32_t x) {
@@ -377,9 +383,9 @@ static void topbar_v1_apply_art_scale(int32_t percent) {
         else layout_radio_topbar_image(wifi_icon);
     }
     if (bt_status_icon) layout_bluetooth_topbar_image(bt_status_icon);
-    lv_obj_update_layout(volume_topbar_group);
-    lv_obj_update_layout(battery_icon_frame);
-    lv_obj_update_layout(battery_topbar_group);
+    topbar_update_layout(volume_topbar_group);
+    topbar_update_layout(battery_icon_frame);
+    topbar_update_layout(battery_topbar_group);
 }
 static uint32_t topbar_v1_hash_bytes(uint32_t hash, const char * value) {
     if (!value) return (hash ^ 0xffu) * 16777619u;
@@ -549,19 +555,54 @@ static void align_clock_baseline(void) {
     if (!topbar_local_style_is(clock_topbar_ampm, LV_STYLE_TRANSLATE_Y, offset))
         lv_obj_set_style_translate_y(clock_topbar_ampm, offset, 0);
 }
+/* Exact geometry keys avoid reflow for text changes that keep the same width. */
+#define TOPBAR_LAYOUT_KEY_COUNT 32
+static int32_t topbar_layout_key[TOPBAR_LAYOUT_KEY_COUNT];
+static bool topbar_layout_key_valid;
+
+static void topbar_capture_layout_key(int32_t key[TOPBAR_LAYOUT_KEY_COUNT]) {
+    lv_obj_t * objects[] = { status_bar_band, clock_topbar_group, volume_topbar_group,
+        battery_icon_frame, battery_topbar_group, wifi_icon, bt_status_icon };
+    int n = 0;
+    for (unsigned i = 0; i < sizeof(objects) / sizeof(objects[0]); ++i) {
+        key[n++] = lv_obj_get_width(objects[i]);
+        key[n++] = lv_obj_get_height(objects[i]);
+        key[n++] = lv_obj_has_flag(objects[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    key[n++] = current_settings.topbar_hidden_elements;
+    key[n++] = current_settings.show_battery_percent;
+    key[n++] = current_settings.topbar_clock_position;
+    key[n++] = topbar_status_icon_order[0];
+    key[n++] = topbar_status_icon_order[1];
+    key[n++] = topbar_breeze_icons();
+#if defined(BOARD_TEMPOTEC_V1)
+    key[n++] = topbar_v1_wifi_connected_art;
+#else
+    key[n++] = 0;
+#endif
+    key[n++] = lv_obj_get_style_pad_left(status_bar_band, 0);
+    key[n++] = lv_obj_get_style_pad_right(status_bar_band, 0);
+    key[n++] = lv_obj_get_style_pad_top(status_bar_band, 0);
+    key[n++] = lv_obj_get_style_pad_bottom(status_bar_band, 0);
+}
+
 void reflow_topbar_layout(void) {
     if (!status_bar_band || !clock_topbar_group || !volume_topbar_group || !battery_icon_frame ||
         !battery_topbar_group || !wifi_icon || !bt_status_icon) return;
 
     align_clock_baseline();
     apply_topbar_visibility_preferences();
-    lv_obj_update_layout(status_bar_band);
-    lv_obj_update_layout(clock_topbar_group);
-    lv_obj_update_layout(volume_topbar_group);
-    lv_obj_update_layout(battery_topbar_group);
+    topbar_update_layout(status_bar_band);
+    int32_t key[TOPBAR_LAYOUT_KEY_COUNT];
+    topbar_capture_layout_key(key);
+    if (topbar_layout_key_valid && memcmp(key, topbar_layout_key, sizeof(key)) == 0) return;
+    memcpy(topbar_layout_key, key, sizeof(key));
+    topbar_layout_key_valid = true;
 
 #if defined(BOARD_TEMPOTEC_V1)
     reflow_topbar_layout_v1();
+    topbar_update_layout(status_bar_band);
+    topbar_capture_layout_key(topbar_layout_key);
     return;
 #endif
 
@@ -655,9 +696,9 @@ void invalidate_bt_codec_status_cache(void) {
 static uint32_t topbar_codec_geometry_signature(uint32_t signature) {
     if (!status_bar_band || !volume_topbar_group || !clock_topbar_group || !battery_topbar_group)
         return signature;
-    lv_obj_update_layout(volume_topbar_group);
-    lv_obj_update_layout(clock_topbar_group);
-    lv_obj_update_layout(battery_topbar_group);
+    topbar_update_layout(volume_topbar_group);
+    topbar_update_layout(clock_topbar_group);
+    topbar_update_layout(battery_topbar_group);
     signature = signature * 33u + (uint32_t)lv_obj_get_width(status_bar_band);
     signature = signature * 33u + (uint32_t)lv_obj_get_width(clock_topbar_group);
     signature = signature * 33u + (uint32_t)lv_obj_get_x(clock_topbar_group);
@@ -746,12 +787,12 @@ void sync_bt_codec_status_icon(void) {
      * centered clock or the right-side indicators. */
     hidden_due_to_overlap = false;
     if (volume_topbar_group) {
-        lv_obj_update_layout(volume_topbar_group);
+        topbar_update_layout(volume_topbar_group);
         int32_t left_right = lv_obj_get_x(volume_topbar_group) + lv_obj_get_width(volume_topbar_group);
         int32_t right_boundary = LV_COORD_MAX;
         if (clock_topbar_group && !topbar_element_hidden(TOPBAR_HIDE_CLOCK) &&
             current_settings.topbar_clock_position != TOPBAR_CLOCK_LEFT) {
-            lv_obj_update_layout(clock_topbar_group);
+            topbar_update_layout(clock_topbar_group);
             right_boundary = lv_obj_get_x(clock_topbar_group);
         }
         if (bt_status_icon && topbar_object_naturally_visible(bt_status_icon, TOPBAR_HIDE_BLUETOOTH)) {
@@ -764,7 +805,7 @@ void sync_bt_codec_status_icon(void) {
         }
         if (current_settings.show_battery_percent &&
             battery_topbar_group && !lv_obj_has_flag(battery_topbar_group, LV_OBJ_FLAG_HIDDEN)) {
-            lv_obj_update_layout(battery_topbar_group);
+            topbar_update_layout(battery_topbar_group);
             int32_t x = lv_obj_get_x(battery_topbar_group);
             if (x < right_boundary) right_boundary = x;
         }
@@ -781,6 +822,7 @@ void sync_bt_codec_status_icon(void) {
     last_codec_layout_sig = topbar_codec_geometry_signature(layout_base_sig);
 }
 void topbar_layout_teardown(void) {
+    topbar_layout_key_valid = false;
     topbar_status_icon_order[0] = TOPBAR_STATUS_ICON_NONE;
     topbar_status_icon_order[1] = TOPBAR_STATUS_ICON_NONE;
 }

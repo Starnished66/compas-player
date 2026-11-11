@@ -1059,6 +1059,11 @@ void library_search_open(search_binding_id_t id) {
     search_open(b);
 }
 
+void library_search_set_restore_thumbnail_list(search_binding_id_t id, lv_obj_t *list) {
+    if (id < 0 || id >= SEARCH_BINDING_COUNT) return;
+    search_bindings[id].restore_thumbnail_list = list;
+}
+
 void library_search_global_select(int display_index, bool long_press) {
     search_binding_t * b = &search_bindings[SEARCH_BINDING_GLOBAL];
     if (!b->active || !b->global_click || display_index < 0 || display_index >= b->filtered_count) return;

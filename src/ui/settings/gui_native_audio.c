@@ -20,13 +20,17 @@
 enum { PAGE_MSEB, PAGE_STAGE, PAGE_PRESETS, PAGE_MANAGE, PAGE_CONFIRM, PAGE_COUNT };
 static lv_obj_t * screens[PAGE_COUNT], * lists[PAGE_COUNT], * titles[PAGE_COUNT];
 static setting_slider_t tone_sliders[11], stage_sliders[10];
+static lv_obj_t * mseb_enabled_row, * stage_enabled_row, * stage_preset_menu;
+static lv_obj_t * mseb_range_menu, * tone_overflow[11];
+static unsigned mseb_shape;
+static bool mseb_legacy;
 static int selected_preset, pending_action;
 static bool selected_damaged, pending_enable_mseb;
 static lv_obj_t * gain_switches[2]; /* Sound and Car mode; cleared on deletion. */
 static const char * const tone_labels[] = {
-    N_("Overall Temperature"), N_("Bass Extension"), N_("Bass Texture"), N_("Note Thickness"),
-    N_("Vocals"), N_("Female Overtones"), N_("Sibilance LF"), N_("Sibilance HF"),
-    N_("Impulse Response"), N_("Air"), N_("Stereo Width")
+    N_("Overall temperature"), N_("Bass extension"), N_("Bass texture"), N_("Note thickness"),
+    N_("Vocals"), N_("Female overtones"), N_("Sibilance LF"), N_("Sibilance HF"),
+    N_("Impulse response"), N_("Air"), N_("Stereo width")
 };
 static const struct { const char * label; int min, max, step; double scale; } stage_controls[] = {
     {N_("Speaker angle (deg)"),10,60,5,1}, {N_("Amount (%)"),0,100,1,.01},
@@ -47,7 +51,6 @@ static void clear_sliders(int id) {
     int count = id == PAGE_MSEB ? 11 : 10;
     if (id != PAGE_MSEB && id != PAGE_STAGE) return;
     for (int i = 0; i < count; i++) {
-        if (sliders[i].card) unregister_swipe_dead_zone(sliders[i].card);
         sliders[i] = (setting_slider_t){0};
     }
 }
@@ -59,8 +62,6 @@ static lv_obj_t * page(int id, const char * title) {
         titles[id] = label;
     }
     lv_label_set_text(titles[id], title);
-    clear_sliders(id);
-    lv_obj_clean(lists[id]);
     return lists[id];
 }
 
@@ -68,6 +69,22 @@ static void show_page(int id) { nav_push(screens[id]); }
 static bool clicked(lv_event_t * e) { return lv_event_get_code(e) == LV_EVENT_CLICKED; }
 static void failure(const char * text) { show_error_toast(TR(text)); }
 static void integer_format(char * out, size_t size, int value) { snprintf(out, size, "%d", value); }
+
+/* Read back applied values so failed writes and presets update the existing controls. */
+static void refresh_stage_controls(void) {
+    soundstage_config_t c; int preset;
+    native_audio_get_soundstage(&c, &preset);
+    if (stage_preset_menu) gui_option_menu_set_selected(stage_preset_menu, preset);
+    gui_pill_toggle_row_set_checked(stage_enabled_row, c.enabled);
+    for (int i = 0; i < 10; ++i) {
+        if (!stage_sliders[i].slider) continue;
+        double value = *(double *)((char *)&c + soundstage_fields[i].offset) /
+                       stage_controls[i].scale;
+        int shown = (int)(floor(value / stage_controls[i].step + .5) *
+                          stage_controls[i].step);
+        setting_slider_set_index(&stage_sliders[i], shown);
+    }
+}
 
 static setting_slider_t slider(lv_obj_t * list, const char * label, int min, int max,
                                int value, lv_event_cb_t callback, int index) {
@@ -110,7 +127,7 @@ lv_obj_t * gui_native_audio_add_gain_row(lv_obj_t * list) {
 }
 
 static void mseb_failure(bool enabling) {
-    failure(enabling && native_audio_boost_active() ? N_("Turn off Loudness Boost first")
+    failure(enabling && native_audio_boost_active() ? N_("Turn off loudness boost first")
                                                     : N_("Could not apply changes. Try again."));
 }
 
@@ -119,15 +136,17 @@ static void mseb_enabled(lv_event_t * e) {
     native_mseb_state_t state; native_audio_get_mseb(&state);
     state.config.enabled = !state.config.enabled;
     if (!native_audio_set_mseb(&state)) mseb_failure(state.config.enabled);
-    populate_mseb();
+    native_audio_get_mseb(&state);
+    gui_pill_toggle_row_set_checked(mseb_enabled_row, state.config.enabled);
 }
 
 static void stage_enabled(lv_event_t * e) {
     if (!clicked(e)) return;
     soundstage_config_t c; int preset; native_audio_get_soundstage(&c, &preset);
     c.enabled = !c.enabled;
-    if (!native_audio_set_soundstage(&c, preset)) failure(N_("Could not apply Soundstage. Try again."));
-    populate_stage();
+    if (!native_audio_set_soundstage(&c, preset)) failure(N_("Could not apply soundstage. Try again."));
+    native_audio_get_soundstage(&c, &preset);
+    gui_pill_toggle_row_set_checked(stage_enabled_row, c.enabled);
 }
 
 static void range_changed(unsigned selected) {
@@ -159,8 +178,8 @@ static void stage_changed(lv_event_t * e) {
     double v = floor((double)value / step + .5) * step;
     v = fmax(stage_controls[i].min, fmin(stage_controls[i].max, v));
     *(double *)((char *)&c + soundstage_fields[i].offset) = v * stage_controls[i].scale;
-    if (!native_audio_set_soundstage(&c, 0)) failure(N_("Could not apply Soundstage. Try again."));
-    populate_stage();
+    if (!native_audio_set_soundstage(&c, 0)) failure(N_("Could not apply soundstage. Try again."));
+    refresh_stage_controls();
 }
 
 static void preset_changed(unsigned selected) {
@@ -169,15 +188,15 @@ static void preset_changed(unsigned selected) {
     bool enabled = c.enabled;
     if (chosen) native_audio_soundstage_preset(&c, chosen);
     c.enabled = enabled;
-    if (!native_audio_set_soundstage(&c, chosen)) failure(N_("Could not apply Soundstage. Try again."));
-    populate_stage();
+    if (!native_audio_set_soundstage(&c, chosen)) failure(N_("Could not apply soundstage. Try again."));
+    refresh_stage_controls();
 }
 
 static void reset_stage(lv_event_t * e) {
-    if (clicked(e)) confirm_action(2, TR("Reset Soundstage to defaults?"));
+    if (clicked(e)) confirm_action(2, TR("Reset soundstage to defaults?"));
 }
 static void reset_mseb(lv_event_t * e) {
-    if (clicked(e)) confirm_action(1, TR("Reset to Defaults"));
+    if (clicked(e)) confirm_action(1, TR("Reset to defaults"));
 }
 
 static bool valid_selected(native_mseb_state_t * state, char * name) {
@@ -251,12 +270,16 @@ static void manage_preset(lv_event_t * e) {
     native_mseb_state_t state; char name[NATIVE_MSEB_NAME_MAX + 1];
     selected_damaged = !native_mseb_preset_read(selected_preset, true, &state, name);
     lv_obj_t * list = page(PAGE_MANAGE, selected_damaged ? TR("Damaged preset") : name);
-    if (!selected_damaged) {
-        add_pill_chevron_row(list, TR("Load"), load_selected);
-        add_pill_chevron_row(list, TR("Overwrite"), overwrite_selected);
-        add_pill_chevron_row(list, TR("Rename"), rename_selected);
+    unsigned rows = selected_damaged ? 1 : 4;
+    if (lv_obj_get_child_count(list) != rows) lv_obj_clean(list);
+    if (lv_obj_get_child_count(list) == 0) {
+        if (!selected_damaged) {
+            add_pill_chevron_row(list, TR("Load"), load_selected);
+            add_pill_chevron_row(list, TR("Overwrite"), overwrite_selected);
+            add_pill_chevron_row(list, TR("Rename"), rename_selected);
+        }
+        add_pill_chevron_row(list, TR("Delete"), delete_selected);
     }
-    add_pill_chevron_row(list, TR("Delete"), delete_selected);
     show_page(PAGE_MANAGE);
 }
 
@@ -266,25 +289,31 @@ static int compare_presets(const void * a, const void * b) {
 }
 static void open_named_presets(lv_event_t * e) {
     if (e && !clicked(e)) return;
-    lv_obj_t * list = page(PAGE_PRESETS, TR("Named Presets"));
+    lv_obj_t * list = page(PAGE_PRESETS, TR("Named presets"));
     preset_entry_t entries[NATIVE_MSEB_PRESET_COUNT]; int count = 0;
     for (int i = 1; i <= NATIVE_MSEB_PRESET_COUNT; i++) {
         native_mseb_state_t state;
         if (native_mseb_preset_read(i, true, &state, entries[count].name)) entries[count++].id = i;
     }
     qsort(entries, count, sizeof(entries[0]), compare_presets);
-    for (int i = 0; i < count; i++) {
-        lv_obj_t * row = add_pill_chevron_row(list, entries[i].name, NULL);
-        lv_obj_add_event_cb(row, manage_preset, LV_EVENT_CLICKED, (void *)(intptr_t)entries[i].id);
-    }
     for (int i = 1; i <= NATIVE_MSEB_PRESET_COUNT; i++) {
         native_mseb_state_t state; char name[NATIVE_MSEB_NAME_MAX + 1];
         if (!native_mseb_preset_exists(i, true) || native_mseb_preset_read(i, true, &state, name)) continue;
-        snprintf(name, sizeof(name), TR("Damaged preset %d"), i);
-        lv_obj_t * row = add_pill_chevron_row(list, name, NULL);
-        lv_obj_add_event_cb(row, manage_preset, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        entries[count].id = i;
+        snprintf(entries[count++].name, sizeof(entries[0].name), TR("Damaged preset %d"), i);
     }
-    add_pill_chevron_row(list, TR("Save Named Preset"), new_named);
+    static int row_ids[NATIVE_MSEB_PRESET_COUNT];
+    bool rebuild = lv_obj_get_child_count(list) != (unsigned)count + 1;
+    for (int i = 0; i < count; ++i) if (row_ids[i] != entries[i].id) rebuild = true;
+    if (rebuild) lv_obj_clean(list);
+    for (int i = 0; i < count; i++) {
+        if (rebuild) {
+            lv_obj_t * row = add_pill_chevron_row(list, entries[i].name, NULL);
+            lv_obj_add_event_cb(row, manage_preset, LV_EVENT_CLICKED, (void *)(intptr_t)entries[i].id);
+        } else lv_label_set_text(lv_obj_get_child(lv_obj_get_child(list, i), 0), entries[i].name);
+        row_ids[i] = entries[i].id;
+    }
+    if (rebuild) add_pill_chevron_row(list, TR("Save named preset"), new_named);
     show_page(PAGE_PRESETS);
 }
 
@@ -308,7 +337,7 @@ static void slot_action(lv_event_t * e) {
 }
 
 static void convert_legacy(lv_event_t * e) {
-    if (clicked(e)) { pending_enable_mseb = false; confirm_action(5, TR("This saved layout is unsupported. Switching replaces Instrument Presence, Bass Bite, and Treble Bite with the stock controls.")); }
+    if (clicked(e)) { pending_enable_mseb = false; confirm_action(5, TR("This saved layout is unsupported. Switching replaces instrument presence, bass bite, and treble bite with the stock controls.")); }
 }
 
 static void apply_confirmed(lv_event_t * e) {
@@ -334,39 +363,78 @@ static void apply_confirmed(lv_event_t * e) {
     pending_enable_mseb = false;
     nav_pop();
     if (lists[PAGE_MSEB]) populate_mseb();
-    if (lists[PAGE_STAGE]) populate_stage();
+    if (lists[PAGE_STAGE]) {
+        if (pending_action == 2) refresh_stage_controls();
+        else populate_stage();
+    }
 }
 static void cancel_confirm(lv_event_t * e) { if (clicked(e)) { pending_enable_mseb = false; nav_pop(); } }
 static void confirm_action(int action, const char * title) {
     pending_action = action;
     lv_obj_t * list = page(PAGE_CONFIRM, title);
-    add_pill_chevron_row(list, TR("Confirm"), apply_confirmed);
-    add_pill_chevron_row(list, TR("Cancel"), cancel_confirm);
+    if (lv_obj_get_child_count(list) == 0) {
+        add_pill_chevron_row(list, TR("Confirm"), apply_confirmed);
+        add_pill_chevron_row(list, TR("Cancel"), cancel_confirm);
+    }
     show_page(PAGE_CONFIRM);
+}
+
+static int tone_value(const native_mseb_state_t * state, int i) {
+    return i == MSEB_CONTROL_COUNT ? (int)round((state->config.width - 1) * 100)
+                                   : state->config.values[i];
+}
+
+static void refresh_mseb_controls(const native_mseb_state_t * state) {
+    gui_pill_toggle_row_set_checked(mseb_enabled_row, state->config.enabled);
+    if (mseb_range_menu) gui_option_menu_set_selected(mseb_range_menu,
+        state->range == 20 ? 0 : state->range == 40 ? 1 : 2);
+    for (int i = 0; i <= MSEB_CONTROL_COUNT; ++i) {
+        int value = tone_value(state, i);
+        if (tone_sliders[i].slider) {
+            lv_slider_set_range(tone_sliders[i].slider, -state->range, state->range);
+            setting_slider_set_index(&tone_sliders[i], value);
+        } else if (tone_overflow[i]) {
+            lv_label_set_text_fmt(tone_overflow[i], TR("%s: %d (outside ±%d)"),
+                                  TR(tone_labels[i]), value, state->range);
+        }
+    }
 }
 
 static void populate_mseb(void) {
     lv_obj_t * list = page(PAGE_MSEB, TR("MSEB"));
     native_mseb_state_t state; native_audio_get_mseb(&state);
+    unsigned shape = 0;
+    for (int i = 0; i <= MSEB_CONTROL_COUNT; ++i)
+        if (abs(tone_value(&state, i)) > state.range) shape |= 1u << i;
+    if (lv_obj_get_child_count(list) && mseb_legacy == state.legacy && mseb_shape == shape) {
+        if (!state.legacy) refresh_mseb_controls(&state);
+        return;
+    }
+    clear_sliders(PAGE_MSEB);
+    memset(tone_overflow, 0, sizeof(tone_overflow));
+    mseb_enabled_row = mseb_range_menu = NULL;
+    lv_obj_clean(list);
+    mseb_legacy = state.legacy;
+    mseb_shape = shape;
     if (state.legacy) { add_pill_chevron_row(list, TR("Switch to stock MSEB"), convert_legacy); return; }
-    add_pill_toggle_row(list, TR("Enabled"), state.config.enabled, mseb_enabled);
-    add_pill_option_menu_row(list, TR("Adjustment Range"), "±20\n±40\n±100", state.range == 20 ? 0 : state.range == 40 ? 1 : 2, range_changed);
+    mseb_enabled_row = add_pill_toggle_row(list, TR("Enabled"), state.config.enabled, mseb_enabled);
+    mseb_range_menu = add_pill_option_menu_row(list, TR("Adjustment range"), "±20\n±40\n±100", state.range == 20 ? 0 : state.range == 40 ? 1 : 2, range_changed);
     for (int i = 0; i <= MSEB_CONTROL_COUNT; i++) {
         if (i == MSEB_CONTROL_COUNT) {
-            add_section_header(list, TR("Sound Stage"));
+            add_section_header(list, TR("Sound stage"));
             add_wrapped_section_header(list, TR("Stock MSEB width changes the channel mix."));
         }
-        int value = i == MSEB_CONTROL_COUNT ? (int)round((state.config.width - 1) * 100) : state.config.values[i];
+        int value = tone_value(&state, i);
         if (abs(value) > state.range) {
             char label[256]; snprintf(label, sizeof(label), TR("%s: %d (outside ±%d)"), TR(tone_labels[i]), value, state.range);
-            add_wrapped_section_header(list, label);
+            tone_overflow[i] = add_wrapped_section_header(list, label);
         } else tone_sliders[i] = slider(list, TR(tone_labels[i]), -state.range, state.range, value, tone_changed, i);
     }
-    add_pill_chevron_row(list, TR("Reset to Defaults"), reset_mseb);
-    add_pill_chevron_row(list, TR("Named Presets"), open_named_presets);
-    add_pill_chevron_row(list, TR("Save Named Preset"), new_named);
+    add_pill_chevron_row(list, TR("Reset to defaults"), reset_mseb);
+    add_pill_chevron_row(list, TR("Named presets"), open_named_presets);
+    add_pill_chevron_row(list, TR("Save named preset"), new_named);
     for (int save = 1; save >= 0; save--) {
-        add_section_header(list, save ? TR("Save to Slot") : TR("Load from Slot"));
+        add_section_header(list, save ? TR("Save to slot") : TR("Load from slot"));
         for (int i = 1; i <= 3; i++) {
             char label[64]; snprintf(label, sizeof(label), TR("Slot %d"), i);
             lv_obj_t * row = add_pill_chevron_row(list, label, NULL);
@@ -377,14 +445,15 @@ static void populate_mseb(void) {
 
 static void populate_stage(void) {
     lv_obj_t * list = page(PAGE_STAGE, TR("Soundstage"));
+    if (lv_obj_get_child_count(list)) { refresh_stage_controls(); return; }
     soundstage_config_t c; int preset; native_audio_get_soundstage(&c, &preset);
-    add_pill_toggle_row(list, TR("Enabled"), c.enabled, stage_enabled);
+    stage_enabled_row = add_pill_toggle_row(list, TR("Enabled"), c.enabled, stage_enabled);
     char options[512] = "";
     for (int i = 0; i <= 6; i++) {
         size_t used = strlen(options);
         snprintf(options + used, sizeof(options) - used, "%s%s", i ? "\n" : "", TR(stage_presets[i]));
     }
-    add_pill_option_menu_row(list, TR("Preset"), options, preset, preset_changed);
+    stage_preset_menu = add_pill_option_menu_row(list, TR("Preset"), options, preset, preset_changed);
     for (int i = 0; i < 10; i++) {
         if (i == 0) add_section_header(list, TR("Virtual speakers"));
         if (i == 2) add_section_header(list, TR("Side EQ"));
@@ -418,18 +487,20 @@ void gui_native_audio_quick_toggle_set(int kind, bool value) {
         native_mseb_state_t state; native_audio_get_mseb(&state);
         if (state.legacy && value) {
             pending_enable_mseb = true;
-            confirm_action(5, TR("This saved layout is unsupported. Switching replaces Instrument Presence, Bass Bite, and Treble Bite with the stock controls."));
+            confirm_action(5, TR("This saved layout is unsupported. Switching replaces instrument presence, bass bite, and treble bite with the stock controls."));
             return;
         }
         state.config.enabled = value;
         if (!native_audio_set_mseb(&state)) mseb_failure(value);
-        if (lists[PAGE_MSEB]) populate_mseb();
+        native_audio_get_mseb(&state);
+        gui_pill_toggle_row_set_checked(mseb_enabled_row, state.config.enabled);
         return;
     }
     soundstage_config_t c; int preset; native_audio_get_soundstage(&c, &preset);
     c.enabled = value;
     if (!native_audio_set_soundstage(&c, preset)) failure(N_("Could not apply changes. Try again."));
-    if (lists[PAGE_STAGE]) populate_stage();
+    native_audio_get_soundstage(&c, &preset);
+    gui_pill_toggle_row_set_checked(stage_enabled_row, c.enabled);
 }
 
 void gui_native_audio_quick_toggle_open(int kind) {
@@ -444,4 +515,6 @@ void gui_native_audio_deinit(void) {
         if (screens[i]) lv_obj_delete(screens[i]);
         screens[i] = lists[i] = titles[i] = NULL;
     }
+    mseb_enabled_row = stage_enabled_row = stage_preset_menu = mseb_range_menu = NULL;
+    memset(tone_overflow, 0, sizeof(tone_overflow));
 }

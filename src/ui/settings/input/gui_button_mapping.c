@@ -31,15 +31,15 @@ static lv_obj_t * seek_step_summary;
 static const char * button_mapping_button_label(int button) {
     switch (button) {
         case BUTTON_MAPPING_POWER: return TR("Power");
-        case BUTTON_MAPPING_PLAY_PAUSE: return TR("Play/Pause");
-        case BUTTON_MAPPING_NEXT: return TR("Next Track");
-        case BUTTON_MAPPING_PREVIOUS: return TR("Previous Track");
+        case BUTTON_MAPPING_PLAY_PAUSE: return TR("Play/pause");
+        case BUTTON_MAPPING_NEXT: return TR("Next track");
+        case BUTTON_MAPPING_PREVIOUS: return TR("Previous track");
 #if defined(BOARD_R3II_2025)
         case BUTTON_MAPPING_VOLUME_UP: return TR("Clockwise");
         case BUTTON_MAPPING_VOLUME_DOWN: return TR("Counterclockwise");
 #else
-        case BUTTON_MAPPING_VOLUME_UP: return TR("Volume Up");
-        case BUTTON_MAPPING_VOLUME_DOWN: return TR("Volume Down");
+        case BUTTON_MAPPING_VOLUME_UP: return TR("Volume up");
+        case BUTTON_MAPPING_VOLUME_DOWN: return TR("Volume down");
 #endif
         default: return TR("Button");
     }
@@ -56,10 +56,10 @@ static bool button_mapping_button_available(int button) {
 
 static const char * button_mapping_action_label(button_mapping_action_t action) {
     static const char * const labels[BUTTON_MAPPING_ACTION_COUNT] = {
-        N_("Default (native behavior)"), N_("Play/Pause"), N_("Next Track"),
-        N_("Previous Track"), N_("Volume Up"), N_("Volume Down"),
-        N_("Seek Forward"), N_("Seek Backward"), N_("Toggle Screen"),
-        N_("Power Menu"), N_("Do Nothing")
+        N_("Default (native behavior)"), N_("Play/pause"), N_("Next track"),
+        N_("Previous track"), N_("Volume up"), N_("Volume down"),
+        N_("Seek forward"), N_("Seek backward"), N_("Toggle screen"),
+        N_("Power menu"), N_("Do nothing")
     };
     if (action < BUTTON_MAPPING_ACTION_DEFAULT || action >= BUTTON_MAPPING_ACTION_COUNT)
         action = BUTTON_MAPPING_ACTION_DEFAULT;
@@ -177,17 +177,17 @@ static lv_obj_t * build_button_mapping_screen(void) {
         };
     }
     items[count++] = (pill_list_item_t){
-        .label = TR("Seek Step"),
+        .label = TR("Seek step"),
         .accessory = PILL_ACCESSORY_CHEVRON,
         .on_click = seek_step_open_cb,
         .out_row = &seek_step_row,
     };
     items[count++] = (pill_list_item_t){
-        .label = TR("Reset All"),
+        .label = TR("Reset all"),
         .accessory = PILL_ACCESSORY_NONE,
         .on_click = button_mapping_reset_cb,
     };
-    lv_obj_t *scr = build_pill_list_screen(TR("Button Mapping"), generic_back_cb, items,
+    lv_obj_t *scr = build_pill_list_screen(TR("Button mapping"), generic_back_cb, items,
                                             count,
                                             gui_theme_accent_style(), GUI_ROW_GAP, 100);
     for (int button = 0; button < BUTTON_MAPPING_BUTTON_COUNT; ++button)
@@ -236,7 +236,7 @@ static void button_action_option_cb(lv_event_t * e) {
     *binding_action = (button_mapping_action_t)action;
     if (!gui_button_bindings_allow_wake(current_settings.button_bindings)) {
         *binding_action = previous_action;
-        show_error_toast(TR("Keep a button assigned to Toggle Screen or Power Menu"));
+        show_error_toast(TR("Keep a button assigned to toggle screen or power menu"));
         return;
     }
     if (button == BUTTON_MAPPING_PLAY_PAUSE) current_settings.play_pause_button_mode = 0;
@@ -258,44 +258,52 @@ static lv_obj_t * build_button_action_screen(int button, int gesture) {
 static void populate_button_action_screen(int button, int gesture) {
     lv_obj_t *list = button_action_lists[button][gesture];
     if (!list) return;
-    lv_obj_clean(list);
-    for (int action = 0; action < BUTTON_MAPPING_ACTION_COUNT; ++action) {
-        bool selected = *button_mapping_binding_action(button, gesture) == (button_mapping_action_t)action;
-        intptr_t packed = (intptr_t)(button * 64 + gesture * 16 + action);
-        const char *label = action == BUTTON_MAPPING_ACTION_DEFAULT && gesture == 1
-                                ? TR("Disabled")
-                                : button_mapping_action_label((button_mapping_action_t)action);
-        add_pill_option_row(list, label, selected,
-                            button_action_option_cb, (void *)packed);
+    if (lv_obj_get_child_count(list) == 0) {
+        for (int action = 0; action < BUTTON_MAPPING_ACTION_COUNT; ++action) {
+            intptr_t packed = (intptr_t)(button * 64 + gesture * 16 + action);
+            const char *label = action == BUTTON_MAPPING_ACTION_DEFAULT && gesture == 1
+                                    ? TR("Disabled")
+                                    : button_mapping_action_label((button_mapping_action_t)action);
+            add_pill_option_row(list, label, false, button_action_option_cb, (void *)packed);
+        }
     }
+    int selected_action = (int)*button_mapping_binding_action(button, gesture);
+    gui_pill_option_row_set_selected(lv_obj_get_child(list, selected_action), true);
+    for (int action = 0; action < BUTTON_MAPPING_ACTION_COUNT; ++action)
+        if (action != selected_action)
+            gui_pill_option_row_set_selected(lv_obj_get_child(list, action), false);
 }
 
 static void populate_seek_step_screen(void) {
     if (!seek_step_list) return;
-    lv_obj_clean(seek_step_list);
-    for (size_t i = 0; i < sizeof(seek_step_choices) / sizeof(seek_step_choices[0]); ++i) {
-        char label[16];
-        snprintf(label, sizeof(label), TR("%d s"), seek_step_choices[i]);
-        add_pill_option_row(seek_step_list, label,
-                            current_settings.hw_seek_step_seconds == seek_step_choices[i],
-                            seek_step_option_cb, (void *)(intptr_t)seek_step_choices[i]);
+    size_t count = sizeof(seek_step_choices) / sizeof(seek_step_choices[0]);
+    if (lv_obj_get_child_count(seek_step_list) == 0) {
+        for (size_t i = 0; i < count; ++i) {
+            char label[16];
+            snprintf(label, sizeof(label), TR("%d s"), seek_step_choices[i]);
+            add_pill_option_row(seek_step_list, label, false, seek_step_option_cb,
+                                (void *)(intptr_t)seek_step_choices[i]);
+        }
     }
+    for (size_t i = 0; i < count; ++i)
+        gui_pill_option_row_set_selected(lv_obj_get_child(seek_step_list, i),
+            current_settings.hw_seek_step_seconds == seek_step_choices[i]);
 }
 
 static void seek_step_option_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    gui_pill_option_list_set_selected(seek_step_list, lv_event_get_current_target(e));
     current_settings.hw_seek_step_seconds = (int)(intptr_t)lv_event_get_user_data(e);
     player_seek_input_set_hw_step_seconds(current_settings.hw_seek_step_seconds);
     settings_save_async(&current_settings);
     gui_button_mapping_refresh_summaries();
-    populate_seek_step_screen();
 }
 
 static void seek_step_open_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (!seek_step_screen) {
         lv_obj_t * title = NULL;
-        seek_step_screen = build_subsonic_list_screen(TR("Seek Step"), &title, &seek_step_list);
+        seek_step_screen = build_subsonic_list_screen(TR("Seek step"), &title, &seek_step_list);
         finalize_screen_navigation(seek_step_screen);
     }
     populate_seek_step_screen();

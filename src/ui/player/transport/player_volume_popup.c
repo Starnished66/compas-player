@@ -1,4 +1,5 @@
 #include "player_volume_popup.h"
+#include "../../widgets/builders/screen_builders.h"
 #include "../../application/gui.h"
 #include "../screen/gui_player.h"
 #include "../../shell/gui_shell.h"
@@ -126,59 +127,50 @@ bool gui_player_volume_control_hit_test(lv_point_t point) {
            point.y >= area.y1 && point.y <= area.y2;
 }
 
+/* Widths follow the panel width, heights the panel height, so the column
+ * keeps the same share of the screen on every board. */
+#define VOLUME_PILL_W BOARD_SCALE_PX(84)
+#define VOLUME_PILL_H BOARD_SCALE_PY(405)
+#define VOLUME_BUTTON BOARD_SCALE_PX(76)
+#define VOLUME_GAP BOARD_SCALE_PY(12)
+
 /* The pill and Output button share one transparent top-layer column. */
 void player_volume_popup_init(void) {
     volume_popup = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(volume_popup);
-    lv_obj_set_size(volume_popup, BOARD_SCALE_PX(72), BOARD_SCALE_PX(356));
-    lv_obj_align(volume_popup, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(14), -BOARD_SCALE_PX(40));
+    lv_obj_set_size(volume_popup, VOLUME_PILL_W, VOLUME_PILL_H + VOLUME_GAP + VOLUME_BUTTON);
+    lv_obj_align(volume_popup, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(14), BOARD_SCALE_PY(10));
     lv_obj_remove_flag(volume_popup, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(volume_popup, LV_OBJ_FLAG_HIDDEN);
 
-    volume_popup_track = lv_slider_create(volume_popup);
-    lv_obj_set_size(volume_popup_track, BOARD_SCALE_PX(72), BOARD_SCALE_PX(290));
-    lv_obj_align(volume_popup_track, LV_ALIGN_TOP_MID, 0, 0);
-    lv_slider_set_range(volume_popup_track, 0, 100);
-    lv_obj_set_ext_click_area(volume_popup_track, 0);
-    lv_obj_add_style(volume_popup_track, gui_shell_drawer_row_style(), LV_PART_MAIN);
-    lv_obj_set_style_radius(volume_popup_track, BOARD_SCALE_PX(24), LV_PART_MAIN);
-    lv_obj_set_style_clip_corner(volume_popup_track, true, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(volume_popup_track, 0, LV_PART_MAIN);
-    lv_obj_add_style(volume_popup_track, gui_theme_accent_style(), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(volume_popup_track, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(volume_popup_track, 0, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(volume_popup_track, LV_OPA_TRANSP, LV_PART_KNOB);
-    lv_obj_set_style_pad_all(volume_popup_track, 0, LV_PART_KNOB);
-    lv_obj_add_event_cb(volume_popup_track, volume_popup_track_event_cb, LV_EVENT_ALL, NULL);
-
-    volume_popup_value_label = lv_label_create(volume_popup_track);
-    lv_obj_add_style(volume_popup_value_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(volume_popup_value_label, &app_font_player_meta, 0);
-    lv_label_set_text_fmt(volume_popup_value_label, "%d", (int) gui_player_get_volume_percent());
-    lv_obj_align(volume_popup_value_label, LV_ALIGN_TOP_MID, 0, BOARD_SCALE_PX(14));
-    lv_obj_remove_flag(volume_popup_value_label, LV_OBJ_FLAG_CLICKABLE);
-
-    volume_popup_speaker_icon = lv_image_create(volume_popup_track);
     const void * speaker = asset_decoded_image_open(&volume_popup_speaker_image, "volume/vol.png")
                          ? asset_decoded_image_source(&volume_popup_speaker_image) : NULL;
-    lv_image_set_src(volume_popup_speaker_icon, speaker ? speaker : asset_path("volume/vol.png"));
-    lv_obj_add_style(volume_popup_speaker_icon, &style_theme_text_primary, 0);
+    fill_slider_t ui = build_fill_slider(volume_popup, &(fill_slider_cfg_t){
+        .width = VOLUME_PILL_W, .height = VOLUME_PILL_H, .radius = BOARD_SCALE_PX(28),
+        .max = 100, .value = gui_player_get_volume_percent(),
+        .icon_src = speaker ? speaker : asset_path("volume/vol.png"),
+        .value_format = "%d", .event_cb = volume_popup_track_event_cb
+    });
+    volume_popup_track = ui.slider;
+    volume_popup_value_label = ui.label;
+    volume_popup_speaker_icon = ui.icon;
+    lv_obj_align(volume_popup_track, LV_ALIGN_TOP_MID, 0, 0);
     player_fit_small_screen_icon(volume_popup_speaker_icon, 30);
-    lv_obj_align(volume_popup_speaker_icon, LV_ALIGN_BOTTOM_MID, 0, -BOARD_SCALE_PX(16));
-    lv_obj_remove_flag(volume_popup_speaker_icon, LV_OBJ_FLAG_CLICKABLE);
 
     volume_popup_output_button = lv_obj_create(volume_popup);
     lv_obj_remove_style_all(volume_popup_output_button);
-    lv_obj_set_size(volume_popup_output_button, BOARD_SCALE_PX(56), BOARD_SCALE_PX(56));
+    lv_obj_set_size(volume_popup_output_button, VOLUME_BUTTON, VOLUME_BUTTON);
     lv_obj_add_style(volume_popup_output_button, gui_shell_drawer_row_style(), 0);
     lv_obj_set_style_radius(volume_popup_output_button, LV_RADIUS_CIRCLE, 0);
     lv_obj_remove_flag(volume_popup_output_button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align_to(volume_popup_output_button, volume_popup_track, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(10));
+    lv_obj_align_to(volume_popup_output_button, volume_popup_track, LV_ALIGN_OUT_BOTTOM_MID, 0, VOLUME_GAP);
     lv_obj_add_event_cb(volume_popup_output_button, volume_popup_output_event_cb, LV_EVENT_ALL, NULL);
     volume_popup_output_icon = lv_image_create(volume_popup_output_button);
     lv_image_set_src(volume_popup_output_icon, volume_popup_output_icon_src());
     lv_obj_add_style(volume_popup_output_icon, &style_theme_text_primary, 0);
-    player_fit_small_screen_icon(volume_popup_output_icon, 30);
+    /* 28 px art drawn at 42 px on the 480-wide reference, smaller on narrower panels. */
+    lv_image_set_scale(volume_popup_output_icon,
+                       LV_SCALE_NONE * 3 * BOARD_SCREEN_WIDTH / (2 * BOARD_REFERENCE_WIDTH));
     lv_obj_center(volume_popup_output_icon);
 
     volume_popup_hide_timer = lv_timer_create(volume_popup_hide_timer_cb, 1500, NULL);
@@ -199,6 +191,7 @@ void show_volume_popup(int32_t percent) {
         if (volume_popup_value_label) lv_label_set_text_fmt(volume_popup_value_label, "%d", (int) percent);
     }
     lv_obj_remove_flag(volume_popup, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(volume_popup);
     lv_image_set_src(volume_popup_output_icon, volume_popup_output_icon_src());
     if (volume_popup_hide_timer && !dragged &&
         !lv_obj_has_state(volume_popup_track, LV_STATE_PRESSED) &&

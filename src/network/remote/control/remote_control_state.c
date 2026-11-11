@@ -162,6 +162,8 @@ static char request_play_album_filter[128] = "";
 static int64_t * queue_song_ids = NULL;
 static int queue_song_id_count = 0;
 static uint64_t queue_snapshot_revision = 0;
+static int queue_current_position = -1;
+static int queue_pending_count = 0;
 
 /* Publishes a request to play a file with its folder as the queue. The path
  * must fit REMOTE_CONTROL_PATH_MAX. */
@@ -363,7 +365,7 @@ bool remote_control_consume_favorite_changed(void) {
     return consume_flag(&request_favorite_changed);
 }
 
-void remote_control_sync_queue(const char * const * paths, int count, uint64_t revision) {
+bool remote_control_sync_queue(const char * const * paths, int count, int current, int pending, uint64_t revision) {
     /* metadata_db_get_songs_by_paths() takes its own METADATA_DB_GUARD lock
      * internally -- must not be called while already holding status_mutex,
      * or a UI-thread caller blocked on METADATA_DB_GUARD (e.g. a rescan)
@@ -383,12 +385,19 @@ void remote_control_sync_queue(const char * const * paths, int count, uint64_t r
         }
     }
 
+    if (count > 0 && id_count != count) { free(ids); return false; }
+    if (current < 0 || current >= count) current = -1;
+    if (pending < 0) pending = 0;
+    if (pending > count - current - 1) pending = count - current - 1;
     pthread_mutex_lock(&status_mutex);
     free(queue_song_ids);
     queue_song_ids = ids;
     queue_song_id_count = id_count;
     queue_snapshot_revision = revision;
+    queue_current_position = current;
+    queue_pending_count = pending;
     pthread_mutex_unlock(&status_mutex);
+    return true;
 }
 
 bool remote_control_consume_play_index(int64_t * out_index, char * out_playlist, size_t playlist_size,
@@ -483,11 +492,22 @@ void handle_status_get(int cfd) {
     send_response(cfd, "200 OK", "application/json", out);
 }
 
-static void build_queue_json(char * out, size_t out_size, int offset, int limit) {
+static int queue_start_locked(bool full) {
+    return full ? 0 : queue_current_position >= 0 ? queue_current_position + 1 : queue_song_id_count;
+}
+
+static bool queue_full_requested(const char *path) {
+    int full = 0;
+    return query_param_int(path, "full", &full) && full == 1;
+}
+
+static void build_queue_json(char * out, size_t out_size, int offset, int limit, bool full) {
     /* Snapshot queue_song_ids under status_mutex, then resolve IDs via
      * metadata_db_get_songs_by_ids() outside the lock. */
     pthread_mutex_lock(&status_mutex);
-    int total = queue_song_id_count;
+    int start = queue_start_locked(full);
+    int total = queue_song_id_count - start;
+    int current = queue_current_position, pending = queue_pending_count;
     uint64_t revision = queue_snapshot_revision;
     if (offset > total) offset = total;
     int count = total - offset;
@@ -495,7 +515,7 @@ static void build_queue_json(char * out, size_t out_size, int offset, int limit)
     int64_t * ids = NULL;
     if (count > 0) {
         ids = malloc(sizeof(int64_t) * (size_t) count);
-        if (ids) memcpy(ids, queue_song_ids + offset, sizeof(int64_t) * (size_t) count);
+        if (ids) memcpy(ids, queue_song_ids + start + offset, sizeof(int64_t) * (size_t) count);
         else count = 0;
     }
     pthread_mutex_unlock(&status_mutex);
@@ -524,8 +544,8 @@ static void build_queue_json(char * out, size_t out_size, int offset, int limit)
     /* Build JSON array of queue songs using json_builder_t with bounds checking. */
     json_builder_t json;
     json_builder_init(&json, out, out_size);
-    json_builder_appendf(&json, "{\"total\":%d,\"offset\":%d,\"revision\":%llu,\"songs\":[", total, offset,
-                         (unsigned long long) revision);
+    json_builder_appendf(&json, "{\"total\":%d,\"offset\":%d,\"revision\":%llu,\"current_position\":%d,\"queued_count\":%d,\"songs\":[", total, offset,
+                         (unsigned long long) revision, current, pending);
     for (int i = 0; i < count && !json.truncated; i++) {
         if (ids[i] < 0 || !rows || rows[i].id == -1) {
             if (!json_builder_appendf(&json, "%s{\"offset\":%d,\"index\":-1,\"title\":\"Unknown track\",\"artist\":\"\"}", i ? "," : "", offset + i)) break;
@@ -567,8 +587,8 @@ static void send_queue_edit_error(int cfd, const char * code) {
 }
 
 /* POST /api/queue/move?from=N&to=N&revision=R and
- * POST /api/queue/play?offset=N&revision=R. Offsets index the Up Next list
- * of that revision. Accepted requests are applied on the UI thread, which
+ * POST /api/queue/play?offset=N&revision=R. Offsets index Up Next unless
+ * full=1 selects the full displayed queue. Requests run on the UI thread, which
  * rechecks the revision and ignores the request if the queue changed. */
 void handle_queue_edit_request(int cfd, const char * path, bool move) {
     uint64_t from = 0, to = 0, revision = 0;
@@ -585,7 +605,12 @@ void handle_queue_edit_request(int cfd, const char * path, bool move) {
     /* One edit per published revision: a second one would overwrite the
      * first before the UI applies it. The client rereads /queue. */
     code = queue_edit_conflict_locked(revision);
-    if (!code && (from >= (uint64_t) queue_song_id_count || (move && to >= (uint64_t) queue_song_id_count)))
+    int start = queue_start_locked(queue_full_requested(path));
+    from += (uint64_t) start;
+    to += (uint64_t) start;
+    if (!code && (from >= (uint64_t) queue_song_id_count ||
+                  (move && (to >= (uint64_t) queue_song_id_count ||
+                            (int) from <= queue_current_position || (int) to <= queue_current_position))))
         code = "invalid_offset";
     if (code) {
         /* rejected below */
@@ -845,7 +870,7 @@ void handle_queue_get(int cfd, const char * path) {
      * paths build_queue_json() reaches. */
     char * json = json_alloc_or_500(cfd, 65536);
     if (json) {
-        build_queue_json(json, 65536, offset, limit);
+        build_queue_json(json, 65536, offset, limit, queue_full_requested(path));
         send_json_free(cfd, json);
     }
 }
@@ -968,13 +993,15 @@ static bool set_playback_request_locked(const char * path_only, const char * pat
         if (query_param_int(path, "offset", &offset) && offset >= 0 &&
             query_param_int64(path, "revision", &revision) && revision >= 0) {
             const char * code = queue_edit_conflict_locked((uint64_t) revision);
-            if (!code && offset >= queue_song_id_count) code = "invalid_offset";
+            int start = queue_start_locked(queue_full_requested(path));
+            if (!code && (offset >= queue_song_id_count - start ||
+                          offset + start <= queue_current_position)) code = "invalid_offset";
             if (code) {
                 ok = false;
                 *reject = code;
             } else {
                 request_has_queue_remove = true;
-                request_queue_remove_offset = offset;
+                request_queue_remove_offset = offset + start;
                 request_queue_remove_revision = (uint64_t) revision;
             }
         } else ok = false;

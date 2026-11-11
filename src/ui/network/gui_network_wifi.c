@@ -270,7 +270,7 @@ void wifi_row_click_cb(lv_event_t * e) {
 
     snprintf(wifi_connect_pending_ssid, sizeof(wifi_connect_pending_ssid), "%s", net->ssid);
     if (net->secured) {
-        show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
+        show_text_entry(TR("Wi-Fi password"), NULL, true, false, wifi_password_entered_cb, NULL);
     } else {
         start_wifi_connect(net->ssid, NULL);
     }
@@ -436,7 +436,7 @@ static void wifi_setup_row_click_cb(lv_event_t * e) {
     if (saved_id >= 0) {
         start_wifi_connect_saved(saved_id, row->ssid);
     } else if (row->secured) {
-        show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
+        show_text_entry(TR("Wi-Fi password"), NULL, true, false, wifi_password_entered_cb, NULL);
     } else {
         start_wifi_connect(row->ssid, NULL);
     }
@@ -488,7 +488,7 @@ int wifi_saved_display_index(int candidate) {
 
 /* Row subtitle for a scanned network; `saved` only applies to unconnected rows. */
 const char * wifi_network_status_text(const wifi_network_t * net, bool connected, bool saved) {
-    if (connected) return net->secured ? TR("Secured · Connected") : TR("Open · Connected");
+    if (connected) return net->secured ? TR("Secured · connected") : TR("Open · connected");
     if (saved) return TR("Saved network");
     return net->secured ? TR("Secured network") : TR("Open network");
 }
@@ -667,7 +667,7 @@ static void wifi_setup_hidden_ssid_cb(const char * text, void * user_data) {
         return;
     }
     if (!wifi_pending_ssid_set(text)) return;
-    show_text_entry(TR("Wi-Fi Password"), NULL, true, false, wifi_password_entered_cb, NULL);
+    show_text_entry(TR("Wi-Fi password"), NULL, true, false, wifi_password_entered_cb, NULL);
 }
 
 void gui_network_setup_wifi_add_hidden(void) {
@@ -679,7 +679,7 @@ void gui_network_setup_wifi_add_hidden(void) {
         show_info_toast(TR("Wi-Fi is busy"));
         return;
     }
-    show_text_entry(TR("Network Name (SSID)"), NULL, false, false, wifi_setup_hidden_ssid_cb, NULL);
+    show_text_entry(TR("Network name (SSID)"), NULL, false, false, wifi_setup_hidden_ssid_cb, NULL);
 }
 
 bool gui_network_setup_wifi_connected(void) {

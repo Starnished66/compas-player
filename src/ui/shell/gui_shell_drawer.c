@@ -590,7 +590,7 @@ bool quick_drawer_sleep_timer_is_active(void) {
     return sleep_timer_active;
 }
 
-/* For Settings > Sleep Timer's "Show Time Remaining" button (build_sleep_
+/* For Settings > Sleep Timer's "Show time remaining" button (build_sleep_
  * timer_screen(), gui_settings.c) -- same
  * remaining time poll_sleep_timer() below acts on. 0 when not armed, never negative. */
 int quick_drawer_sleep_timer_remaining_seconds(void) {
