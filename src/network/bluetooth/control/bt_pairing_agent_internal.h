@@ -10,6 +10,8 @@
 #include <stdint.h>
 
 /* bt_pairing_agent.c */
+/* Wakes the dispatch thread: call after changing anything it acts on. */
+void bt_agent_wake(void);
 void bt_agent_send_empty_reply(DBusConnection * c, DBusMessage * msg);
 void bt_agent_send_error_reply(DBusConnection * c, DBusMessage * msg, const char * error_name, const char * error_msg);
 void bt_agent_send_basic_reply(DBusConnection * c, DBusMessage * msg, int type, const void * value);
@@ -25,6 +27,8 @@ void bt_agent_ui_state_clear(void);
 bool bt_agent_confirm_begin(DBusConnection * c, DBusMessage * msg, const char * device, uint32_t passkey);
 void bt_agent_display_begin(DBusConnection * c, const char * device, const char * code);
 void bt_agent_ui_service(DBusConnection * c);
+/* Milliseconds until ui_service next has something to do for the prompts; -1 for never. */
+int bt_agent_ui_next_wake_ms(void);
 void bt_agent_revoke_trust_for(const char * device);
 
 #endif

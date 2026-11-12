@@ -17,6 +17,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <sys/prctl.h>
+#include <time.h>
 
 #undef DBG_LOG
 #define DBG_LOG(...) DB_LOG_DBG("BT", __VA_ARGS__)
@@ -28,6 +29,10 @@
 #define BT_RC_OBJECT_PATH "/org/openhibyplayer/RemoteControlProfile"
 #define BT_RC_RFCOMM_CHANNEL 21
 #define BT_RC_RETRY_MS 3000
+/* Wait before asking bluetoothd to register the profile again after it refused. */
+#define BT_RC_REGISTER_RETRY_MS 1000
+/* Owner check interval when the bus would not take the NameOwnerChanged match. */
+#define BT_RC_OWNER_POLL_MS 500
 
 /* Implemented alongside the Wi-Fi HTTP transport. This module retains
  * descriptor ownership and closes it after the single-request handler exits. */
@@ -43,8 +48,13 @@ static bool thread_started;
 static bool client_active;
 static int active_client_fd = -1;
 static char active_device_path[128];
+/* Unique name of the current org.bluez owner, empty when bluetoothd is not running. Read once
+ * after connecting, then kept by name_owner_changed. Service thread only. */
 static char bluez_owner[64];
 static bool registered;
+/* Wakes the service thread: bt_remote_control_stop signals it. Created in start, handed to the
+ * thread as its argument, closed by stop after the join. */
+static int wake_fd = -1;
 
 static void send_empty_reply(DBusConnection * c, DBusMessage * msg) {
     DBusMessage * reply = dbus_message_new_method_return(msg);
@@ -198,8 +208,7 @@ static const DBusObjectPathVTable profile_vtable = {
     NULL, profile_message_handler, NULL, NULL, NULL, NULL
 };
 
-/* Polling alone can miss a very short bluetoothd restart. This signal makes
- * a lost/reclaimed org.bluez name invalidate registration immediately. */
+/* Tracks bluetoothd: a lost or reclaimed org.bluez name invalidates the registration at once. */
 static DBusHandlerResult name_owner_changed(DBusConnection * c, DBusMessage * msg,
                                              void * user_data) {
     (void) c;
@@ -216,6 +225,7 @@ static DBusHandlerResult name_owner_changed(DBusConnection * c, DBusMessage * ms
         DBUS_TYPE_STRING, &new_owner, DBUS_TYPE_INVALID);
     dbus_error_free(&err);
     if (valid && strcmp(name, "org.bluez") == 0 && strcmp(old_owner, new_owner) != 0) {
+        snprintf(bluez_owner, sizeof(bluez_owner), "%s", new_owner);
         registered = false;
         atomic_store(&profile_status, BT_REMOTE_CONTROL_WAITING);
     }
@@ -306,11 +316,17 @@ static bool register_profile(bool register_it) {
     return true;
 }
 
-static void * service_thread_func(void * unused) {
+static uint64_t monotonic_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000 + (uint64_t) ts.tv_nsec / 1000000;
+}
+
+static void * service_thread_func(void * arg) {
     (void) prctl(PR_SET_NAME, "bt_rfcomm");
-    (void) unused;
-    bool bluez_present = false;
-    unsigned retry = 0;
+    const int wake = (int) (intptr_t) arg;
+    bool watching_owner = false; /* the NameOwnerChanged match took; otherwise ask the bus each turn */
+    uint64_t retry_at_ms = 0; /* 0: no refused registration to wait out */
     while (atomic_load(&enabled)) {
         if (!connection) {
             DBusError err;
@@ -334,9 +350,10 @@ static void * service_thread_func(void * unused) {
                 DBG_LOG("bt_remote_control: could not watch BlueZ restarts: %s\n",
                         match_err.message ? match_err.message : "unknown error");
                 dbus_error_free(&match_err);
+                watching_owner = false;
             } else {
                 dbus_error_free(&match_err);
-                dbus_connection_add_filter(connection, name_owner_changed, NULL, NULL);
+                watching_owner = dbus_connection_add_filter(connection, name_owner_changed, NULL, NULL);
             }
             if (!dbus_connection_register_object_path(connection, BT_RC_OBJECT_PATH, &profile_vtable, NULL)) {
                 DBG_LOG("bt_remote_control: failed to export Profile1 object\n");
@@ -347,7 +364,10 @@ static void * service_thread_func(void * unused) {
                 usleep(BT_RC_RETRY_MS * 1000);
                 continue;
             }
-            bluez_present = false;
+            /* After the match: a change in between is queued for the filter. */
+            (void) bt_dbus_get_name_owner(connection, "org.bluez", bluez_owner, sizeof(bluez_owner));
+            registered = false;
+            retry_at_ms = 0;
         }
 
         if (!dbus_connection_get_is_connected(connection)) {
@@ -356,28 +376,38 @@ static void * service_thread_func(void * unused) {
             connection = NULL;
             registered = false;
             atomic_store(&profile_status, BT_REMOTE_CONTROL_WAITING);
-            bluez_present = false;
             bluez_owner[0] = '\0';
             continue;
         }
 
-        char current_owner[64] = { 0 };
-        bool now_present = bt_dbus_get_name_owner(connection, "org.bluez", current_owner, sizeof(current_owner));
-        if (now_present && bluez_owner[0] && strcmp(bluez_owner, current_owner) != 0) {
+        if (!watching_owner) {
+            char owner[sizeof(bluez_owner)];
+            (void) bt_dbus_get_name_owner(connection, "org.bluez", owner, sizeof(owner));
+            if (strcmp(owner, bluez_owner) != 0) {
+                snprintf(bluez_owner, sizeof(bluez_owner), "%s", owner);
+                registered = false;
+                atomic_store(&profile_status, BT_REMOTE_CONTROL_WAITING);
+            }
+        }
+        if (bluez_owner[0]) {
+            uint64_t now_ms = monotonic_ms();
+            if (!registered && now_ms >= retry_at_ms) {
+                retry_at_ms = register_profile(true) ? 0 : monotonic_ms() + BT_RC_REGISTER_RETRY_MS;
+            }
+        } else {
             registered = false;
             atomic_store(&profile_status, BT_REMOTE_CONTROL_WAITING);
+            retry_at_ms = 0;
         }
-        snprintf(bluez_owner, sizeof(bluez_owner), "%s", current_owner);
-        if (now_present && (!bluez_present || !registered) && retry == 0) {
-            if (!register_profile(true)) retry = 2;
-        } else if (!now_present) {
-            registered = false;
-            atomic_store(&profile_status, BT_REMOTE_CONTROL_WAITING);
-            retry = 0;
+        /* Sleep until a bus message (including bluetoothd coming or going), stop, or the end of a
+         * refused registration's wait. */
+        int timeout_ms = -1;
+        if (bluez_owner[0] && !registered) {
+            uint64_t now_ms = monotonic_ms();
+            timeout_ms = retry_at_ms > now_ms ? (int) (retry_at_ms - now_ms) : 0;
         }
-        bluez_present = now_present;
-        if (retry > 0) retry--;
-        dbus_connection_read_write_dispatch(connection, 500);
+        if (!watching_owner && (timeout_ms < 0 || timeout_ms > BT_RC_OWNER_POLL_MS)) timeout_ms = BT_RC_OWNER_POLL_MS;
+        bt_dbus_wait_dispatch(connection, wake, timeout_ms);
     }
 
     if (connection) {
@@ -401,10 +431,13 @@ void bt_remote_control_start(void) {
     }
     atomic_store(&enabled, true);
     atomic_store(&profile_status, BT_REMOTE_CONTROL_WAITING);
-    int rc = pthread_create(&service_thread, NULL, service_thread_func, NULL);
+    wake_fd = bt_dbus_wake_create();
+    int rc = pthread_create(&service_thread, NULL, service_thread_func, (void *) (intptr_t) wake_fd);
     if (rc == 0) {
         thread_started = true;
     } else {
+        if (wake_fd >= 0) close(wake_fd);
+        wake_fd = -1;
         atomic_store(&enabled, false);
         atomic_store(&profile_status, BT_REMOTE_CONTROL_FAILED);
         DBG_LOG("bt_remote_control: could not start service thread (%d)\n", rc);
@@ -426,8 +459,12 @@ void bt_remote_control_stop(void) {
     pthread_mutex_unlock(&client_mutex);
     thread = service_thread;
     thread_started = false;
+    int fd = wake_fd;
+    wake_fd = -1;
+    bt_dbus_wake_signal(fd);
     pthread_mutex_unlock(&lifecycle_mutex);
     pthread_join(thread, NULL);
+    if (fd >= 0) close(fd);
     /* Called by the background service worker. Socket shutdown interrupts
      * reads, but an in-flight request must also finish before radio sleep. */
     pthread_mutex_lock(&client_mutex);

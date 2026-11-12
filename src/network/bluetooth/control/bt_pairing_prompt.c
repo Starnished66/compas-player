@@ -40,6 +40,7 @@ void bt_pairing_agent_allow_pairing_for(unsigned int ms) {
            !atomic_compare_exchange_weak(&pairing_deadline, &current, deadline)) {}
     atomic_store(&pairing_ever_opened, true);
     atomic_store(&discoverable_wanted, true); /* the dispatch thread sends it, never this caller */
+    bt_agent_wake();
 }
 
 bool bt_agent_take_discoverable_request(void) {
@@ -191,7 +192,7 @@ static void display_check(DBusConnection * c, const char * path) {
     pthread_mutex_unlock(&ui_mutex);
 }
 
-/* Dispatch thread, every loop turn. Sends the reply to a request the UI answered or that timed
+/* Dispatch thread, every loop turn (see bt_agent_ui_next_wake_ms). Sends the reply to a request the UI answered or that timed
  * out, and drops a displayed code that expired or whose device finished pairing. */
 void bt_agent_ui_service(DBusConnection * c) {
     struct ui_due due;
@@ -202,6 +203,22 @@ void bt_agent_ui_service(DBusConnection * c) {
     pthread_mutex_unlock(&ui_mutex);
     if (due.msg) confirm_reply(c, &due);
     if (due.check_paired) display_check(c, due.path);
+}
+
+/* Dispatch thread. Time until the earliest confirmation or displayed-code deadline; an answer
+ * from the UI wakes the thread on its own (see answer_confirmation). */
+int bt_agent_ui_next_wake_ms(void) {
+    uint32_t now = bt_agent_monotonic_tenths();
+    int32_t soonest = INT32_MAX;
+    pthread_mutex_lock(&ui_mutex);
+    if (confirm.msg && (int32_t) (confirm.deadline - now) < soonest) soonest = (int32_t) (confirm.deadline - now);
+    if (display.active) {
+        if ((int32_t) (display.deadline - now) < soonest) soonest = (int32_t) (display.deadline - now);
+        if ((int32_t) (display.next_check - now) < soonest) soonest = (int32_t) (display.next_check - now);
+    }
+    pthread_mutex_unlock(&ui_mutex);
+    if (soonest == INT32_MAX) return -1;
+    return soonest > 0 ? soonest * 100 : 0;
 }
 
 bool bt_pairing_agent_pending_confirmation(char * name, size_t name_size, uint32_t * passkey, uint32_t * request_id) {
@@ -221,6 +238,7 @@ void bt_pairing_agent_answer_confirmation(uint32_t request_id, bool accept) {
     if (confirm.msg && !confirm.answered && confirm.id == request_id) {
         confirm.answered = true;
         confirm.accept = accept;
+        bt_agent_wake();
     }
     pthread_mutex_unlock(&ui_mutex);
 }
@@ -241,7 +259,8 @@ void bt_pairing_agent_cancel_prompts(void) {
     pthread_mutex_lock(&ui_mutex);
     if (confirm.msg && !confirm.answered) {
         confirm.answered = true;
-        confirm.accept = false; /* the dispatch thread replies Rejected within a tick */
+        confirm.accept = false; /* the dispatch thread replies Rejected right away */
+        bt_agent_wake();
     }
     display.active = false;
     pthread_mutex_unlock(&ui_mutex);

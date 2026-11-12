@@ -48,6 +48,7 @@ void bt_media_player_control_phone(int direction) {
         phone_count++;
     }
     pthread_mutex_unlock(&phone_mutex);
+    bt_media_player_wake();
 }
 
 static DBusMessage *phone_call(DBusConnection *bus, const char *path, const char *interface,
@@ -140,18 +141,19 @@ static bool phone_status(DBusConnection *bus, const char *path, bool *playing) {
 }
 
 /* One command per dispatch iteration keeps the FIFO bounded and preserves press order. */
-void bt_media_player_dispatch_phone_command(void) {
+bool bt_media_player_dispatch_phone_command(void) {
     pthread_mutex_lock(&phone_mutex);
-    if (!phone_count) { pthread_mutex_unlock(&phone_mutex); return; }
+    if (!phone_count) { pthread_mutex_unlock(&phone_mutex); return false; }
     unsigned generation = phone_generation;
     char target[18];
     snprintf(target, sizeof(target), "%s", phone_target);
     int direction = phone_commands[phone_head];
     phone_head = (phone_head + 1) % PHONE_COMMAND_CAPACITY;
     phone_count--;
+    bool more = phone_count > 0;
     pthread_mutex_unlock(&phone_mutex);
     DBusConnection *bus = dbus_bus_get_private(DBUS_BUS_SYSTEM, NULL);
-    if (!bus) return;
+    if (!bus) return more;
     dbus_connection_set_exit_on_disconnect(bus, false);
     DBusMessage *reply = phone_call(bus, "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
     char path[256] = "";
@@ -171,4 +173,5 @@ void bt_media_player_dispatch_phone_command(void) {
     }
     dbus_connection_close(bus);
     dbus_connection_unref(bus);
+    return more;
 }

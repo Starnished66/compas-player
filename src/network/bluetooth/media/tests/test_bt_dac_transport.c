@@ -16,6 +16,7 @@ static int calls;
 static bool cancel_during_discovery, cancel_during_status, missing_status, retarget_during_discovery;
 static bt_dac_stream_info_t stream_info;
 void bt_control_get_dac_stream_info(bt_dac_stream_info_t *out) { *out = stream_info; }
+void bt_media_player_wake(void) {}
 
 static void fixtures(void) {
     static node connected_variant, connected_key, connected_entry, player_variant, player_key, player_entry;

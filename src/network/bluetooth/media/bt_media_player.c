@@ -1,4 +1,5 @@
 #include "bt_media_player.h"
+#include "../control/bt_dbus_util.h"
 #include "../../../core/system/logging/db_log.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../../hiby/hiby_sys_server.h"
@@ -31,9 +32,12 @@
 #define BT_MEDIA_PLAYER_OBJECT_PATH "/org/mpris/MediaPlayer2"
 #define BT_MEDIA_PLAYER_BUS_NAME "org.mpris.MediaPlayer2.compas"
 #define BT_MEDIA_PLAYER_ADAPTER_PATH "/org/bluez/hci0"
-#define BT_MEDIA_PLAYER_POLL_TIMEOUT_MS 200
 /* Let GUI labels and decoder duration settle before notifying AVRCP. */
 #define BT_MEDIA_PLAYER_METADATA_SETTLE_MS 500
+/* Retry spacing when a settled metadata signal could not be queued. */
+#define BT_MEDIA_PLAYER_SEND_RETRY_MS 200
+/* A position this far from where playback should have put it counts as a seek. */
+#define BT_MEDIA_PLAYER_SEEK_SECONDS 2.0
 
 static DBusConnection * conn = NULL;
 static pthread_t dispatch_thread;
@@ -54,6 +58,16 @@ typedef struct {
     uint64_t generation;
 } track_snapshot_t;
 static track_snapshot_t track_state;
+/* When track_state was last written, to spot a seek in notify_track. */
+static struct timespec track_state_time;
+
+/* The dispatch thread sleeps on this (see bt_dbus_wait_dispatch); every producer of work for it
+ * calls bt_media_player_wake(). Created in bt_media_player_init. */
+static atomic_int wake_fd = -1;
+
+void bt_media_player_wake(void) {
+    bt_dbus_wake_signal(atomic_load(&wake_fd));
+}
 
 static void call_register_player(bool register_it);
 
@@ -614,8 +628,9 @@ static void * dispatch_thread_func(void * arg) {
     struct timespec previous_iteration;
     clock_gettime(CLOCK_MONOTONIC, &previous_iteration);
     struct timespec metadata_change_time = previous_iteration;
+    bool previous_playing = playing_state;
     for (;;) {
-        bt_media_player_dispatch_phone_command();
+        bool more_phone_commands = bt_media_player_dispatch_phone_command();
         struct timespec iteration_time;
         clock_gettime(CLOCK_MONOTONIC, &iteration_time);
         double elapsed_seconds = (double) (iteration_time.tv_sec - previous_iteration.tv_sec) +
@@ -642,9 +657,11 @@ static void * dispatch_thread_func(void * arg) {
         bool metadata_pending = initial_metadata_pending || current.generation != last_emitted_generation;
         bool metadata_settled = metadata_stable_seconds >= (BT_MEDIA_PLAYER_METADATA_SETTLE_MS / 1000.0);
         bool emit_metadata = metadata_pending && metadata_settled;
-        double elapsed_position = last_position + (current_playing ? elapsed_seconds : 0.0);
-        bool seek_detected = (current.position_seconds - elapsed_position > 2.0) ||
-                             (elapsed_position - current.position_seconds > 2.0);
+        /* Iterations are only as frequent as events, so the playing state that applied since the
+         * previous one is what moved the position, not the one just read. */
+        double elapsed_position = last_position + (previous_playing ? elapsed_seconds : 0.0);
+        bool seek_detected = (current.position_seconds - elapsed_position > BT_MEDIA_PLAYER_SEEK_SECONDS) ||
+                             (elapsed_position - current.position_seconds > BT_MEDIA_PLAYER_SEEK_SECONDS);
         bool position_changed = emit_metadata || (!metadata_pending && seek_detected);
         if (emit_metadata || (!metadata_pending && seek_detected)) {
             bool sent = send_track_changed(emit_metadata, position_changed, &current);
@@ -666,15 +683,19 @@ static void * dispatch_thread_func(void * arg) {
             }
         }
         last_position = current.position_seconds;
+        previous_playing = current_playing;
 
-        /* Processes any incoming method calls (dispatched to
-         * message_handler() above) and blocks for up to this long if
-         * there's nothing to do -- also what paces this loop's own
-         * playing_state check above, so a play/pause is reflected within
-         * one timeout window, not instantly, matching every other
-         * ~poll-interval Bluetooth state sync in this codebase (e.g. the
-         * GUI's own ~5s connection poll is far coarser than this). */
-        dbus_connection_read_write_dispatch(conn, BT_MEDIA_PLAYER_POLL_TIMEOUT_MS);
+        /* Sleep until something needs this thread: a bus message, a producer's wake (play state,
+         * track change or seek from notify_*, a phone command), the end of the metadata settle
+         * delay, or at once when more phone commands are queued. */
+        int timeout_ms = -1;
+        if (more_phone_commands) {
+            timeout_ms = 0;
+        } else if (initial_metadata_pending || current.generation != last_emitted_generation) {
+            int settle_left_ms = BT_MEDIA_PLAYER_METADATA_SETTLE_MS - (int) (metadata_stable_seconds * 1000.0);
+            timeout_ms = settle_left_ms > 0 ? settle_left_ms + 1 : BT_MEDIA_PLAYER_SEND_RETRY_MS;
+        }
+        bt_dbus_wait_dispatch(conn, atomic_load(&wake_fd), timeout_ms);
     }
 
     return NULL; /* unreached -- this thread runs for the app's whole lifetime, same as audio.c's playback thread */
@@ -719,6 +740,8 @@ static bool attempt_connect_once(void) {
         dbus_error_free(&match_err);
     }
     dbus_connection_add_filter(conn, interfaces_added_filter, NULL, NULL);
+    /* The shared connection: other threads may read its replies or queue messages on it. */
+    bt_dbus_wake_attach(conn, atomic_load(&wake_fd));
     DBG_LOG("bt_media_player: connected to system bus and registered %s\n", BT_MEDIA_PLAYER_OBJECT_PATH);
 
     pthread_create(&dispatch_thread, NULL, dispatch_thread_func, NULL);
@@ -748,6 +771,7 @@ static void * connect_thread_func(void * arg) {
 
 void bt_media_player_init(void) {
     if (!atomic_exchange_explicit(&connect_thread_started, true, memory_order_acq_rel)) {
+        atomic_store(&wake_fd, bt_dbus_wake_create());
         pthread_t connect_thread;
         if (pthread_create(&connect_thread, NULL, connect_thread_func, NULL) == 0) {
             pthread_detach(connect_thread);
@@ -759,8 +783,10 @@ void bt_media_player_init(void) {
 
 void bt_media_player_notify_playback_state(bool playing) {
     pthread_mutex_lock(&state_mutex);
+    bool changed = playing_state != playing;
     playing_state = playing;
     pthread_mutex_unlock(&state_mutex);
+    if (changed) bt_media_player_wake();
 }
 
 void bt_media_player_notify_track(const char * title, const char * artist, const char * album,
@@ -775,14 +801,25 @@ void bt_media_player_notify_track(const char * title, const char * artist, const
     next.track_number = track_number > 0 ? track_number : 0;
     next.position_seconds = position_seconds > 0 ? position_seconds : 0;
     next.duration_seconds = duration_seconds > 0 ? duration_seconds : 0;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
     pthread_mutex_lock(&state_mutex);
     bool changed = strcmp(track_state.title, next.title) || strcmp(track_state.artist, next.artist) ||
                    strcmp(track_state.album, next.album) || strcmp(track_state.genre, next.genre) ||
                    track_state.track_number != next.track_number || track_state.duration_seconds != next.duration_seconds ||
                    strcmp(track_state.art_url, next.art_url);
     next.generation = track_state.generation + (changed ? 1 : 0);
+    /* This runs on every GUI tick, so wake the dispatch thread only for what it acts on: new
+     * metadata, or a position that is not where playback so far would have put it (a seek). */
+    double since_last = (double) (now.tv_sec - track_state_time.tv_sec) +
+                        (double) (now.tv_nsec - track_state_time.tv_nsec) / 1000000000.0;
+    double expected_position = track_state.position_seconds + (playing_state ? since_last : 0.0);
+    bool seeked = next.position_seconds - expected_position > BT_MEDIA_PLAYER_SEEK_SECONDS ||
+                  expected_position - next.position_seconds > BT_MEDIA_PLAYER_SEEK_SECONDS;
     track_state = next;
+    track_state_time = now;
     pthread_mutex_unlock(&state_mutex);
+    if (changed || seeked) bt_media_player_wake();
 }
 
 /* hw_buttons is the only evdev reader. A press enqueues on the flags the

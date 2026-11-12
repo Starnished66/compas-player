@@ -22,13 +22,12 @@
 #define BT_AGENT_PATH "/org/compas/agent"
 #define BT_AGENT_CAPABILITY "DisplayYesNo"
 #define BT_AGENT_PIN "0000"
-#define BT_AGENT_POLL_TIMEOUT_MS 200
 #define BT_AGENT_DISCOVERABLE_REASSERT_TENTHS 600
 /* Short: a healthy bluetoothd answers in milliseconds, and callers sit on connect paths. */
 #define BT_AGENT_CALL_TIMEOUT_MS 1000
 #define BT_AGENT_CONNECT_ATTEMPTS 3
 #define BT_AGENT_CONNECT_DELAY_US 200000
-#define BT_AGENT_REREGISTER_TICKS (1000 / BT_AGENT_POLL_TIMEOUT_MS)
+#define BT_AGENT_REREGISTER_TENTHS 10
 /* Upper bound a caller waits for the dispatch thread to finish a request. A healthy bluetoothd
  * answers in milliseconds; this only bounds a wedged bus so callers holding locks never hang. */
 #define BT_AGENT_REQUEST_WAIT_MS 3000
@@ -57,6 +56,9 @@ static bool request_result;
  * bluetoothd owner change, and by the connection dropping. */
 static atomic_bool registered = false;
 static atomic_bool reregister_pending = false;
+/* The dispatch thread sleeps on this (see bt_dbus_wait_dispatch); every producer of work for it
+ * calls bt_agent_wake(). Created once in init_threads. */
+static atomic_int wake_fd = -1;
 
 static void init_threads(void) {
     (void) dbus_threads_init_default();
@@ -67,6 +69,11 @@ static void init_threads(void) {
         pthread_condattr_destroy(&attr);
     }
     if (!request_cond_ready) DBG_LOG("bt_pairing_agent: monotonic condition variable unavailable\n");
+    atomic_store(&wake_fd, bt_dbus_wake_create());
+}
+
+void bt_agent_wake(void) {
+    bt_dbus_wake_signal(atomic_load(&wake_fd));
 }
 
 void bt_agent_send_empty_reply(DBusConnection * c, DBusMessage * msg) {
@@ -422,21 +429,33 @@ static void discoverable_service(void) {
     dbus_message_unref(msg);
 }
 
+/* Milliseconds from now to the tenths-of-a-second deadline (never early); 0 when it has passed. */
+static int tenths_until_ms(uint32_t deadline) {
+    int32_t left = (int32_t) (deadline - bt_agent_monotonic_tenths());
+    return left > 0 ? left * 100 : 0;
+}
+
 static void * dispatch_thread_func(void * arg) {
     (void) prctl(PR_SET_NAME, "bt_agent");
     (void) arg;
-    int retry_ticks = 0;
+    uint32_t retry_at = 0;
     while (dbus_connection_get_is_connected(conn)) {
-        dbus_connection_read_write_dispatch(conn, BT_AGENT_POLL_TIMEOUT_MS);
         service_request();
         discoverable_service();
         bt_agent_ui_service(conn);
-        if (!atomic_load(&reregister_pending)) continue;
-        /* A restarted bluetoothd may take its name before AgentManager1 is up: retry about
-         * once a second. */
-        if (retry_ticks-- > 0) continue;
-        retry_ticks = BT_AGENT_REREGISTER_TICKS;
-        if (register_as_default(0)) atomic_store(&reregister_pending, false);
+        /* Sleep until a bus message, a producer's wake, or the next prompt deadline. */
+        int timeout_ms = bt_agent_ui_next_wake_ms();
+        if (atomic_load(&reregister_pending)) {
+            /* A restarted bluetoothd may take its name before AgentManager1 is up: retry about
+             * once a second. */
+            if ((int32_t) (bt_agent_monotonic_tenths() - retry_at) >= 0) {
+                if (register_as_default(0)) atomic_store(&reregister_pending, false);
+                retry_at = bt_agent_monotonic_tenths() + BT_AGENT_REREGISTER_TENTHS;
+            }
+            int retry_ms = tenths_until_ms(retry_at);
+            if (atomic_load(&reregister_pending) && (timeout_ms < 0 || retry_ms < timeout_ms)) timeout_ms = retry_ms;
+        }
+        bt_dbus_wait_dispatch(conn, atomic_load(&wake_fd), timeout_ms);
     }
     DBG_LOG("bt_pairing_agent: bus connection lost\n");
     atomic_store(&registered, false);
@@ -577,6 +596,7 @@ static bool agent_request(void) {
         return false;
     }
     uint64_t seq = ++request_seq;
+    bt_agent_wake();
     bool timed_out = false;
     while (request_done_seq != seq && atomic_load(&thread_alive) && !timed_out)
         timed_out = pthread_cond_timedwait(&request_done, &request_mutex, &deadline) == ETIMEDOUT;
