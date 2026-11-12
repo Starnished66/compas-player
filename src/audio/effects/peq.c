@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
+#include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,7 +27,7 @@
  * precision float's ~144dB dynamic range is already far beyond 16-bit
  * audio's own ~96dB -- standard practice for audio biquad EQs (e.g. JUCE's
  * dsp module defaults to float for exactly this filter family), not a real
- * quality tradeoff on this content. compute_band_coeffs() below still does
+ * quality tradeoff on this content. compute_band_coeffs_for_band() below still does
  * its own setup math in double (pow/cos/sin, once per band per change, not
  * per sample) and only narrows to float in the one assignment into this
  * struct. */
@@ -79,14 +80,41 @@ static bool crossfeed_prime = false;
  * it, so UI/control threads never write the low-pass. */
 static atomic_bool crossfeed_discontinuity = false;
 static unsigned int coeffs_sample_rate = 0;
-static bool coeffs_dirty = true;
 
-/* Cached linear preamp factor (10^(preamp_db / 20.0)), updated whenever
- * preamp_db changes to avoid recomputing pow() during audio processing. */
+/* The UI edits bands[] and preamp_db; peq_publish() hands a consistent copy to
+ * the audio thread, which reads only live (taken at the start of a block).
+ * Without it a block could see a half-written band, and a change made while
+ * the audio thread was recomputing could be lost. */
+typedef struct {
+    peq_band_t bands[PEQ_NUM_BANDS];
+    double preamp_db;
+} peq_params_t;
+static pthread_mutex_t published_mutex = PTHREAD_MUTEX_INITIALIZER;
+static peq_params_t published; /* guarded by published_mutex */
+static atomic_uint published_gen;
+/* Audio thread only from here on. */
+static unsigned int live_gen;
+static peq_params_t live;
+static bool live_coeffs_stale = true;
+/* 10^(live.preamp_db / 20), so pow() never runs per sample. */
 static float cached_preamp_linear = 1.0f;
 
-static void update_preamp_linear_cache(void) {
-    cached_preamp_linear = (float) pow(10.0, preamp_db / 20.0);
+static void peq_publish(void) {
+    pthread_mutex_lock(&published_mutex);
+    memcpy(published.bands, bands, sizeof(bands));
+    published.preamp_db = preamp_db;
+    atomic_fetch_add_explicit(&published_gen, 1, memory_order_release);
+    pthread_mutex_unlock(&published_mutex);
+}
+
+static void take_published(void) {
+    if (atomic_load_explicit(&published_gen, memory_order_acquire) == live_gen) return;
+    pthread_mutex_lock(&published_mutex);
+    live = published;
+    live_gen = atomic_load_explicit(&published_gen, memory_order_relaxed);
+    pthread_mutex_unlock(&published_mutex);
+    cached_preamp_linear = (float) pow(10.0, live.preamp_db / 20.0);
+    live_coeffs_stale = true;
 }
 
 /* Peak limiter -- stereo-linked (one shared gain-reduction envelope across
@@ -145,7 +173,6 @@ static void set_defaults(bool reset_crossfeed) {
         peq_set_crossfeed(0.0);
         peq_set_crossfeed_angle(0);
     }
-    update_preamp_linear_cache();
 }
 
 static void compute_band_coeffs_for_band(const peq_band_t * band,
@@ -176,9 +203,6 @@ static void compute_band_coeffs_for_band(const peq_band_t * band,
     output->a2 = (float) k.a2;
 }
 
-static void compute_band_coeffs(int index, unsigned int sample_rate) {
-    compute_band_coeffs_for_band(&bands[index], sample_rate, &coeffs[index]);
-}
 
 static void get_response_db(const double * frequencies_hz, double * response_db,
                              size_t count, unsigned int sample_rate, bool include_preamp) {
@@ -252,28 +276,29 @@ void peq_get_filter_response_db(const double * frequencies_hz, double * response
 }
 
 static void recompute_all_coeffs(unsigned int sample_rate) {
-    for (int i = 0; i < PEQ_NUM_BANDS; i++) compute_band_coeffs(i, sample_rate);
+    for (int i = 0; i < PEQ_NUM_BANDS; i++) compute_band_coeffs_for_band(&live.bands[i], sample_rate, &coeffs[i]);
     cached_attack_coeff = (float) exp(-1.0 / (LIMITER_ATTACK_SEC * (double) sample_rate));
     cached_release_coeff = (float) exp(-1.0 / (LIMITER_RELEASE_SEC * (double) sample_rate));
     cached_limiter_snap = 1.0f - 1.5e-7f / (1.0f - cached_release_coeff);
     coeffs_sample_rate = sample_rate;
-    coeffs_dirty = false;
+    live_coeffs_stale = false;
 }
 
 void peq_init(void) {
     set_defaults(true);
     memset(state, 0, sizeof(state));
     peq_load();
+    peq_publish();
 }
 
 void peq_reset_to_defaults(void) {
     set_defaults(true);
-    coeffs_dirty = true;
+    peq_publish();
 }
 
 void peq_reset_equalizer(void) {
     set_defaults(false);
-    coeffs_dirty = true;
+    peq_publish();
 }
 
 bool peq_get_bypass(void) { return bypass; }
@@ -282,7 +307,7 @@ void peq_set_bypass(bool b) { bypass = b; }
 double peq_get_preamp_db(void) { return preamp_db; }
 void peq_set_preamp_db(double db) {
     preamp_db = db;
-    update_preamp_linear_cache();
+    peq_publish();
 }
 
 bool peq_get_mono(void) {
@@ -549,18 +574,19 @@ void peq_set_band(int index, double freq_hz, double gain_db, double q) {
     bands[index].freq_hz = freq_hz;
     bands[index].gain_db = gain_db;
     bands[index].q = q;
-    coeffs_dirty = true;
+    peq_publish();
 }
 
 void peq_set_band_type(int index, peq_band_type_t type) {
     if (index < 0 || index >= PEQ_NUM_BANDS) return;
     bands[index].type = type;
-    coeffs_dirty = true;
+    peq_publish();
 }
 
 void peq_set_band_enabled(int index, bool enabled) {
     if (index < 0 || index >= PEQ_NUM_BANDS) return;
     bands[index].enabled = enabled;
+    peq_publish();
 }
 
 /* The manual filters must not resume with histories from before MSEB took
@@ -697,7 +723,7 @@ static void chain_chunk(chain_t * c, float * f, size_t frames) {
     const size_t samples = frames * ch;
     for (size_t i = 0; i < samples; i++) f[i] *= c->preamp;
     for (int band = 0; band < PEQ_NUM_BANDS && !c->eq_off; band++) {
-        if (!bands[band].enabled) continue;
+        if (!live.bands[band].enabled) continue;
         if (ch == 2) {
             band_run_stereo(&coeffs[band], &state[band][0], &state[band][1], f, frames);
             continue;
@@ -798,9 +824,9 @@ static bool plan_block(plan_t * p, size_t frame_count, int channels, unsigned in
     } else crossfeed_consume_discontinuity(true);
     bool any_enabled = false;
     for (int i = 0; i < PEQ_NUM_BANDS; i++) {
-        if (!p->eq_off && bands[i].enabled) { any_enabled = true; break; }
+        if (!p->eq_off && live.bands[i].enabled) { any_enabled = true; break; }
     }
-    p->use_chain = any_enabled || (!p->eq_off && preamp_db != 0.0) || p->width_active ||
+    p->use_chain = any_enabled || (!p->eq_off && live.preamp_db != 0.0) || p->width_active ||
                    p->cross_active;
     if (!p->use_chain && !p->stage) {
         limiter_gain = 1.0f;
@@ -812,6 +838,7 @@ static bool plan_block(plan_t * p, size_t frame_count, int channels, unsigned in
 /* Shared body of peq_process and peq_process_s32; MSEB has already run. */
 static void process_block(void * buf, bool s32, size_t frame_count, int channels,
                           unsigned int sample_rate, bool mseb_active) {
+    take_published();
     sync_mseb_ownership(mseb_active);
     plan_t plan;
     if (!plan_block(&plan, frame_count, channels, sample_rate, s32, mseb_active)) return;
@@ -825,7 +852,7 @@ static void process_block(void * buf, bool s32, size_t frame_count, int channels
         last_call_was_s32 = s32;
     }
 
-    if (coeffs_dirty || sample_rate != coeffs_sample_rate) recompute_all_coeffs(sample_rate);
+    if (live_coeffs_stale || sample_rate != coeffs_sample_rate) recompute_all_coeffs(sample_rate);
 
     if (channels < 1) return;
     if (channels > PEQ_MAX_CHANNELS) channels = PEQ_MAX_CHANNELS;
@@ -869,7 +896,6 @@ bool peq_load_from_path(const char * path) {
         }
         if (strcmp(key, "preamp") == 0) {
             preamp_db = atof(value);
-            update_preamp_linear_cache();
             continue;
         }
 
@@ -920,7 +946,7 @@ bool peq_load_from_path(const char * path) {
     peq_set_stereo_width(loaded_width);
     peq_set_crossfeed(loaded_crossfeed);
     peq_set_crossfeed_angle(loaded_crossfeed_angle);
-    coeffs_dirty = true;
+    peq_publish();
     return true;
 }
 
