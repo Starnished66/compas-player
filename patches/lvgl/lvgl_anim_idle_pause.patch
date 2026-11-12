@@ -1,0 +1,68 @@
+--- a/src/misc/lv_anim.c
++++ b/src/misc/lv_anim.c
+@@ -557,6 +557,10 @@
+     a->is_paused = false;
+     a->pause_duration = 0;
+     a->run_round = state.anim_run_round;
++    /*Compas: the timer may have stopped while this was paused; restart it and count
++     *time from now, not from its last step.*/
++    a->last_timer_run = lv_tick_get();
++    if(state.timer) lv_timer_resume(state.timer);
+ }
+ 
+ #if LV_USE_EXT_DATA
+@@ -671,6 +675,14 @@
+             a = lv_ll_get_next(anim_ll_p, a);
+     }
+ 
++    /*Compas: with every animation paused for good there is nothing to step, so stop
++     *waking the main loop every refresh period. Resuming or adding one restarts it.*/
++    if(state.timer) {
++        bool idle = true;
++        for(a = lv_ll_get_head(anim_ll_p); a != NULL && idle; a = lv_ll_get_next(anim_ll_p, a))
++            idle = a->is_paused && a->pause_duration == LV_ANIM_PAUSE_FOREVER;
++        if(idle) lv_timer_pause(state.timer);
++    }
+ }
+ 
+ /**
+@@ -787,6 +799,8 @@
+     a->is_paused = true;
+     a->pause_time = lv_tick_get();
+     a->pause_duration = ms;
++    /*Compas: a timed pause must be stepped to end it.*/
++    if(ms != LV_ANIM_PAUSE_FOREVER && state.timer) lv_timer_resume(state.timer);
+ }
+ 
+ static void resolve_time(lv_anim_t * a)
+--- a/src/widgets/label/lv_label.c
++++ b/src/widgets/label/lv_label.c
+@@ -678,6 +678,12 @@
+ #endif
+ }
+ 
++/*Compas: lets the app tell a label's scrolling text apart from other animations*/
++bool lv_label_is_scroll_anim(const lv_anim_t * a)
++{
++    return a && (a->exec_cb == set_ofs_x_anim || a->exec_cb == set_ofs_y_anim);
++}
++
+ bool lv_label_get_recolor(const lv_obj_t * obj)
+ {
+     LV_ASSERT_OBJ(obj, MY_CLASS);
+--- a/src/widgets/label/lv_label.h
++++ b/src/widgets/label/lv_label.h
+@@ -190,6 +190,13 @@
+ lv_label_long_mode_t lv_label_get_long_mode(const lv_obj_t * obj);
+ 
+ /**
++ * Compas: whether an animation is a label's scrolling-text animation
++ * @param a     pointer to an animation
++ * @return      true for the LV_LABEL_LONG_MODE_SCROLL(_CIRCULAR) animations
++ */
++bool lv_label_is_scroll_anim(const lv_anim_t * a);
++
++/**
+  * Get the relative x and y coordinates of a letter
+  * @param obj       pointer to a label object
+  * @param char_id   index of the character [0 ... text length - 1].

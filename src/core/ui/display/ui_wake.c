@@ -34,17 +34,19 @@ void ui_wake_init(void) {
 
 bool ui_wake_enabled(void) { return event_mode && wake_pipe[0] >= 0; }
 
+bool ui_wake_available(void) { return wake_pipe[0] >= 0; }
+
 bool ui_wake_take_jobs(void) { return atomic_exchange(&jobs_pending, false); }
 
-void ui_wake_sleep(uint32_t timeout_ms) {
-    if (wake_pipe[0] < 0) { usleep(timeout_ms * 1000u); return; }
+bool ui_wake_sleep(uint32_t timeout_ms) {
+    if (wake_pipe[0] < 0) { usleep(timeout_ms * 1000u); return false; }
     struct pollfd fd = { .fd = wake_pipe[0], .events = POLLIN };
     int timeout = timeout_ms > INT_MAX ? INT_MAX : (int) timeout_ms;
-    if (poll(&fd, 1, timeout) > 0 && (fd.revents & POLLIN)) {
-        unsigned char bytes[256];
-        for (unsigned i = 0; i < 16; ++i)
-            if (read(wake_pipe[0], bytes, sizeof(bytes)) <= 0) break;
-    }
+    if (poll(&fd, 1, timeout) <= 0 || !(fd.revents & POLLIN)) return false;
+    unsigned char bytes[256];
+    for (unsigned i = 0; i < 16; ++i)
+        if (read(wake_pipe[0], bytes, sizeof(bytes)) <= 0) break;
+    return true;
 }
 
 void ui_wake_notify(void) {

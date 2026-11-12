@@ -762,7 +762,7 @@ static void screen_wake_service_frame_prep(uint32_t age, bool retry_due) {
 static void power_button_timer_cb(lv_timer_t * timer) {
     (void) timer;
     if (!screen_wake_pending) {
-        if (ui_wake_enabled() && timer) lv_timer_pause(timer);
+        if (ui_wake_available() && timer) lv_timer_pause(timer);
         return;
     }
     uint32_t age = lv_tick_elaps(screen_wake_phase_tick);
@@ -794,7 +794,7 @@ static void power_button_timer_cb(lv_timer_t * timer) {
 void media_button_timer_cb(lv_timer_t *timer) {
     (void)timer;
     process_physical_button_events();
-    if (ui_wake_enabled() && media_input_timer) {
+    if (ui_wake_available() && media_input_timer) {
         bool pending = false;
         for (unsigned i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i)
             pending |= physical_button_mapping.pending_taps[i].pending;
@@ -1055,7 +1055,9 @@ void gui_screen_power_deinit(void) {
 void gui_screen_power_start_timers(void) {
     power_input_timer = lv_timer_create(power_button_timer_cb, 25, NULL);
     media_input_timer = lv_timer_create(media_button_timer_cb, 16, NULL);
-    if (ui_wake_enabled()) {
+    /* Button presses wake the loop through ui_wake (hw_buttons notifies), so
+     * these timers only run while a press or a screen wake is in progress. */
+    if (ui_wake_available()) {
         lv_timer_pause(power_input_timer);
         lv_timer_pause(media_input_timer);
     }

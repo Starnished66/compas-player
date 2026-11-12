@@ -278,6 +278,7 @@ LVGL_STYLE_REDRAW_PATCH := patches/lvgl/lvgl_style_redraw.patch
 LVGL_MARQUEE_REDRAW_PATCH := patches/lvgl/lvgl_marquee_redraw.patch
 LVGL_BLUR_WALK_SKIP_PATCH := patches/lvgl/lvgl_blur_walk_skip.patch
 LVGL_OPAQUE_LAYER_CULL_PATCH := patches/lvgl/lvgl_opaque_layer_cull.patch
+LVGL_ANIM_IDLE_PAUSE_PATCH := patches/lvgl/lvgl_anim_idle_pause.patch
 LVGL_BAR_INDICATOR_CLIP_PATCH := patches/lvgl/lvgl_bar_indicator_clip.patch
 LVGL_INVALIDATION_HOOK_PATCH := patches/lvgl/lvgl_invalidation_hook.patch
 LVGL_TEXTAREA_ARABIC_PATCH := patches/lvgl/lvgl_textarea_arabic_canonical.patch
@@ -1048,7 +1049,7 @@ $(HOST_BIN): $(HOST_OBJS) $(HOST_AUDIO_LIBS) $(HOST_VARIANT_STAMP)
 # on the tracked patch file (so a future change to the patch itself also
 # invalidates it), not just on $(LVGL_DIR) existing.
 $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
-                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) $(LVGL_SCROLL_BLIT_PATCH) $(LVGL_STYLE_REDRAW_PATCH) $(LVGL_MARQUEE_REDRAW_PATCH) $(LVGL_BLUR_WALK_SKIP_PATCH) $(LVGL_OPAQUE_LAYER_CULL_PATCH) $(LVGL_BAR_INDICATOR_CLIP_PATCH) $(LVGL_INVALIDATION_HOOK_PATCH) \
+                     $(LVGL_TINY_TTF) $(LVGL_TJPGDCNF) $(LVGL_LRU_RB) $(LVGL_LODEPNG) $(LVGL_OBJ_POS) $(LVGL_DRAW_IMAGE) $(LVGL_SW_TRANSFORM) $(LVGL_RUNTIME_FIXES_PATCH) $(LVGL_UI_PERF_TRACE_PATCH) $(LVGL_SCROLL_BLIT_PATCH) $(LVGL_STYLE_REDRAW_PATCH) $(LVGL_MARQUEE_REDRAW_PATCH) $(LVGL_BLUR_WALK_SKIP_PATCH) $(LVGL_OPAQUE_LAYER_CULL_PATCH) $(LVGL_ANIM_IDLE_PAUSE_PATCH) $(LVGL_BAR_INDICATOR_CLIP_PATCH) $(LVGL_INVALIDATION_HOOK_PATCH) \
                      $(LVGL_EVDEV_C) $(LVGL_EVDEV_FRAMES_PATCH) $(LVGL_TEXTAREA_ARABIC_PATCH) $(LVGL_BIDI_LTR_FASTPATH_PATCH) \
                      $(LVGL_BINFONT_LOADER) $(LVGL_FS_CORE) $(LVGL_BINFONT_SAFETY_PATCH) \
                      $(LVGL_BIN_DECODER) $(LVGL_BIN_DECODER_SAFETY_PATCH) scripts/tools/patches/apply-tracked-patch.sh \
@@ -1131,6 +1132,7 @@ $(LVGL_PATCH_STAMP): $(LVGL_FBDEV_C) $(LVGL_FBDEV_H) $(LVGL_PATCH) \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_MARQUEE_REDRAW_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BLUR_WALK_SKIP_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_OPAQUE_LAYER_CULL_PATCH); \
+	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_ANIM_IDLE_PAUSE_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_BAR_INDICATOR_CLIP_PATCH); \
 	scripts/tools/patches/apply-tracked-patch.sh $(LVGL_DIR) $(LVGL_INVALIDATION_HOOK_PATCH); \
 	for f in $(LVGL_GENERATED_FONTS); do \

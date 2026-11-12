@@ -580,6 +580,15 @@ static uint32_t main_loop_tick_gap(uint32_t now, uint32_t last) {
     return now - last;
 }
 
+/* Input is handled before the next loop pass: bring LVGL's tick up to now first
+ * so gestures and tap timeouts see real event time after an idle sleep. */
+static uint32_t advance_tick_to_now(uint32_t * last_real_tick) {
+    uint32_t now = custom_tick_get();
+    lv_tick_inc(main_loop_tick_gap(now, *last_real_tick));
+    *last_real_tick = now;
+    return now;
+}
+
 int main(int argc, char ** argv) {
     /* Ignore SIGPIPE process-wide: a Bluetooth disconnect during playback
      * kills the `aplay -D bluealsa` child audio_output.c writes into, and
@@ -1032,9 +1041,7 @@ int main(int argc, char ** argv) {
 #endif
                 /* Advance ticks before dispatch: gestures must see real event
                  * time even after an idle wait. The handler accounts the rest. */
-                uint32_t input_tick = custom_tick_get();
-                lv_tick_inc(main_loop_tick_gap(input_tick, last_real_tick));
-                last_real_tick = input_tick;
+                uint32_t input_tick = advance_tick_to_now(&last_real_tick);
                 if ((ready & UI_WAKE_TOUCH_ERROR) && event_touch) {
                     /* Persistent error readiness cannot be consumed as data. */
                     fprintf(stderr, "Touch input: descriptor error, removing device\n");
@@ -1054,7 +1061,11 @@ int main(int argc, char ** argv) {
         } else
 #endif
         {
-        ui_wake_sleep(time_till_next);
+        /* Button presses notify too: consume them now, like the event loop does. */
+        if (ui_wake_sleep(time_till_next)) {
+            advance_tick_to_now(&last_real_tick);
+            gui_process_input_wake();
+        }
 #ifdef UI_PERF_TRACE
         ui_frame_trace_event(UI_FRAME_TRACE_EVENT_SLEEP_END, time_till_next, 0);
 #endif

@@ -4,6 +4,8 @@
 #include "lvgl/src/themes/lv_theme_private.h"
 #include "lvgl/src/display/lv_display_private.h"
 #include "lvgl/src/widgets/label/lv_label_private.h"
+#include "lvgl/src/misc/lv_anim_private.h"
+#include "lvgl/src/core/lv_global.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -593,15 +595,48 @@ void ui_restart_marquees(lv_obj_t * root) {
     for (uint32_t i = 0; i < count; i++) ui_restart_marquees(lv_obj_get_child(root, i));
 }
 
-static void marquee_screen_loaded_cb(lv_event_t * e) {
-    lv_obj_t * screen = lv_event_get_param(e);
-    bool loaded = lv_event_get_code(e) == LV_EVENT_SCREEN_LOADED;
-    if (loaded) ui_restart_marquees(screen);
+static bool marquees_screen_on = true;
+
+/* Scrolling text nobody can see: on a screen that is not shown, or on any
+ * screen while the display is dark. Paused for good, so LVGL's animation
+ * timer can stop (patches/lvgl/lvgl_anim_idle_pause.patch); showing a screen
+ * or waking restarts its marquees. Walks LVGL's short animation list, not the
+ * object trees. */
+static void pause_hidden_marquees(void) {
+    lv_obj_t * active = lv_screen_active();
+    lv_anim_t * a;
+    LV_LL_READ(&LV_GLOBAL_DEFAULT()->anim_state.anim_ll, a) {
+        if (a->is_paused || !lv_label_is_scroll_anim(a)) continue;
+        lv_obj_t * screen = lv_obj_get_screen(a->var);
+        if (marquees_screen_on && (screen == active || screen == lv_layer_top() || screen == lv_layer_sys()))
+            continue;
+        lv_anim_pause(a);
+    }
+}
+
+static void marquee_screen_shown(lv_obj_t * screen, bool shown) {
+    if (shown) ui_restart_marquees(screen);
     for (marquee_list_policy_t * p = marquee_lists; p; p = p->next) {
         if (lv_obj_get_screen(p->list) != screen) continue;
-        if (loaded) marquee_policy_schedule(p, 20);
+        if (shown) marquee_policy_schedule(p, 20);
         else marquee_policy_reconcile(p);
     }
+}
+
+static void marquee_screen_loaded_cb(lv_event_t * e) {
+    lv_obj_t * screen = lv_event_get_param(e);
+    marquee_screen_shown(screen, marquees_screen_on && lv_event_get_code(e) == LV_EVENT_SCREEN_LOADED);
+    pause_hidden_marquees();
+}
+
+void ui_marquees_sync(bool screen_on) {
+    bool woke = screen_on && !marquees_screen_on;
+    marquees_screen_on = screen_on;
+    if (woke) {
+        marquee_screen_shown(lv_screen_active(), true);
+        ui_restart_marquees(lv_layer_top());
+    }
+    pause_hidden_marquees();
 }
 
 static void marquee_visibility_changed_cb(lv_event_t * e) {

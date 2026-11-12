@@ -118,6 +118,9 @@ void screen_builders_configure_content_scrollbar(lv_obj_t * list);
 void ui_restart_marquees(lv_obj_t * root);
 /* Makes every newly loaded screen restart its marquees. Call once at UI init. */
 void ui_marquee_init(void);
+/* Call on every screen-power poll: pauses scrolling text nobody can see (hidden
+ * screens, or everything while dark) and restarts the shown screen's on wake. */
+void ui_marquees_sync(bool screen_on);
 /* A secondary label belongs to its row, never intercepts taps, and is
  * reused with the row pool. Legacy title\nmetadata strings remain valid. */
 lv_obj_t * row_label_create_subtitle(lv_obj_t * row);

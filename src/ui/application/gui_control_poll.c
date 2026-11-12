@@ -1,6 +1,7 @@
 #include "gui.h"
 #include "../settings/controls/gui_external_controls.h"
 #include "../text/i18n/i18n.h"
+#include "../widgets/builders/screen_builders.h"
 #include "../../core/ui/display/ui_wake.h"
 #include "../updates/gui_updates.h"
 #include "../network/gui_network.h"
@@ -507,6 +508,7 @@ static void update_timer_cb(lv_timer_t * timer) {
 #endif
 
     screen_poll_result_t screen = poll_screen_power();
+    ui_marquees_sync(screen.on);
 
     PERF_MARK("controls");
     if (screen.on) {
