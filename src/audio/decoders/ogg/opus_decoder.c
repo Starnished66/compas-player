@@ -46,6 +46,9 @@ opus_decoder_wrap_t * opus_open_file(const char * path) {
         return NULL;
     }
 
+    /* Soft clipping stays. The noise-shaped dither cost a quarter of all Opus decode time on the R1,
+     * for noise below what the codec itself leaves. */
+    op_set_dither_enabled(file, 0);
     ogg_int64_t total = op_pcm_total(file, -1);
     dec->file = file;
     dec->channels = channels;
