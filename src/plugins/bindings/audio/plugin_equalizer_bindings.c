@@ -1,6 +1,8 @@
 #include "plugin_equalizer_bindings.h"
 
 #include "../../../audio/effects/peq.h"
+#include "../../../core/persistence/settings.h"
+#include "../../../core/persistence/native_audio_settings.h"
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -41,6 +43,19 @@ int l_plugin_eq_set_stereo_width(lua_State * L) {
                   "stereo width must be finite and between 0 and 2");
     peq_set_stereo_width(width);
     peq_save();
+    return 0;
+}
+
+int l_plugin_eq_get_mono(lua_State * L) {
+    lua_pushboolean(L, current_settings.mono_audio);
+    return 1;
+}
+
+/* Mono audio is plugin-only: a saved global setting, independent of EQ profiles. */
+int l_plugin_eq_set_mono(lua_State * L) {
+    luaL_checktype(L, 1, LUA_TBOOLEAN);
+    native_audio_set_mono(lua_toboolean(L, 1));
+    settings_save_async(&current_settings);
     return 0;
 }
 

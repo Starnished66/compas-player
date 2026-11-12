@@ -78,6 +78,7 @@ static const pfield_t plain_fields[] = {
     PF("native_gain_mode", PF_INT, native_gain_mode),
     PF("native_mseb", PF_STR, native_mseb),
     PF("native_soundstage", PF_STR, native_soundstage),
+    PF("mono_audio", PF_BOOL, mono_audio),
     PF("setup_complete", PF_BOOL, setup_complete),
     PF("setup_intro_played", PF_BOOL, setup_intro_played),
     PF("setup_step", PF_INT, setup_step),
@@ -365,6 +366,7 @@ static void set_defaults(player_settings_t * out) {
     out->native_gain_mode = -1;
     out->native_mseb[0] = 0;
     out->native_soundstage[0] = 0;
+    out->mono_audio = false;
     out->native_play_through_folders = false;
     out->native_play_through_albums = false;
     out->setup_complete = false;

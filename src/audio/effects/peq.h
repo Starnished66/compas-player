@@ -40,6 +40,10 @@ void peq_set_bypass(bool bypass);
 double peq_get_preamp_db(void);
 void peq_set_preamp_db(double db);
 
+/* Global accessibility override, independent of all PEQ profiles and bypass. */
+bool peq_get_mono(void);
+void peq_set_mono(bool enabled);
+
 /* Stereo width: 0 folds stereo to mono, 1 is neutral, 2 widens.
  * Smoothed in the PCM thread; mono input is unaffected. Widening applies
  * headroom compensation and reduces center level. Saved with PEQ profiles,
@@ -73,8 +77,8 @@ void peq_set_stereo_width(double width);
  * is unchanged.
  *
  * Processing order for an active PCM buffer: per-channel preamp, per-channel
- * EQ, crossfeed (including that immediate gain), stereo width, limiter and
- * clamp. Mono buffers skip crossfeed and width. Strength 0 is an exact
+ * EQ, crossfeed (including that immediate gain), soundstage, stereo width,
+ * limiter and clamp. Mono buffers skip crossfeed and width. Strength 0 is an exact
  * no-op (the PCM fast path returns before the sample loop when preamp,
  * bands, width, and crossfeed are all idle). Native DoP never enters
  * peq_process(). PEQ bypass disables preamp, bands, and stereo width while
@@ -138,8 +142,8 @@ void peq_get_filter_response_db(const double * frequencies_hz, double * response
                                 size_t count, unsigned int sample_rate);
 
 /* In-place processing of an interleaved S16 buffer. No-op (fast path) if
- * PEQ is bypassed and Crossfeed is idle, or no bands are enabled, preamp is 0 dB, width is neutral, and
- * crossfeed strength is 0. */
+ * Mono audio is off, width is neutral and Crossfeed and soundstage are idle,
+ * with PEQ bypassed or no enabled bands and zero preamp. */
 void peq_process(int16_t * buf, size_t frame_count, int channels, unsigned int sample_rate);
 
 /* In-place processing of an interleaved S24_LE/S32 buffer (low 24 bits active).

@@ -82,6 +82,7 @@ typedef struct {
     int native_gain_mode; /* -1 until explicitly chosen; 0 Low, 1 High. */
     char native_mseb[1024];
     char native_soundstage[1024];
+    bool mono_audio;             /* Fold stereo to mono across all PCM playback. */
     float volume;              /* 0.0 - 1.0 */
     char last_track[512];      /* absolute path, empty if none */
     double last_position;      /* seconds into last_track */

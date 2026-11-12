@@ -43,6 +43,7 @@ static biquad_coeffs_t coeffs[PEQ_NUM_BANDS];
 static biquad_state_t state[PEQ_NUM_BANDS][PEQ_MAX_CHANNELS];
 static bool last_call_was_s32 = false;
 static atomic_bool bypass = false;
+static atomic_bool mono_enabled = false;
 static double preamp_db = 0.0;
 /* UI/plugin writes are atomic; the smoothed value belongs to the PCM owner. */
 static _Atomic float stereo_width_target = 1.0f;
@@ -282,6 +283,18 @@ double peq_get_preamp_db(void) { return preamp_db; }
 void peq_set_preamp_db(double db) {
     preamp_db = db;
     update_preamp_linear_cache();
+}
+
+bool peq_get_mono(void) {
+    return atomic_load_explicit(&mono_enabled, memory_order_relaxed);
+}
+
+void peq_set_mono(bool enabled) {
+    atomic_store_explicit(&mono_enabled, enabled, memory_order_relaxed);
+}
+
+static float effective_width(bool eq_off) {
+    return peq_get_mono() ? 0.0f : eq_off ? 1.0f : (float) peq_get_stereo_width();
 }
 
 double peq_get_stereo_width(void) {
@@ -604,7 +617,7 @@ CONVERT_GROUP(float_to_s16, float, int16_t, , (int16_t))
 CONVERT_GROUP(float_to_s32, float, int32_t, , (int32_t))
 
 
-/* Per-block settings of the EQ -> crossfeed -> width chain. */
+/* Per-block settings for EQ, crossfeed and final width. */
 typedef struct {
     int channels;
     bool eq_off, cross_active, width_active;
@@ -613,7 +626,7 @@ typedef struct {
 } chain_t;
 
 static void chain_begin(chain_t * c, int channels, bool eq_off, bool cross_active,
-                        bool width_active, float cross_target, unsigned int sample_rate,
+                        bool width_active, float width, float cross_target, unsigned int sample_rate,
                         float ceiling) {
     unsigned int rate_for_ramp = sample_rate ? sample_rate : 48000;
     c->channels = channels;
@@ -622,7 +635,7 @@ static void chain_begin(chain_t * c, int channels, bool eq_off, bool cross_activ
     c->width_active = width_active;
     c->preamp = eq_off ? 1.0f : cached_preamp_linear;
     c->cross_target = cross_target;
-    c->width = eq_off ? 1.0f : (float) peq_get_stereo_width();
+    c->width = width;
     c->ceiling = ceiling;
     stereo_width_coeffs(stereo_width_current, &c->width_direct, &c->width_cross);
     c->width_step = 2.0f / (STEREO_WIDTH_RAMP_SEC * (float) rate_for_ramp);
@@ -658,17 +671,15 @@ static float chain_bands(const chain_t * c, float sample, int ch) {
     return isfinite(sample) ? sample : 0.0f;
 }
 
-/* Preamp -> bands -> crossfeed -> width over interleaved float frames, in
+/* Preamp -> bands -> crossfeed over interleaved float frames, in
  * place. Crossfeed is a frequency-dependent opposite-channel mix; width is a
- * broadband mid/side matrix. */
+ * broadband mid/side matrix applied after the soundstage. */
 static void chain_chunk(chain_t * c, float * f, size_t frames) {
     for (size_t i = 0; i < frames; i++) {
         float * frame = f + i * (size_t) c->channels;
         for (int ch = 0; ch < c->channels; ch++) frame[ch] = chain_bands(c, frame[ch], ch);
         if (c->cross_active)
             crossfeed_frame(frame, c->cross_target, c->cross_step, c->ceiling);
-        if (c->width_active)
-            stereo_width_frame(frame, c->width, c->width_step, &c->width_direct, &c->width_cross);
     }
 }
 
@@ -716,7 +727,14 @@ static void process_chunks(void * buf, bool s32, size_t frames, chain_t * c, boo
         size_t n = frames - off < STAGE_CHUNK ? frames - off : STAGE_CHUNK;
         chunk_in(buf, s32, off * ch, n * ch, f);
         if (use_chain) chain_chunk(c, f, n);
-        if (stage && !soundstage_frames(f, n, ceiling) && limiter_gain == 1.0f) {
+        bool stage_changed = stage && soundstage_frames(f, n, ceiling);
+        /* Fold after spatial effects so both output channels stay equal. */
+        if (c->width_active) {
+            for (size_t i = 0; i < n; i++)
+                stereo_width_frame(f + i * ch, c->width, c->width_step,
+                                   &c->width_direct, &c->width_cross);
+        }
+        if (stage && !stage_changed && limiter_gain == 1.0f) {
             chunk_out(buf, s32, off * ch, n * ch, f);
             continue;
         }
@@ -729,7 +747,7 @@ static void process_chunks(void * buf, bool s32, size_t frames, chain_t * c, boo
 /* What a block needs, decided before any sample is touched. */
 typedef struct {
     bool eq_off, cross_active, width_active, use_chain, stage;
-    float cross_target;
+    float cross_target, width;
 } plan_t;
 
 /* Fills the plan and settles the idle state. Returns false when the block
@@ -739,23 +757,14 @@ static bool plan_block(plan_t * p, size_t frame_count, int channels, unsigned in
     /* The soundstage is independent of bypass and of MSEB ownership. */
     p->stage = soundstage_begin_block(sample_rate, channels, s32, frame_count);
     p->eq_off = mseb_active || atomic_load_explicit(&bypass, memory_order_relaxed);
-    /* Bypass disables the EQ controls and stereo width, while Crossfeed has
-     * its own setting and remains available. Keep this early return when no
-     * Crossfeed is active so an inactive signal stays bit-perfect. */
+    p->width = effective_width(p->eq_off);
+    p->width_active = channels == 2 && (p->width != 1.0f || stereo_width_current != 1.0f);
     p->cross_target = (float) peq_get_crossfeed();
     p->cross_active = channels == 2 && (p->cross_target != 0.0f || crossfeed_mix != 0.0f);
-    if (p->eq_off && !p->cross_active && !p->stage) {
-        limiter_gain = 1.0f;
-        stereo_width_current = 1.0f;
+    if (!p->cross_active) {
         crossfeed_clear_audio_state();
         crossfeed_drop_discontinuity();
-        return false;
-    }
-    float width = p->eq_off ? 1.0f : (float) peq_get_stereo_width();
-    p->width_active = channels == 2 && (width != 1.0f || stereo_width_current != 1.0f);
-    if (p->eq_off) stereo_width_current = 1.0f;
-    if (!p->cross_active) crossfeed_clear_audio_state();
-    crossfeed_consume_discontinuity(p->cross_active);
+    } else crossfeed_consume_discontinuity(true);
     bool any_enabled = false;
     for (int i = 0; i < PEQ_NUM_BANDS; i++) {
         if (!p->eq_off && bands[i].enabled) { any_enabled = true; break; }
@@ -792,7 +801,7 @@ static void process_block(void * buf, bool s32, size_t frame_count, int channels
 
     chain_t chain;
     chain_begin(&chain, channels, plan.eq_off, plan.cross_active, plan.width_active,
-                plan.cross_target, sample_rate, s32 ? LIMITER_CEILING_S32 : LIMITER_CEILING);
+                plan.width, plan.cross_target, sample_rate, s32 ? LIMITER_CEILING_S32 : LIMITER_CEILING);
     process_chunks(buf, s32, frame_count, &chain, plan.use_chain, plan.stage);
 }
 

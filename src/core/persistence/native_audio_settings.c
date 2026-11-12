@@ -255,9 +255,15 @@ void native_audio_restore_soundstage(void) {
     (void)soundstage_set_config(&stage);
 }
 
+void native_audio_set_mono(bool enabled) {
+    current_settings.mono_audio = enabled;
+    peq_set_mono(enabled);
+}
+
 void native_audio_restore(void) {
     native_audio_restore_mseb();
     native_audio_restore_soundstage();
+    native_audio_set_mono(current_settings.mono_audio);
 }
 
 static bool restore_manual_backup(void) {

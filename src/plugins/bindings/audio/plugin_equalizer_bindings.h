@@ -8,6 +8,8 @@ int l_plugin_eq_set_bypass(lua_State * L);
 int l_plugin_eq_set_preamp(lua_State * L);
 int l_plugin_eq_get_stereo_width(lua_State * L);
 int l_plugin_eq_set_stereo_width(lua_State * L);
+int l_plugin_eq_get_mono(lua_State * L);
+int l_plugin_eq_set_mono(lua_State * L);
 int l_plugin_eq_get_crossfeed(lua_State * L);
 int l_plugin_eq_set_crossfeed(lua_State * L);
 int l_plugin_eq_set_band(lua_State * L);

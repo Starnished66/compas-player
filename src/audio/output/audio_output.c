@@ -1,5 +1,6 @@
 #include "audio_output.h"
 #include "usb_dsd_output.h"
+#include "../effects/peq.h"
 #include "../../core/system/logging/debug_log.h"
 #include "../../core/process/subprocess.h"
 #include "../../hardware/device/headphone_status.h"
@@ -910,6 +911,7 @@ void audio_output_set_usb_dsd_mode(int mode) {
 }
 
 bool audio_output_dsd_passthrough_requested(unsigned int rate) {
+    if (peq_get_mono()) return false;
     pthread_mutex_lock(&config_mutex);
     output_target_t target = requested_target;
     bool usb_allowed = requested_usb_dsd_mode != 0 && rate != usb_dsd_refused_rate;

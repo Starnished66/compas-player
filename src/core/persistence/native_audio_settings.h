@@ -19,6 +19,7 @@ void native_audio_init(void);
 void native_audio_restore(void);
 void native_audio_restore_mseb(void);
 void native_audio_restore_soundstage(void);
+void native_audio_set_mono(bool enabled);
 int native_audio_gain_mode(void);
 /* Loudness Boost holds the EQ (its backup exists), so MSEB cannot turn on. */
 bool native_audio_boost_active(void);

@@ -25,6 +25,8 @@ bool plugin_disabled_list_contains(const char * file) { return disabled_plugin &
 static const char * preset_storage;
 static bool peq_load_ok = true;
 static int peq_loads, peq_saves;
+static bool live_mono;
+static int mono_sets;
 static int live_manual_eq;
 static double crossfeed = .37;
 static int crossfeed_angle = 45;
@@ -47,6 +49,7 @@ double peq_get_crossfeed(void) { return crossfeed; }
 int peq_get_crossfeed_angle(void) { return crossfeed_angle; }
 void peq_set_crossfeed(double value) { crossfeed = value; }
 void peq_set_crossfeed_angle(int value) { crossfeed_angle = value; }
+void peq_set_mono(bool enabled) { live_mono = enabled; mono_sets++; }
 bool peq_load_from_path(const char * path) {
     assert(strstr(path, "/.mseb_pre_backup.peq") || strstr(path, "/.mseb_active.peq")); peq_loads++;
     if (!peq_load_ok || access(path, F_OK)) return false;
@@ -80,11 +83,31 @@ static void scenario(const char * name) {
     memset(&saved_settings, 0, sizeof(saved_settings));
     current_settings.native_gain_mode = -1;
     saves = async_saves = staged = applied = peq_loads = peq_saves = 0;
+    live_mono = false; mono_sets = 0;
     stage_storage = preset_storage = NULL;
     peq_load_ok = true; crossfeed = .37; crossfeed_angle = 45; live_manual_eq = 7;
 }
 static void done(void) { assert(!chdir("..")); }
 static void close_to(double a, double b) { assert(fabs(a - b) < .00001); }
+static void mono_restore(void) {
+    for (int enabled = 0; enabled < 2; ++enabled) {
+        scenario(enabled ? "mono-on" : "mono-off");
+        current_settings.mono_audio = enabled;
+        live_mono = !enabled;
+        native_audio_init();
+        assert(mono_sets == 1 && live_mono == !!enabled);
+        assert(current_settings.mono_audio == !!enabled && saved_settings.mono_audio == !!enabled);
+        current_settings = saved_settings;
+        live_mono = !enabled;
+        native_audio_init();
+        assert(mono_sets == 2 && live_mono == !!enabled);
+        live_mono = !enabled;
+        native_audio_restore();
+        assert(mono_sets == 3 && live_mono == !!enabled);
+        assert(current_settings.mono_audio == !!enabled);
+        done();
+    }
+}
 static void check_modern(const native_mseb_state_t * state) {
     const int expected[] = {-17,22,-33,44,-55,66,-77,88,-99,100};
     assert(!state->legacy && state->config.enabled && state->range == 40);
@@ -372,6 +395,7 @@ static void startup_conflict_failed_backup(void) {
 }
 int main(int argc, char ** argv) {
     assert(argc == 2 && !chdir(argv[1]));
+    mono_restore();
     gain_migrations(); modern_migration(); legacy_migration(); preset_migration(); preset_validation(); play_through_flags(); retry_migration(); unused_plugins_stay_off(); unused_legacy_and_saved_drawer(); waits_for_card(); backup_restore(); backup_failures_and_conversion();
     conversion_conflict_does_not_touch_eq(); legacy_disable_retires_backup(); startup_conflict_legacy_and_modern(); startup_conflict_failed_backup();
     puts("Native audio migration, persistence latch/retry, presets, legacy retention and DSP restore passed");

@@ -124,6 +124,8 @@ static const luaL_Reg plugin_funcs[] = {
     { "eq_set_preamp",             l_plugin_eq_set_preamp },
     { "eq_get_stereo_width",       l_plugin_eq_get_stereo_width },
     { "eq_set_stereo_width",       l_plugin_eq_set_stereo_width },
+    { "eq_get_mono",               l_plugin_eq_get_mono },
+    { "eq_set_mono",               l_plugin_eq_set_mono },
     { "eq_get_crossfeed",          l_plugin_eq_get_crossfeed },
     { "eq_set_crossfeed",          l_plugin_eq_set_crossfeed },
     { "eq_set_band",               l_plugin_eq_set_band },

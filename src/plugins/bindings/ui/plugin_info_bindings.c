@@ -24,7 +24,7 @@ static const char * const plugin_capabilities[] = {
     "network.http.download", "filesystem.mkdir", "crypto.md5", "audio.peq", "data.json",
     "storage.namespaced", "storage.secrets", "playback.remote", "playback.remote_resolve", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",
-    "audio.stereo_width", "audio.crossfeed", "audio.crossfeed.angle", "playback.speed", "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
+    "audio.stereo_width", "audio.mono", "audio.crossfeed", "audio.crossfeed.angle", "playback.speed", "ui.home_background", "audio.hw_volume_curve", "ui.lock_screen", "ui.quick_toggle",
     "data.zip", "data.html", "ui.text_view", "data.zip_image", "data.image_thumbnail", "data.wallpaper", "ui.list_grid", "ui.list_showing",
     "ui.list_update", "ui.list_scroll_reset", "ui.text_view_images", "ui.list_wrap", "ui.settings_list_wrap", "ui.order_editor", "playback.transport_skip",
     "ui.player_layout_xml", "storage.secrets_get", "playback.progress",
