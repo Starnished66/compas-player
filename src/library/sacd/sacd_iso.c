@@ -79,17 +79,23 @@ static void parse_track_text(const uint8_t *sector, unsigned ntracks, unsigned c
 
 static bool parse_area_header(FILE *file, uint64_t file_size, uint32_t toc_sector,
                               uint16_t master_area_size, uint8_t *area,
-                              sacd_area_t *out) {
+                              sacd_area_t *out, bool expect_multichannel) {
     if (!toc_sector || !master_area_size || master_area_size > SACD_AREA_TOC_MAX ||
-        !read_sector(file, file_size, toc_sector, area) || memcmp(area, "TWOCHTOC", 8) != 0)
+        !read_sector(file, file_size, toc_sector, area) ||
+        (memcmp(area, "TWOCHTOC", 8) != 0 && memcmp(area, "MULCHTOC", 8) != 0))
         return false;
     uint16_t area_size = be16(area + 10);
     unsigned channels = area[32], speaker_config = area[33] >> 3;
     unsigned frame_format = area[21] & 0x0f, tracks = area[69];
     uint32_t first_sector = be32(area + 72), last_sector = be32(area + 76);
     uint64_t file_sectors = file_size / SACD_SECTOR_SIZE;
-    if (!area_size || area_size > master_area_size || area_size > SACD_AREA_TOC_MAX ||
-        channels != 2 || speaker_config != 0 || area[20] != 4 ||
+    bool stereo = channels == 2 && speaker_config == 0 && memcmp(area, "TWOCHTOC", 8) == 0;
+    bool multichannel = ((channels == 5 && speaker_config == 3) ||
+                         (channels == 6 && speaker_config == 4)) &&
+                        memcmp(area, "MULCHTOC", 8) == 0;
+    if ((expect_multichannel ? !multichannel : !stereo) ||
+        !area_size || area_size > master_area_size || area_size > SACD_AREA_TOC_MAX ||
+        (!stereo && !multichannel) || area[20] != 4 ||
         (frame_format != 0 && frame_format != 2 && frame_format != 3) ||
         tracks == 0 || first_sector == 0 || first_sector > last_sector ||
         (uint64_t)last_sector >= file_sectors)
@@ -101,17 +107,21 @@ static bool parse_area_header(FILE *file, uint64_t file_size, uint32_t toc_secto
     out->end_sector = last_sector;
     out->total_frames = total;
     out->dst = frame_format == 0;
+    out->channels = channels;
+    out->speaker_config = speaker_config;
     return true;
 }
 
-static uint32_t select_stereo_area(FILE *file, uint64_t file_size, const uint8_t *master,
+static uint32_t select_area(FILE *file, uint64_t file_size, const uint8_t *master,
                                    sacd_area_t *out, uint8_t *header) {
+    /* Master TOC order is stereo then multichannel. Preserve mastered stereo. */
     for (unsigned candidate = 0; candidate < 2; ++candidate) {
         unsigned offset = candidate == 0 ? 64 : 72;
         unsigned size_offset = candidate == 0 ? 84 : 86;
         uint32_t toc_sector = be32(master + offset);
         uint16_t toc_size = be16(master + size_offset);
-        if (parse_area_header(file, file_size, toc_sector, toc_size, header, out))
+        if (parse_area_header(file, file_size, toc_sector, toc_size, header, out,
+                              candidate != 0))
             return toc_sector;
     }
     return 0;
@@ -125,18 +135,18 @@ bool sacd_read_area(FILE *file, sacd_area_t *out) {
     uint8_t master[SACD_SECTOR_SIZE], area[SACD_SECTOR_SIZE];
     if (!read_sector(file, (uint64_t)st.st_size, SACD_MASTER_SECTOR, master) ||
         memcmp(master, "SACDMTOC", 8) != 0 || master[8] > 1 || master[9] > 20 ||
-        !select_stereo_area(file, (uint64_t)st.st_size, master, out, area)) {
+        !select_area(file, (uint64_t)st.st_size, master, out, area)) {
         memset(out, 0, sizeof(*out));
         return false;
     }
     return true;
 }
 
-static bool parse_stereo_area(FILE *file, uint64_t file_size,
+static bool parse_selected_area(FILE *file, uint64_t file_size,
                               const uint8_t *master, sacd_toc_t *out) {
     uint8_t area[SACD_SECTOR_SIZE], table[SACD_SECTOR_SIZE];
     sacd_area_t selected_area;
-    uint32_t toc_sector = select_stereo_area(file, file_size, master, &selected_area, area);
+    uint32_t toc_sector = select_area(file, file_size, master, &selected_area, area);
     if (!toc_sector) return false;
     unsigned tracks = area[69], area_size = be16(area + 10);
 
@@ -196,6 +206,8 @@ static bool parse_stereo_area(FILE *file, uint64_t file_size,
     out->end_sector = selected_area.end_sector;
     out->total_frames = selected_area.total_frames;
     out->dst = selected_area.dst;
+    out->channels = selected_area.channels;
+    out->speaker_config = selected_area.speaker_config;
     out->track_count = tracks;
     unsigned master_charset = master[138] & 0x07; /* first Master TOC locale charset */
     parse_master_text(master, out, master_charset);
@@ -218,7 +230,7 @@ bool sacd_read_toc(FILE *file, sacd_toc_t *out) {
     for (unsigned i = 1; i < SACD_MASTER_SECTORS; ++i)
         if (!read_sector(file, file_size, SACD_MASTER_SECTOR + i, master + i * SACD_SECTOR_SIZE))
             goto done;
-    ok = parse_stereo_area(file, file_size, master, out);
+    ok = parse_selected_area(file, file_size, master, out);
 done:
     free(master);
     if (!ok) memset(out, 0, sizeof(*out));

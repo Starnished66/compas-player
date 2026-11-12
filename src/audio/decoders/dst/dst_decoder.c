@@ -83,9 +83,9 @@ static int get_ur_golomb_jpegls(struct dst_bits *g, unsigned int k, int limit) {
   return -1;
 }
 
-#define DST_CHANNELS 2
-#define DST_ELEMENTS DST_CHANNELS
-#define DST_FRAME_BYTES DST_STEREO_CHANNEL_BYTES
+#define DST_CHANNELS DST_MAX_CHANNELS
+#define DST_ELEMENTS DST_MAX_CHANNELS
+#define DST_FRAME_BYTES DST_CHANNEL_BYTES
 
 struct dst_arith {
   unsigned int a;
@@ -99,6 +99,7 @@ struct dst_table {
 };
 
 struct dst_decoder {
+  unsigned int channels;
   struct dst_bits gb;
   struct dst_arith ac;
   struct dst_table fsets;
@@ -107,8 +108,13 @@ struct dst_decoder {
   int16_t filter[DST_ELEMENTS][16][256];
 };
 
-dst_decoder_t *dst_decoder_create(void) {
-  return calloc(1, sizeof(struct dst_decoder));
+dst_decoder_t *dst_decoder_create(unsigned int channels) {
+  if (channels == 0 || channels > DST_MAX_CHANNELS)
+    return NULL;
+  dst_decoder_t *decoder = calloc(1, sizeof(struct dst_decoder));
+  if (decoder)
+    decoder->channels = channels;
+  return decoder;
 }
 void dst_decoder_destroy(dst_decoder_t *d) { free(d); }
 static const int8_t dst_fset_pred[3][3] = {{-8}, {-16, 8}, {-9, -5, 6}};
@@ -116,11 +122,11 @@ static const int8_t dst_fset_pred[3][3] = {{-8}, {-16, 8}, {-9, -5, 6}};
 static const int8_t dst_prob_pred[3][3] = {{-8}, {-16, 8}, {-24, 24, -8}};
 
 static int dst_read_map(struct dst_bits *gb, struct dst_table *table,
-                        unsigned int map[DST_CHANNELS]) {
+                        unsigned int map[DST_CHANNELS], unsigned int channels) {
   table->elements = 1;
   map[0] = 0;
   if (!get_bits1(gb)) {
-    for (int ch = 1; ch < DST_CHANNELS; ++ch) {
+    for (unsigned int ch = 1; ch < channels; ++ch) {
       int bits = av_log2(table->elements) + 1;
       map[ch] = get_bits(gb, bits);
       if (map[ch] == table->elements) {
@@ -130,7 +136,7 @@ static int dst_read_map(struct dst_bits *gb, struct dst_table *table,
         return -1;
     }
   } else
-    memset(map, 0, sizeof(unsigned int) * DST_CHANNELS);
+    memset(map, 0, sizeof(unsigned int) * channels);
   return 0;
 }
 
@@ -286,12 +292,33 @@ static inline int dst_decode_channel(struct dst_decoder *decoder,
   return value;
 }
 
+/* A bit decoded while the channel's filter history is still filling: half
+ * probability channels use 128 until their filter length is reached. */
+static inline int dst_decode_start(struct dst_decoder *decoder, unsigned int ch,
+                                   unsigned int felem, unsigned int pelem,
+                                   unsigned int half_prob, unsigned int sample) {
+  uint32_t *status = decoder->status[ch];
+  int predict = dst_predict(decoder->filter[felem], status);
+  int probability = 128;
+  if (!half_prob || sample >= decoder->fsets.length[felem]) {
+    unsigned int index = (unsigned int)abs(predict) >> 3;
+    index = MIN(index, decoder->probs.length[pelem] - 1);
+    probability = decoder->probs.coeff[pelem][index];
+  }
+  int residual = dst_ac_get(&decoder->ac, &decoder->gb, probability);
+  int value = ((predict >> 15) ^ residual) & 1;
+  dst_push_status(status, value);
+  return value;
+}
+
 int dst_decoder_decode(dst_decoder_t *decoder, const uint8_t *input,
                        size_t input_size,
-                       uint8_t output[DST_STEREO_FRAME_BYTES]) {
+                       uint8_t output[DST_MAX_FRAME_BYTES]) {
   unsigned int fset_map[DST_CHANNELS];
   unsigned int prob_map[DST_CHANNELS];
   unsigned int half_prob[DST_CHANNELS];
+  const unsigned int channels = decoder ? decoder->channels : 0;
+  const unsigned int output_size = channels * DST_FRAME_BYTES;
   const unsigned int sample_count = DST_FRAME_BYTES * 8;
 
   if (!decoder || !input || !output || input_size <= 1 || input_size > 65536)
@@ -299,25 +326,25 @@ int dst_decoder_decode(dst_decoder_t *decoder, const uint8_t *input,
   dst_bits_init(&decoder->gb, input, input_size);
   if (!get_bits1(&decoder->gb)) {
     (void)get_bits1(&decoder->gb);
-    if (get_bits(&decoder->gb, 6) || input_size - 1 < DST_FRAME_BYTES * 2)
+    if (get_bits(&decoder->gb, 6) || input_size - 1 < output_size)
       return -1;
-    memcpy(output, input + 1, DST_FRAME_BYTES * 2);
-    return DST_FRAME_BYTES * 2;
+    memcpy(output, input + 1, output_size);
+    return (int)output_size;
   }
 
   if (!get_bits1(&decoder->gb) || !get_bits1(&decoder->gb) ||
       !get_bits1(&decoder->gb))
     return -1;
   int same_map = get_bits1(&decoder->gb);
-  if (dst_read_map(&decoder->gb, &decoder->fsets, fset_map) < 0)
+  if (dst_read_map(&decoder->gb, &decoder->fsets, fset_map, channels) < 0)
     return -1;
   if (same_map) {
     decoder->probs.elements = decoder->fsets.elements;
-    memcpy(prob_map, fset_map, sizeof(prob_map));
-  } else if (dst_read_map(&decoder->gb, &decoder->probs, prob_map) < 0)
+    memcpy(prob_map, fset_map, sizeof(unsigned int) * channels);
+  } else if (dst_read_map(&decoder->gb, &decoder->probs, prob_map, channels) < 0)
     return -1;
 
-  for (int ch = 0; ch < DST_CHANNELS; ++ch)
+  for (unsigned int ch = 0; ch < channels; ++ch)
     half_prob[ch] = get_bits1(&decoder->gb);
   if (dst_read_table(&decoder->gb, &decoder->fsets, dst_fset_pred, 7, 9, true,
                      0) < 0 ||
@@ -331,59 +358,63 @@ int dst_decoder_decode(dst_decoder_t *decoder, const uint8_t *input,
   if (dst_build_filter(decoder) < 0)
     return -1;
   memset(decoder->status, 0xaa, sizeof(decoder->status));
-  memset(output, 0, DST_FRAME_BYTES * DST_CHANNELS);
+  memset(output, 0, output_size);
   dst_ac_get(&decoder->ac, &decoder->gb,
              dst_probability(decoder->fsets.coeff[0][0]));
 
-  unsigned int output_pos = 0;
-  unsigned int packed[DST_CHANNELS] = {0, 0};
-  unsigned int fast_start = MAX(decoder->fsets.length[fset_map[0]],
-                                decoder->fsets.length[fset_map[1]]);
+  unsigned int packed[DST_CHANNELS] = {0};
+  unsigned int fast_start = 0, output_pos = 0;
+  for (unsigned int ch = 0; ch < channels; ++ch)
+    fast_start = MAX(fast_start, decoder->fsets.length[fset_map[ch]]);
+
+  /* Opening samples, while some channel's filter history is still filling. */
   for (unsigned int sample = 0; sample < fast_start; ++sample) {
-    for (int ch = 0; ch < DST_CHANNELS; ++ch) {
-      unsigned int felem = fset_map[ch];
-      uint32_t *status = decoder->status[ch];
-      int predict = dst_predict(decoder->filter[felem], status);
-      int probability = 128;
-      if (!half_prob[ch] || sample >= decoder->fsets.length[felem]) {
-        unsigned int pelem = prob_map[ch];
-        unsigned int index = abs(predict) >> 3;
-        index = MIN(index, decoder->probs.length[pelem] - 1);
-        probability = decoder->probs.coeff[pelem][index];
+    for (unsigned int ch = 0; ch < channels; ++ch)
+      packed[ch] = (packed[ch] << 1) |
+                   (unsigned int)dst_decode_start(decoder, ch, fset_map[ch], prob_map[ch],
+                                                  half_prob[ch], sample);
+    if ((sample & 7) == 7)
+      for (unsigned int ch = 0; ch < channels; ++ch) {
+        output[output_pos++] = (uint8_t)packed[ch];
+        packed[ch] = 0;
       }
-      int residual = dst_ac_get(&decoder->ac, &decoder->gb, probability);
-      int value = ((predict >> 15) ^ residual) & 1;
-      packed[ch] = (packed[ch] << 1) | value;
-      dst_push_status(status, value);
-    }
-    if ((sample & 7) == 7) {
-      output[output_pos++] = packed[0];
-      output[output_pos++] = packed[1];
-      packed[0] = packed[1] = 0;
-    }
   }
 
-  const int16_t (*filter0)[256] = decoder->filter[fset_map[0]];
-  const int16_t (*filter1)[256] = decoder->filter[fset_map[1]];
-  const int *prob0 = decoder->probs.coeff[prob_map[0]];
-  const int *prob1 = decoder->probs.coeff[prob_map[1]];
-  unsigned int prob0_count = decoder->probs.length[prob_map[0]];
-  unsigned int prob1_count = decoder->probs.length[prob_map[1]];
-  uint32_t *status0 = decoder->status[0];
-  uint32_t *status1 = decoder->status[1];
-
-  for (unsigned int sample = fast_start; sample < sample_count; ++sample) {
-    packed[0] = (packed[0] << 1) | dst_decode_channel(decoder, filter0, prob0,
-                                                      prob0_count, status0);
-    packed[1] = (packed[1] << 1) | dst_decode_channel(decoder, filter1, prob1,
-                                                      prob1_count, status1);
-    if ((sample & 7) == 7) {
-      output[output_pos++] = packed[0];
-      output[output_pos++] = packed[1];
-      packed[0] = packed[1] = 0;
+  /* Keep the common stereo path unrolled to avoid per-sample channel loops. */
+  if (channels == 2) {
+    const int16_t (*filter0)[256] = decoder->filter[fset_map[0]];
+    const int16_t (*filter1)[256] = decoder->filter[fset_map[1]];
+    const int *prob0 = decoder->probs.coeff[prob_map[0]];
+    const int *prob1 = decoder->probs.coeff[prob_map[1]];
+    unsigned int prob0_count = decoder->probs.length[prob_map[0]];
+    unsigned int prob1_count = decoder->probs.length[prob_map[1]];
+    uint32_t *status0 = decoder->status[0];
+    uint32_t *status1 = decoder->status[1];
+    for (unsigned int sample = fast_start; sample < sample_count; ++sample) {
+      packed[0] = (packed[0] << 1) | dst_decode_channel(
+          decoder, filter0, prob0, prob0_count, status0);
+      packed[1] = (packed[1] << 1) | dst_decode_channel(
+          decoder, filter1, prob1, prob1_count, status1);
+      if ((sample & 7) == 7) {
+        output[output_pos++] = (uint8_t)packed[0];
+        output[output_pos++] = (uint8_t)packed[1];
+        packed[0] = packed[1] = 0;
+      }
+    }
+  } else {
+    for (unsigned int sample = fast_start; sample < sample_count; ++sample) {
+      for (unsigned int ch = 0; ch < channels; ++ch)
+        packed[ch] = (packed[ch] << 1) |
+                     (unsigned int)dst_decode_channel(decoder, decoder->filter[fset_map[ch]],
+                                                      decoder->probs.coeff[prob_map[ch]],
+                                                      decoder->probs.length[prob_map[ch]],
+                                                      decoder->status[ch]);
+      if ((sample & 7) == 7)
+        for (unsigned int ch = 0; ch < channels; ++ch) {
+          output[output_pos++] = (uint8_t)packed[ch];
+          packed[ch] = 0;
+        }
     }
   }
-  return decoder->gb.error || decoder->gb.overread > 16
-             ? -1
-             : (int)(DST_FRAME_BYTES * DST_CHANNELS);
+  return decoder->gb.error || decoder->gb.overread > 16 ? -1 : (int)output_size;
 }

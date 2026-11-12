@@ -10,6 +10,8 @@ typedef struct {
     uint32_t end_sector; /* inclusive area audio range */
     uint32_t total_frames; /* 75 Hz area timeline */
     bool dst;
+    unsigned channels;
+    unsigned speaker_config;
 } sacd_area_t;
 
 typedef struct {
@@ -26,15 +28,17 @@ typedef struct {
     uint32_t end_sector; /* inclusive area audio range */
     uint32_t total_frames; /* 75 Hz area timeline */
     bool dst;
+    unsigned channels;
+    unsigned speaker_config;
     unsigned track_count;
     sacd_track_t tracks[255];
     char title[128];
     char artist[128];
 } sacd_toc_t;
 
-/* Reads only the master and selected stereo area headers for playback. */
+/* Prefers the stereo area, then selects a supported multichannel area. */
 bool sacd_read_area(FILE *file, sacd_area_t *out);
-/* Reads the stereo SACD area TOC and per-track metadata. Does not close FILE. */
+/* Reads the selected SACD area TOC and per-track metadata. Does not close FILE. */
 bool sacd_read_toc(FILE *file, sacd_toc_t *out);
 
 #endif

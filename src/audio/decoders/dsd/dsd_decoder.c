@@ -37,6 +37,8 @@ struct dsd_decoder {
     dsd_container_t container;
 
     unsigned int channels;
+    float downmix[2][DSD_MAX_CHANNELS];
+    bool downmix_stereo;
     unsigned int dsd_sample_rate;
     unsigned int pcm_sample_rate;
     unsigned int bytes_per_frame;     /* DSD bytes per channel per output frame, in the current mode */
@@ -237,7 +239,43 @@ static bool dff_read_chunk_header(FILE * f, char id_out[5], uint64_t * size_out)
 
 /* Chunk sizes come from the file; reject any that would run past `end`. */
 static bool dff_chunk_fits(off_t start, uint64_t size, off_t end) {
-    return start >= 0 && size <= (uint64_t) (end - start);
+    return start >= 0 && start <= end && size <= (uint64_t) (end - start);
+}
+
+/* DFF channel IDs define storage order, including nonstandard permutations. */
+static bool dff_read_channels(FILE *f, uint64_t sub_size, unsigned *count,
+                              float mix[2][DSD_MAX_CHANNELS]) {
+    uint8_t buf[4];
+    if (fread(buf, 1, 2, f) != 2) return false;
+    unsigned channels = audio_read_u16be(buf);
+    *count = channels;
+    if (!channels || channels > DSD_MAX_CHANNELS || sub_size < 2u + 4u * channels) return false;
+    unsigned roles = 0;
+    memset(mix, 0, 2 * DSD_MAX_CHANNELS * sizeof(float));
+    for (unsigned ch = 0; ch < channels; ch++) {
+        if (fread(buf, 1, 4, f) != 4) return false;
+        unsigned role = 0;
+        if (!memcmp(buf, "MLFT", 4) || !memcmp(buf, "SLFT", 4)) { mix[0][ch] = 1; role = 1; }
+        else if (!memcmp(buf, "MRGT", 4) || !memcmp(buf, "SRGT", 4)) { mix[1][ch] = 1; role = 2; }
+        else if (!memcmp(buf, "C   ", 4)) { mix[0][ch] = mix[1][ch] = 0.70710678f; role = 4; }
+        else if (!memcmp(buf, "LS  ", 4)) { mix[0][ch] = 0.70710678f; role = 8; }
+        else if (!memcmp(buf, "RS  ", 4)) { mix[1][ch] = 0.70710678f; role = 16; }
+        else if (!memcmp(buf, "LFE ", 4)) role = 32;
+        if (!role || (roles & role)) {
+            if (channels > 2) return false;
+        }
+        roles |= role;
+    }
+    return channels <= 2 || (channels == 5 && roles == 31) || (channels == 6 && roles == 63);
+}
+
+/* ITU Lo/Ro: omit effects-only LFE and reserve the sum of absolute gains. */
+static void setup_downmix(dsd_decoder_t *dec, float mix[2][DSD_MAX_CHANNELS]) {
+    if (dec->channels <= 2) return;
+    dec->downmix_stereo = true;
+    for (unsigned out = 0; out < 2; out++)
+        for (unsigned ch = 0; ch < dec->channels; ch++)
+            dec->downmix[out][ch] = mix[out][ch] / 2.41421356f;
 }
 
 static dsd_decoder_t * open_dff(FILE * f) {
@@ -248,6 +286,8 @@ static dsd_decoder_t * open_dff(FILE * f) {
     if (!dff_read_chunk_header(f, frm8_id, &frm8_size)) return NULL;
     if (strcmp(frm8_id, "FRM8") != 0 || frm8_size < 4 || frm8_size > (uint64_t) INT64_MAX - 12) return NULL;
     off_t frm8_end = 12 + (off_t) frm8_size;
+    uint64_t available = bytes_present_from(f, 0);
+    if ((uint64_t)frm8_end > available) frm8_end = (off_t)available;
 
     uint8_t form_type[4];
     if (fread(form_type, 1, sizeof(form_type), f) != sizeof(form_type)) return NULL;
@@ -255,10 +295,11 @@ static dsd_decoder_t * open_dff(FILE * f) {
 
     unsigned int channels = 0;
     unsigned int sample_rate = 0;
-    bool compressed = false;
+    bool compressed = false, unknown_compression = false;
+    float mix[2][DSD_MAX_CHANNELS] = {{0}};
     off_t data_start_offset = 0;
-    uint64_t data_size = 0;
-    bool have_data = false;
+    uint64_t data_size = 0, index_start = 0, index_size = 0;
+    bool have_data = false, dst_data = false;
 
     while (ftello(f) + 12 <= frm8_end) {
         char id[5];
@@ -282,20 +323,22 @@ static dsd_decoder_t * open_dff(FILE * f) {
                     uint64_t sub_size;
                     if (!dff_read_chunk_header(f, sub_id, &sub_size)) break;
                     off_t sub_data_start = ftello(f);
-                    if (!dff_chunk_fits(sub_data_start, sub_size, chunk_end)) break;
+                    if (!dff_chunk_fits(sub_data_start, sub_size, chunk_end)) return NULL;
 
                     uint8_t buf[4];
                     /* DFF chunk IDs are always 4 bytes: "FS" padded with two spaces */
                     if (strcmp(sub_id, "FS  ") == 0 && sub_size >= 4) {
                         if (fread(buf, 1, 4, f) == 4) sample_rate = audio_read_u32be(buf);
                     } else if (strcmp(sub_id, "CHNL") == 0 && sub_size >= 2) {
-                        if (fread(buf, 1, 2, f) == 2) channels = audio_read_u16be(buf);
+                        if (!dff_read_channels(f, sub_size, &channels, mix)) return NULL;
                     } else if (strcmp(sub_id, "CMPR") == 0 && sub_size >= 4) {
-                        /* "DST " is compressed DSD, which this decoder cannot read. */
-                        if (fread(buf, 1, 4, f) == 4) compressed = memcmp(buf, "DSD ", 4) != 0;
+                        if (fread(buf, 1, 4, f) != 4) return NULL;
+                        compressed = memcmp(buf, "DST ", 4) == 0;
+                        unknown_compression = !compressed && memcmp(buf, "DSD ", 4) != 0;
                     }
+                    if ((sub_size & 1) > (uint64_t)(chunk_end - sub_data_start) - sub_size) return NULL;
                     off_t next = sub_data_start + (off_t) sub_size + (off_t) (sub_size & 1);
-                    if (fseeko(f, next, SEEK_SET) != 0) break;
+                    if (next > chunk_end || fseeko(f, next, SEEK_SET) != 0) return NULL;
                 }
             }
         } else if (strcmp(id, "DSD ") == 0) {
@@ -303,14 +346,23 @@ static dsd_decoder_t * open_dff(FILE * f) {
             data_size = size;
             have_data = true;
         } else if (strcmp(id, "DST ") == 0) {
-            compressed = true;
+            dst_data = true;
+            data_start_offset = chunk_data_start;
+            data_size = size;
+            have_data = true;
         }
-        if (have_data && channels && sample_rate) break; /* sound data is conventionally last */
+        if (strcmp(id, "DSTI") == 0) {
+            if (index_start) return NULL;
+            index_start = (uint64_t)chunk_data_start;
+            index_size = size;
+        }
+        if (have_data && channels && sample_rate && !compressed) break;
+        if ((size & 1) > (uint64_t)(frm8_end - chunk_end)) break;
         off_t next = chunk_end + (off_t) (size & 1);
         if (next > frm8_end || fseeko(f, next, SEEK_SET) != 0) break;
     }
 
-    if (compressed || !have_data || channels == 0 || channels > DSD_MAX_CHANNELS || sample_rate == 0) return NULL;
+    if (compressed != dst_data || unknown_compression || !have_data || channels == 0 || channels > DSD_MAX_CHANNELS || sample_rate == 0) return NULL;
 
     dsd_decoder_t * dec = calloc(1, sizeof(*dec));
     if (!dec) return NULL;
@@ -323,7 +375,11 @@ static dsd_decoder_t * open_dff(FILE * f) {
     uint64_t present = bytes_present_from(f, data_start_offset);
     if (data_size > present) data_size = present;
     uint64_t total_samples_per_channel = (data_size / channels) * 8;
-    if (!finish_setup(dec, total_samples_per_channel) || fseeko(f, dec->data_start_offset, SEEK_SET) != 0) {
+    setup_downmix(dec, mix);
+    if (compressed && sample_rate == 2822400)
+        dec->sacd = sacd_reader_open_dff(f, (uint64_t)data_start_offset, data_size, channels, index_start, index_size, &total_samples_per_channel);
+    if ((compressed && !dec->sacd) || !finish_setup(dec, total_samples_per_channel) ||
+        (!dec->sacd && fseeko(f, dec->data_start_offset, SEEK_SET) != 0)) {
         free_decoder(dec);
         return NULL;
     }
@@ -336,9 +392,17 @@ static dsd_decoder_t * open_sacd(FILE *f) {
     uint64_t samples;
     dec->f = f;
     dec->container = DSD_CONTAINER_SACD;
-    dec->channels = 2;
     dec->dsd_sample_rate = 2822400;
     dec->sacd = sacd_reader_open(f, &samples);
+    if (dec->sacd) dec->channels = sacd_reader_channels(dec->sacd);
+    if (dec->channels > 2) {
+        float mix[2][DSD_MAX_CHANNELS] = {{0}};
+        mix[0][0] = mix[1][1] = 1;
+        mix[0][2] = mix[1][2] = 0.70710678f;
+        unsigned surround = dec->channels == 6 ? 4 : 3;
+        mix[0][surround] = mix[1][surround + 1] = 0.70710678f;
+        setup_downmix(dec, mix);
+    }
     if (!dec->sacd || !finish_setup(dec, samples)) {
         free_decoder(dec);
         return NULL;
@@ -376,7 +440,7 @@ dsd_decoder_t * dsd_open_file(const char * path) {
 }
 
 unsigned int dsd_get_channels(const dsd_decoder_t * dec) {
-    return dec->channels;
+    return dec->downmix_stereo ? 2 : dec->channels;
 }
 
 unsigned int dsd_get_source_sample_rate(const dsd_decoder_t * dec) {
@@ -388,7 +452,7 @@ unsigned int dsd_get_pcm_sample_rate(const dsd_decoder_t * dec) {
 }
 
 unsigned int dsd_get_dop_sample_rate(const dsd_decoder_t * dec) {
-    return dec->dsd_sample_rate / (8u * DOP_BYTES_PER_FRAME);
+    return dec->downmix_stereo ? 0 : dec->dsd_sample_rate / (8u * DOP_BYTES_PER_FRAME);
 }
 
 bool dsd_is_dop(const dsd_decoder_t * dec) {
@@ -466,8 +530,11 @@ static bool next_byte_row(dsd_decoder_t * dec, uint8_t row[DSD_MAX_CHANNELS]) {
  * a frame that straddles a buffer edge goes byte row by byte row. */
 static bool read_frame_bytes(dsd_decoder_t * dec, uint8_t out[DSD_MAX_CHANNELS][DSD_MAX_BYTES_PER_FRAME]) {
     unsigned int channels = dec->channels, count = dec->bytes_per_frame;
-    if (dec->container == DSD_CONTAINER_SACD)
-        return sacd_reader_bytes(dec->sacd, out[0], out[1], count);
+    if (dec->sacd) {
+        uint8_t *planes[DSD_MAX_CHANNELS];
+        for (unsigned ch = 0; ch < channels; ch++) planes[ch] = out[ch];
+        return sacd_reader_bytes(dec->sacd, planes, count);
+    }
     if (dec->container == DSD_CONTAINER_DSF) {
         if (dec->dsf_block_pos >= dec->dsf_block_size) {
             dsf_load_block(dec);
@@ -505,7 +572,7 @@ static void end_at_current_frame(dsd_decoder_t * dec) {
     /* Corrupt compressed data is fatal. A clean SACD area end can be
      * earlier than the TOC duration, and follows the normal EOF path. */
     if (dec->container == DSD_CONTAINER_WAVPACK ||
-        (dec->container == DSD_CONTAINER_SACD && !sacd_reader_eof(dec->sacd))) {
+        (dec->sacd && !sacd_reader_eof(dec->sacd))) {
         dec->read_error = true;
         return;
     }
@@ -558,13 +625,27 @@ static decoder_read_result_t decode_frames(dsd_decoder_t * dec, uint64_t frames_
             break;
         }
 
-        size_t base = (size_t) res.frames * channels;
+        size_t base = (size_t) res.frames * dsd_get_channels(dec);
+        float mixed[2] = {0};
         for (unsigned int ch = 0; ch < channels; ch++) {
+            if (dec->downmix_stereo && dec->downmix[0][ch] == 0 && dec->downmix[1][ch] == 0) continue;
             float v = dsd_channel_frame(&dec->channel_states[ch], dec->filter_design, frame_bytes[ch]);
+            if (dec->downmix_stereo) {
+                mixed[0] += v * dec->downmix[0][ch];
+                mixed[1] += v * dec->downmix[1][ch];
+                continue;
+            }
             if (v > 1.0f) v = 1.0f;
             if (v < -1.0f) v = -1.0f;
             if (out_s16) out_s16[base + ch] = (int16_t) lrintf(v * 32767.0f);
             if (out_s32) out_s32[base + ch] = (int32_t) lrintf(v * 8388607.0f);
+        }
+        if (dec->downmix_stereo) {
+            for (unsigned ch = 0; ch < 2; ch++) {
+                float v = fmaxf(-1.0f, fminf(1.0f, mixed[ch]));
+                if (out_s16) out_s16[base + ch] = (int16_t)lrintf(v * 32767.0f);
+                if (out_s32) out_s32[base + ch] = (int32_t)lrintf(v * 8388607.0f);
+            }
         }
         res.frames++;
         dec->current_pcm_frame++;
@@ -589,7 +670,7 @@ decoder_read_result_t dsd_read_pcm_frames_s32(dsd_decoder_t * dec, uint64_t fram
  * filter state. */
 static bool position_at_frame(dsd_decoder_t * dec, uint64_t frame_index) {
     uint64_t byte_index = frame_index * dec->bytes_per_frame; /* per channel */
-    if (dec->container == DSD_CONTAINER_SACD)
+    if (dec->sacd)
         return sacd_reader_seek(dec->sacd, byte_index);
     if (dec->container == DSD_CONTAINER_WAVPACK) {
         /* libwavpack treats a failed seek as fatal. Once decoding has
@@ -652,6 +733,8 @@ bool dsd_seek_to_pcm_frame(dsd_decoder_t * dec, uint64_t frame_index) {
 
 bool dsd_set_dop(dsd_decoder_t * dec, bool dop, uint64_t frame_index, uint64_t * out_frame_index) {
     if (!dec || (!dec->f && !dec->wavpack)) return false;
+    if (dop && !dsd_get_dop_sample_rate(dec)) return false;
+    if (frame_index > dec->total_pcm_frames) frame_index = dec->total_pcm_frames;
     uint64_t byte_index = frame_index * dec->bytes_per_frame;
     dec->dop = dop;
     dec->bytes_per_frame = dop ? DOP_BYTES_PER_FRAME : dec->pcm_bytes_per_frame;
