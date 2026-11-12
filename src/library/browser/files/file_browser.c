@@ -815,6 +815,10 @@ static void index_poll_cb(lv_timer_t *timer) {
             }
             pthread_mutex_unlock(&index_worker_mu);
         }
+        /* Nothing left to wait for: sleep until scan_current_dir() asks again. */
+        if (!running && (fb->current_index ||
+                         fb->index_error_rendered_generation == fb->index_request_generation))
+            lv_timer_pause(timer);
         return;
     }
     if (fb->current_index) file_browser_index_close(fb->current_index);
@@ -854,6 +858,7 @@ static void scan_current_dir(file_browser_t * fb) {
     }
     pthread_mutex_unlock(&index_worker_mu);
     fb->entry_count = 0;
+    if (fb->index_poll_timer) lv_timer_resume(fb->index_poll_timer);
 }
 
 /* A running worker still uses fb (its cancel flag), so it frees fb itself. */

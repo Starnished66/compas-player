@@ -736,9 +736,10 @@ void remote_control_handle_stream(int fd, const char * bt_mac) {
     if (fd >= 0) handle_connection(fd, bt_mac && bt_rc_trust_normalize(bt_mac, mac) ? mac : NULL);
 }
 
-/* Timeout for poll() on listen_fd so listener_thread_func periodically checks
- * running and terminates cleanly on stop. */
-#define ACCEPT_POLL_TIMEOUT_MS 200
+/* poll() on the listeners blocks until a client connects: stop wakes it by
+ * shutting the listening sockets down (POLLHUP), so no periodic wakeup is
+ * needed to notice it. */
+#define ACCEPT_POLL_TIMEOUT_MS (-1)
 
 typedef struct { int slot; int fd; } remote_client_start_t;
 
@@ -770,7 +771,7 @@ static void * listener_thread_func(void * arg) {
         if (pfds[0].fd < 0) break;
         nfds_t count = pfds[1].fd >= 0 ? 2 : 1;
         int pr = poll(pfds, count, ACCEPT_POLL_TIMEOUT_MS);
-        if (pr <= 0) continue; /* Timeout or interrupted -- re-check running */
+        if (pr <= 0) continue; /* Interrupted -- re-check running */
         if (!atomic_load_explicit(&running, memory_order_acquire)) break;
 
         /* Accept only from a listener that is readable (an error or hangup
