@@ -88,19 +88,22 @@ static void design_stage_b(float * out) {
 /* Lowpass at a quarter of its input rate whose passband is 1 / stage A's
  * gain: the ideal response integrated numerically, then Kaiser windowed. */
 static void design_stage_c(float * out, int r_bits) {
-    double taps[DSD_FILTER_C_TAPS], sum = 0.0;
+    double acc[DSD_FILTER_C_TAPS] = {0.0}, taps[DSD_FILTER_C_TAPS], sum = 0.0;
     int m = (DSD_FILTER_C_TAPS - 1) / 2;
     const double cutoff = 0.25;
     const double step = cutoff / DSD_C_INTEGRATION_STEPS;
-    for (int n = 0; n < DSD_FILTER_C_TAPS; n++) {
-        int x = n - m;
-        double acc = 0.0;
-        for (int i = 0; i <= DSD_C_INTEGRATION_STEPS; i++) {
-            double nu = i * step;
-            double weight = (i == 0 || i == DSD_C_INTEGRATION_STEPS) ? 1.0 : (i & 1) ? 4.0 : 2.0; /* Simpson */
-            acc += weight * cos(2.0 * M_PI * nu * x) / stage_a_gain(nu, r_bits);
+    for (int i = 0; i <= DSD_C_INTEGRATION_STEPS; i++) {
+        double nu = i * step;
+        double weight = (i == 0 || i == DSD_C_INTEGRATION_STEPS) ? 1.0 : (i & 1) ? 4.0 : 2.0; /* Simpson */
+        double gain = stage_a_gain(nu, r_bits);
+        for (int x = 0; x <= m; x++) { /* taps are symmetric about m */
+            double term = weight * cos(2.0 * M_PI * nu * x) / gain;
+            acc[m + x] += term;
+            if (x) acc[m - x] += term;
         }
-        taps[n] = 2.0 * acc * step / 3.0 * kaiser(n, DSD_FILTER_C_TAPS, DSD_C_BETA);
+    }
+    for (int n = 0; n < DSD_FILTER_C_TAPS; n++) {
+        taps[n] = 2.0 * acc[n] * step / 3.0 * kaiser(n, DSD_FILTER_C_TAPS, DSD_C_BETA);
         sum += taps[n];
     }
     for (int n = 0; n < DSD_FILTER_C_TAPS; n++) out[n] = (float) (taps[n] / sum);
