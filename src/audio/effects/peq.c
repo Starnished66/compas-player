@@ -646,40 +646,71 @@ static void chain_begin(chain_t * c, int channels, bool eq_off, bool cross_activ
     }
 }
 
-/* Preamp and the enabled bands for one channel's sample. */
-static float chain_bands(const chain_t * c, float sample, int ch) {
-    sample *= c->preamp;
-    for (int band = 0; band < PEQ_NUM_BANDS; band++) {
-        if (c->eq_off || !bands[band].enabled) continue;
+/* One band over a whole chunk, one channel at a time (stride = channel count).
+ * Coefficients and state stay in registers for the whole run instead of being
+ * reloaded per sample; the maths and its order per sample are unchanged. */
+static void band_run(const biquad_coeffs_t * k, biquad_state_t * s, float * f, size_t frames,
+                     size_t stride) {
+    const float b0 = k->b0, b1 = k->b1, b2 = k->b2, a1 = k->a1, a2 = k->a2;
+    float x1 = s->x1, x2 = s->x2, y1 = s->y1, y2 = s->y2;
+    for (size_t i = 0; i < frames; i++, f += stride) {
+        float x0 = *f;
+        float y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+        x2 = x1;
+        x1 = x0;
+        y2 = y1;
+        y1 = y0;
+        *f = y0;
+    }
+    s->x1 = x1;
+    s->x2 = x2;
+    s->y1 = y1;
+    s->y2 = y2;
+}
 
-        biquad_coeffs_t * k = &coeffs[band];
-        biquad_state_t * s = &state[band][ch];
+/* Stereo: both channels' independent recurrences in one loop, so the FPU works
+ * on one while the other's previous result is still in flight. */
+static void band_run_stereo(const biquad_coeffs_t * k, biquad_state_t * l, biquad_state_t * r,
+                            float * f, size_t frames) {
+    const float b0 = k->b0, b1 = k->b1, b2 = k->b2, a1 = k->a1, a2 = k->a2;
+    float lx1 = l->x1, lx2 = l->x2, ly1 = l->y1, ly2 = l->y2;
+    float rx1 = r->x1, rx2 = r->x2, ry1 = r->y1, ry2 = r->y2;
+    for (size_t i = 0; i < frames; i++, f += 2) {
+        float lx0 = f[0], rx0 = f[1];
+        float ly0 = b0 * lx0 + b1 * lx1 + b2 * lx2 - a1 * ly1 - a2 * ly2;
+        float ry0 = b0 * rx0 + b1 * rx1 + b2 * rx2 - a1 * ry1 - a2 * ry2;
+        lx2 = lx1; lx1 = lx0; ly2 = ly1; ly1 = ly0;
+        rx2 = rx1; rx1 = rx0; ry2 = ry1; ry1 = ry0;
+        f[0] = ly0;
+        f[1] = ry0;
+    }
+    l->x1 = lx1; l->x2 = lx2; l->y1 = ly1; l->y2 = ly2;
+    r->x1 = rx1; r->x2 = rx2; r->y1 = ry1; r->y2 = ry2;
+}
 
-        float x0 = sample;
-        float y0 = k->b0 * x0 + k->b1 * s->x1 + k->b2 * s->x2
-                 - k->a1 * s->y1 - k->a2 * s->y2;
-
-        s->x2 = s->x1;
-        s->x1 = x0;
-        s->y2 = s->y1;
-        s->y1 = y0;
-
-        sample = y0;
+/* Preamp -> bands -> crossfeed over interleaved float frames, in place, one
+ * band at a time over the whole chunk. Crossfeed is a frequency-dependent
+ * opposite-channel mix; width is a broadband mid/side matrix applied after the
+ * soundstage. */
+static void chain_chunk(chain_t * c, float * f, size_t frames) {
+    const size_t ch = (size_t) c->channels;
+    const size_t samples = frames * ch;
+    for (size_t i = 0; i < samples; i++) f[i] *= c->preamp;
+    for (int band = 0; band < PEQ_NUM_BANDS && !c->eq_off; band++) {
+        if (!bands[band].enabled) continue;
+        if (ch == 2) {
+            band_run_stereo(&coeffs[band], &state[band][0], &state[band][1], f, frames);
+            continue;
+        }
+        for (size_t k = 0; k < ch; k++) band_run(&coeffs[band], &state[band][k], f + k, frames, ch);
     }
     /* Discard non-finite samples to prevent NaN or Inf from poisoning the
      * limiter gain or cascading through biquad filters. */
-    return isfinite(sample) ? sample : 0.0f;
-}
-
-/* Preamp -> bands -> crossfeed over interleaved float frames, in
- * place. Crossfeed is a frequency-dependent opposite-channel mix; width is a
- * broadband mid/side matrix applied after the soundstage. */
-static void chain_chunk(chain_t * c, float * f, size_t frames) {
-    for (size_t i = 0; i < frames; i++) {
-        float * frame = f + i * (size_t) c->channels;
-        for (int ch = 0; ch < c->channels; ch++) frame[ch] = chain_bands(c, frame[ch], ch);
-        if (c->cross_active)
-            crossfeed_frame(frame, c->cross_target, c->cross_step, c->ceiling);
+    for (size_t i = 0; i < samples; i++)
+        if (!isfinite(f[i])) f[i] = 0.0f;
+    if (c->cross_active) {
+        for (size_t i = 0; i < frames; i++)
+            crossfeed_frame(f + i * ch, c->cross_target, c->cross_step, c->ceiling);
     }
 }
 
