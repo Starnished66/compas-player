@@ -301,6 +301,8 @@ static void predictor_decode_mono_3930(APEContext *ctx, int count);
 static void predictor_decode_stereo_3930(APEContext *ctx, int count);
 static void predictor_decode_mono_3950(APEContext *ctx, int count);
 static void predictor_decode_stereo_3950(APEContext *ctx, int count);
+static void predictor_decode_mono_3950_32(APEContext *ctx, int count);
+static void predictor_decode_stereo_3950_32(APEContext *ctx, int count);
 
 void ape_core_free(ape_core_t *core) {
 	if (!core) {
@@ -382,8 +384,10 @@ ape_core_t *ape_core_new(int fileversion, int compression, int flags, int bps, i
 		s->predictor_decode_mono = predictor_decode_mono_3930;
 		s->predictor_decode_stereo = predictor_decode_stereo_3930;
 	} else {
-		s->predictor_decode_mono = predictor_decode_mono_3950;
-		s->predictor_decode_stereo = predictor_decode_stereo_3950;
+		// 8 and 16 bit streams never need more than 32 bits; 24 bit may
+		bool wide = s->bps == 24;
+		s->predictor_decode_mono = wide ? predictor_decode_mono_3950 : predictor_decode_mono_3950_32;
+		s->predictor_decode_stereo = wide ? predictor_decode_stereo_3950 : predictor_decode_stereo_3950_32;
 	}
 
 	return core;
@@ -1219,6 +1223,76 @@ static inline int predictor_update_filter(APEPredictor64 *p, const int decoded, 
 	return (int)p->filterA[filter];
 }
 
+// The 8 and 16 bit predictor on int32. predictor_update_filter keeps only the low
+// 32 bits of both predictions, and a valid stream's filterA stays within 17 bits,
+// so every other term fits in int32 and the result is the same.
+static inline int predictor_update_filter_32(APEPredictor *p, const int decoded, const int filter, const int delayA,
+											 const int delayB, const int adaptA, const int adaptB) {
+	int32_t predictionA, predictionB, sign;
+
+	p->buf[delayA] = p->lastA[filter];
+	p->buf[adaptA] = APESIGN(p->buf[delayA]);
+	p->buf[delayA - 1] = p->buf[delayA] - (unsigned)p->buf[delayA - 1];
+	p->buf[adaptA - 1] = APESIGN(p->buf[delayA - 1]);
+
+	predictionA = (uint32_t)p->buf[delayA] * p->coeffsA[filter][0] + (uint32_t)p->buf[delayA - 1] * p->coeffsA[filter][1] +
+				  (uint32_t)p->buf[delayA - 2] * p->coeffsA[filter][2] + (uint32_t)p->buf[delayA - 3] * p->coeffsA[filter][3];
+
+	// Apply a scaled first-order filter compression
+	p->buf[delayB] = p->filterA[filter ^ 1] - ((int32_t)(p->filterB[filter] * 31U) >> 5);
+	p->buf[adaptB] = APESIGN(p->buf[delayB]);
+	p->buf[delayB - 1] = p->buf[delayB] - (unsigned)p->buf[delayB - 1];
+	p->buf[adaptB - 1] = APESIGN(p->buf[delayB - 1]);
+	p->filterB[filter] = p->filterA[filter ^ 1];
+
+	predictionB = (uint32_t)p->buf[delayB] * p->coeffsB[filter][0] + (uint32_t)p->buf[delayB - 1] * p->coeffsB[filter][1] +
+				  (uint32_t)p->buf[delayB - 2] * p->coeffsB[filter][2] + (uint32_t)p->buf[delayB - 3] * p->coeffsB[filter][3] +
+				  (uint32_t)p->buf[delayB - 4] * p->coeffsB[filter][4];
+
+	p->lastA[filter] = decoded + (unsigned)((int32_t)(predictionA + (unsigned)(predictionB >> 1)) >> 10);
+	p->filterA[filter] = p->lastA[filter] + ((int32_t)(p->filterA[filter] * 31U) >> 5);
+
+	sign = APESIGN(decoded);
+	p->coeffsA[filter][0] += p->buf[adaptA] * sign;
+	p->coeffsA[filter][1] += p->buf[adaptA - 1] * sign;
+	p->coeffsA[filter][2] += p->buf[adaptA - 2] * sign;
+	p->coeffsA[filter][3] += p->buf[adaptA - 3] * sign;
+	p->coeffsB[filter][0] += p->buf[adaptB] * sign;
+	p->coeffsB[filter][1] += p->buf[adaptB - 1] * sign;
+	p->coeffsB[filter][2] += p->buf[adaptB - 2] * sign;
+	p->coeffsB[filter][3] += p->buf[adaptB - 3] * sign;
+	p->coeffsB[filter][4] += p->buf[adaptB - 4] * sign;
+
+	return p->filterA[filter];
+}
+
+// Same call-boundary rule for p->buf as predictor_decode_stereo_3950.
+static void predictor_decode_stereo_3950_32(APEContext *ctx, int count) {
+	APEPredictor *p = &ctx->predictor;
+	int32_t *decoded0 = ctx->decoded[0];
+	int32_t *decoded1 = ctx->decoded[1];
+
+	ape_apply_filters(ctx, decoded0, decoded1, count);
+
+	p->buf = p->historybuffer;
+	while (count--) {
+		// Predictor Y
+		int32_t a0 = predictor_update_filter_32(p, *decoded0, 0, YDELAYA, YDELAYB, YADAPTCOEFFSA, YADAPTCOEFFSB);
+		int32_t a1 = predictor_update_filter_32(p, *decoded1, 1, XDELAYA, XDELAYB, XADAPTCOEFFSA, XADAPTCOEFFSB);
+		*decoded0++ = a0;
+		*decoded1++ = a1;
+
+		// Combined
+		p->buf++;
+
+		// Have we filled the history buffer?
+		if (p->buf == p->historybuffer + HISTORY_SIZE) {
+			memmove(p->historybuffer, p->buf, PREDICTOR_SIZE * sizeof(*p->historybuffer));
+			p->buf = p->historybuffer;
+		}
+	}
+}
+
 // p->buf is put back at the start of the history on every call. That holds only
 // because every call but a frame's last covers a multiple of HISTORY_SIZE
 // blocks (APE_CORE_CHUNK), and so ends with the history just moved there.
@@ -1328,6 +1402,50 @@ static void predictor_decode_mono_3950(APEContext *ctx, int count) {
 
 		p->filterA[0] = currentA + (uint64_t)((int64_t)(p->filterA[0] * 31U) >> 5);
 		*(decoded0++) = (int32_t)p->filterA[0];
+	}
+
+	p->lastA[0] = currentA;
+}
+
+static void predictor_decode_mono_3950_32(APEContext *ctx, int count) {
+	APEPredictor *p = &ctx->predictor;
+	int32_t *decoded0 = ctx->decoded[0];
+	int32_t predictionA, currentA, A, sign;
+
+	ape_apply_filters(ctx, ctx->decoded[0], NULL, count);
+
+	currentA = p->lastA[0];
+
+	while (count--) {
+		A = *decoded0;
+
+		p->buf[YDELAYA] = currentA;
+		p->buf[YDELAYA - 1] = p->buf[YDELAYA] - (unsigned)p->buf[YDELAYA - 1];
+
+		predictionA = (uint32_t)p->buf[YDELAYA] * p->coeffsA[0][0] + (uint32_t)p->buf[YDELAYA - 1] * p->coeffsA[0][1] +
+					  (uint32_t)p->buf[YDELAYA - 2] * p->coeffsA[0][2] + (uint32_t)p->buf[YDELAYA - 3] * p->coeffsA[0][3];
+
+		currentA = A + (unsigned)(predictionA >> 10);
+
+		p->buf[YADAPTCOEFFSA] = APESIGN(p->buf[YDELAYA]);
+		p->buf[YADAPTCOEFFSA - 1] = APESIGN(p->buf[YDELAYA - 1]);
+
+		sign = APESIGN(A);
+		p->coeffsA[0][0] += p->buf[YADAPTCOEFFSA] * sign;
+		p->coeffsA[0][1] += p->buf[YADAPTCOEFFSA - 1] * sign;
+		p->coeffsA[0][2] += p->buf[YADAPTCOEFFSA - 2] * sign;
+		p->coeffsA[0][3] += p->buf[YADAPTCOEFFSA - 3] * sign;
+
+		p->buf++;
+
+		// Have we filled the history buffer?
+		if (p->buf == p->historybuffer + HISTORY_SIZE) {
+			memmove(p->historybuffer, p->buf, PREDICTOR_SIZE * sizeof(*p->historybuffer));
+			p->buf = p->historybuffer;
+		}
+
+		p->filterA[0] = currentA + (unsigned)((int32_t)(p->filterA[0] * 31U) >> 5);
+		*(decoded0++) = p->filterA[0];
 	}
 
 	p->lastA[0] = currentA;
