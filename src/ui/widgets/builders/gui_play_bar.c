@@ -23,6 +23,46 @@ static lv_obj_t * plain(lv_obj_t * parent) {
     return o;
 }
 
+/* Room for a pill's label; pills are always given a fixed pixel width. */
+static int32_t pill_label_room(lv_obj_t * pill) {
+    return lv_obj_get_style_width(pill, 0) - 2 * BOARD_SCALE_PX(12);
+}
+
+static int32_t text_width(const char * text, const lv_font_t * font) {
+    lv_point_t size;
+    lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return size.x;
+}
+
+/* Fits the labels of side-by-side pills with one shared font: the row font, or
+ * the largest smaller one every label fits in, so a long translation shrinks
+ * the pair together; an ellipsis only if even the smallest is too wide. */
+static void pills_fit(lv_obj_t * const * pills, uint32_t n) {
+    static const gui_font_role_t roles[] = { GUI_FONT_ROLE_ROW, GUI_FONT_ROLE_BODY, GUI_FONT_ROLE_SUBTEXT };
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+    for (size_t r = 0; r < sizeof(roles) / sizeof(roles[0]); r++) {
+        const lv_font_t * candidate = gui_theme_font(roles[r]);
+        bool fits = true;
+        for (uint32_t i = 0; i < n && fits; i++) {
+            lv_obj_t * label = lv_obj_get_child(pills[i], 0);
+            fits = !label || text_width(lv_label_get_text(label), candidate) <= pill_label_room(pills[i]);
+        }
+        if (fits) {
+            font = candidate;
+            break;
+        }
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t * label = lv_obj_get_child(pills[i], 0);
+        if (!label) continue;
+        lv_obj_set_style_text_font(label, font, 0);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_set_size(label, LV_MIN(text_width(lv_label_get_text(label), font), pill_label_room(pills[i])),
+                        lv_font_get_line_height(font));
+        lv_obj_center(label);
+    }
+}
+
 lv_obj_t * gui_pill_button(lv_obj_t * parent, int32_t w, int32_t h, const char * text, bool filled,
                            lv_event_cb_t cb, void * user_data) {
     lv_obj_t * button = plain(parent);
@@ -32,7 +72,6 @@ lv_obj_t * gui_pill_button(lv_obj_t * parent, int32_t w, int32_t h, const char *
     lv_obj_set_style_opa(button, LV_OPA_70, LV_STATE_PRESSED);
     lv_obj_t * label = lv_label_create(button);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
     if (filled) {
         lv_obj_add_style(button, gui_theme_accent_style(), 0);
         lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
@@ -44,7 +83,7 @@ lv_obj_t * gui_pill_button(lv_obj_t * parent, int32_t w, int32_t h, const char *
         lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
     }
-    lv_obj_center(label);
+    pills_fit(&button, 1);
     if (cb) lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, user_data);
     return button;
 }
@@ -60,8 +99,9 @@ lv_obj_t * gui_play_buttons_build(lv_obj_t * parent, int32_t row_w, lv_event_cb_
     char play[64], shuffle[64];
     snprintf(play, sizeof(play), LV_SYMBOL_PLAY "  %s", TR("Play"));
     snprintf(shuffle, sizeof(shuffle), LV_SYMBOL_SHUFFLE "  %s", TR("Shuffle"));
-    gui_pill_button(buttons, bw, bh, play, true, play_cb, play_data);
-    gui_pill_button(buttons, bw, bh, shuffle, false, shuffle_cb, shuffle_data);
+    lv_obj_t * pills[] = { gui_pill_button(buttons, bw, bh, play, true, play_cb, play_data),
+                           gui_pill_button(buttons, bw, bh, shuffle, false, shuffle_cb, shuffle_data) };
+    pills_fit(pills, 2);
     return buttons;
 }
 
@@ -98,14 +138,14 @@ void gui_play_bar_restyle(lv_obj_t * root) {
     lv_obj_set_height(count, lv_font_get_line_height(body));
     int32_t bh = pill_height();
     lv_obj_set_height(buttons, bh);
-    for (uint32_t i = 0; i < lv_obj_get_child_count(buttons); i++) {
-        lv_obj_t * pill = lv_obj_get_child(buttons, i);
-        lv_obj_set_height(pill, bh);
-        lv_obj_t * label = lv_obj_get_child(pill, 0);
-        if (!label) continue;
-        lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_ROW), 0);
-        if (i == 0) lv_obj_set_style_text_color(label, play_label_color(), 0);
-        lv_obj_center(label);
+    lv_obj_t * pills[2];
+    uint32_t n = LV_MIN(lv_obj_get_child_count(buttons), 2);
+    for (uint32_t i = 0; i < n; i++) {
+        pills[i] = lv_obj_get_child(buttons, i);
+        lv_obj_set_height(pills[i], bh);
     }
+    pills_fit(pills, n);
+    lv_obj_t * play_label = n ? lv_obj_get_child(pills[0], 0) : NULL;
+    if (play_label) lv_obj_set_style_text_color(play_label, play_label_color(), 0);
     lv_obj_update_layout(root);
 }
