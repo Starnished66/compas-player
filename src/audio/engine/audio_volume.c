@@ -30,6 +30,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <time.h>
+#include <sys/prctl.h>
 
 #ifdef HOST_BUILD
   #include <SDL2/SDL.h>
@@ -267,6 +268,7 @@ void audio_set_custom_hw_volume_curve(const uint8_t * curve) {
 }
 
 static void * volume_request_worker_main(void * unused) {
+    (void) prctl(PR_SET_NAME, "volume_req");
     (void) unused;
     for (;;) {
         pthread_mutex_lock(&volume_request_mutex);

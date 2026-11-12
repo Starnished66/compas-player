@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 /* Typematic repeat for volume keys: initial delay followed by periodic repeats. */
 #define VOLUME_REPEAT_INITIAL_DELAY_MS 350
@@ -960,6 +961,7 @@ static void compact_button_fd_slot(struct pollfd * fds, char paths[][64],
 }
 
 static void * hw_buttons_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "buttons");
     (void) arg;
 
 #if defined(BOARD_TEMPOTEC_V1)

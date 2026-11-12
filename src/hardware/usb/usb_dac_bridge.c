@@ -31,6 +31,7 @@
 #include "../../core/system/logging/db_log.h"
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <sys/prctl.h>
 
 #ifdef HOST_BUILD
 #define BRIDGE_LOG_DIR "./music/.logs"
@@ -516,6 +517,7 @@ static void reader_finish(int fd, uint8_t * buf) {
 }
 
 static void * bridge_reader_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "usb_dac_rd");
     (void) arg;
 
     int uac_fd = -1;
@@ -763,6 +765,7 @@ static void writer_finish(uint8_t * in, int16_t * out16, int32_t * out24, bool c
  * Only thread calling audio_output.h. Takes host frames from the ring buffer,
  * follows the host format the reader publishes, converts, and plays them. */
 static void * bridge_writer_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "usb_dac_wr");
     (void) arg;
 
     /* audio_stop() (called by usb_dac_bridge_start() before spawning threads)

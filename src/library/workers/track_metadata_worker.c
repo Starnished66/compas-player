@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <sys/prctl.h>
 
 #define PLAY_EVENT_CAPACITY 64
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -62,6 +63,7 @@ static bool make_display_hint(track_metadata_result_t * result) {
 }
 
 static void * worker(void * unused) {
+    (void) prctl(PR_SET_NAME, "track_meta");
     (void) unused;
     for (;;) {
         pthread_mutex_lock(&mutex);

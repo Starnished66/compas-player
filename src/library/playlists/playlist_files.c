@@ -16,6 +16,7 @@
 #include <sys/syscall.h>
 #endif
 #include <stdatomic.h>
+#include <sys/prctl.h>
 
 /* Process-wide mutex serializing mutating operations (append, remove, create, delete)
  * across threads to prevent concurrent file modifications. */
@@ -97,6 +98,7 @@ bool playlist_files_reconcile(const char * root, bool prune_missing) {
 }
 
 static void * refresh_worker(void * unused) {
+    (void) prctl(PR_SET_NAME, "playlists");
     (void) unused;
     refresh_ok = playlist_files_reconcile(refresh_root, true);
     atomic_store(&refresh_done, true);

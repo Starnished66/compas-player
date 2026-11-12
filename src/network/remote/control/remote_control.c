@@ -25,6 +25,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 /* Port 8899 -- shared by the PIN-protected remote and native file API. */
 #define REMOTE_CONTROL_PORT 8899
@@ -757,6 +758,7 @@ static void * client_worker_func(void *arg) {
 }
 
 static void * listener_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "remote_http");
     (void) arg;
     while (atomic_load_explicit(&running, memory_order_acquire)) {
         pthread_mutex_lock(&listener_mutex);

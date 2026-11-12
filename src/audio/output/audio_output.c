@@ -21,6 +21,7 @@
 
 #include <tinyalsa/asoundlib.h>
 #include <tinyalsa/mixer.h>
+#include <sys/prctl.h>
 #define ALSA_CARD 0
 #define ALSA_DEVICE 0
 
@@ -1142,6 +1143,7 @@ static bool output_port_worker_pending = false;
 static int output_port_worker_value;
 
 static void * volume_worker_main(void * unused) {
+    (void) prctl(PR_SET_NAME, "volume_out");
     (void) unused;
     for (;;) {
         pthread_mutex_lock(&volume_worker_mutex);

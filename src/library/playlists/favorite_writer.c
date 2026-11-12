@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/prctl.h>
 
 /* Favorite persistence may take global metadata locks, update tagcache, or
  * rewrite and fsync() the remote-state sidecar, so the player's heart never
@@ -110,6 +111,7 @@ static bool deadline_before(const struct timespec * a, const struct timespec * b
 }
 
 static void * worker_main(void * unused) {
+    (void) prctl(PR_SET_NAME, "favorites");
     (void) unused;
     pthread_mutex_lock(&writer_mutex);
     for (;;) {

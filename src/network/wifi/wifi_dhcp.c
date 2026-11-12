@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #define WIFI_INTERFACE "wlan0"
 #define DHCP_PIDFILE "/var/run/udhcpc." WIFI_INTERFACE ".pid"
@@ -103,6 +104,7 @@ static void handle_event(const char * msg, bool * associated) {
 }
 
 static void * worker_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "dhcp");
     (void) arg;
     int fd = -1, ticks = 0;
     bool associated = false;

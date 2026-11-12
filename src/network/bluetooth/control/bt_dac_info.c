@@ -1,4 +1,5 @@
 #include "bluetooth_control_internal.h"
+#include <sys/prctl.h>
 
 static pthread_mutex_t bt_dac_info_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t bt_dac_monitor_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -208,6 +209,7 @@ static void bt_dac_info_monitor_run_once(void) {
  * monitor started (after a short pause, so a child that cannot start does
  * not spin). stop() clears bt_dac_info_active and ends the loop. */
 static void * bt_dac_info_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_dacinfo");
     (void) arg;
     for (;;) {
         bt_dac_info_monitor_run_once();

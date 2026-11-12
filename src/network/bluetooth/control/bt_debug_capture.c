@@ -1,4 +1,5 @@
 #include "bluetooth_control_internal.h"
+#include <sys/prctl.h>
 
 #ifndef HOST_BUILD
 #define BT_SNOOP_DIR "/data/mnt/sd_0/.logs"
@@ -32,6 +33,7 @@ static void bt_snoop_stop(pid_t pid) {
  * (the next poll rotates and restarts). Retrying each poll also recovers a
  * failed start or a card that appears or becomes writable later. */
 static void * bt_snoop_worker(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_snoop");
     (void) arg;
     subprocess_kill_all_matching("btmon"); /* left by a crashed previous run */
     bool applied = false;

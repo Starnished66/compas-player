@@ -14,6 +14,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #undef DBG_LOG
 #define DBG_LOG(...) DB_LOG_DBG("BT", __VA_ARGS__)
@@ -422,6 +423,7 @@ static void discoverable_service(void) {
 }
 
 static void * dispatch_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_agent");
     (void) arg;
     int retry_ticks = 0;
     while (dbus_connection_get_is_connected(conn)) {

@@ -1,5 +1,6 @@
 /* Deferred rating and play-count writes: queue, background flush and durable waits. */
 #include "tagcache_internal.h"
+#include <sys/prctl.h>
 
 atomic_uint numeric_epoch;
 
@@ -243,6 +244,7 @@ bool tagcache_flush_numeric(void) {
 }
 
 static void * numeric_worker_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "tc_numeric");
     (void) arg;
     pthread_mutex_lock(&numeric_mutex);
     while (!numeric_shutdown) {

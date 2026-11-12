@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <sys/prctl.h>
 
 /* Unix domain socket where dmrd expects its playback companion to listen. */
 #define DMR_STREAMER_SOCKET_PATH "/data/dmr_streamer"
@@ -264,6 +265,7 @@ static void handle_connection(int cfd) {
 #define ACCEPT_POLL_TIMEOUT_MS 200
 
 static void * listener_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "dlna");
     (void) arg;
     while (atomic_load_explicit(&running, memory_order_acquire)) {
         pthread_mutex_lock(&listener_mutex);

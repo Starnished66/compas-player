@@ -11,6 +11,7 @@
 #include <stdatomic.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #include "mbedtls/platform_util.h"
 
@@ -265,6 +266,7 @@ static void revoke_connected(int fd) {
 }
 
 static void * watch_thread(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_linkkey");
     (void) arg;
     bool failed_before = false;
     for (;;) {

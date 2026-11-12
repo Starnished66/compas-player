@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #ifndef SYS_SERVER_SOCKET_PATH
 #define SYS_SERVER_SOCKET_PATH "/var/run/sys_server"
@@ -74,6 +75,7 @@ done:
 }
 
 static void * report_worker(void * unused) {
+    (void) prctl(PR_SET_NAME, "hiby_report");
     (void) unused;
     for (;;) {
         pthread_mutex_lock(&report_mutex);

@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #define BACKLIGHT_CLASS_DIR "/sys/class/backlight"
 
@@ -243,6 +244,7 @@ static void apply_requested_brightness(void) {
 }
 
 static void * brightness_worker_main(void * unused) {
+    (void) prctl(PR_SET_NAME, "backlight");
     (void) unused;
     for (;;) {
         pthread_mutex_lock(&brightness_worker_mutex);

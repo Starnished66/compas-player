@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <linux/input.h>
 #include <pthread.h>
+#include <sys/prctl.h>
 
 #undef DBG_LOG
 #define DBG_LOG(...) DB_LOG_DBG("BT", __VA_ARGS__)
@@ -592,6 +593,7 @@ static bool send_track_changed(bool metadata_changed, bool position_changed,
 }
 
 static void * dispatch_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_media");
     (void) arg;
 
     /* Forces the first loop iteration to send an initial PropertiesChanged
@@ -730,6 +732,7 @@ static bool attempt_connect_once(void) {
 /* Connects to D-Bus and registers the media player, retrying in the background
  * if the bus is not immediately available. */
 static void * connect_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_connect");
     (void) arg;
     for (int attempt = 0; attempt < DBUS_BUS_GET_RETRY_ATTEMPTS; attempt++) {
         if (attempt_connect_once()) return NULL;

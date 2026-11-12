@@ -14,6 +14,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -206,6 +207,7 @@ static void process_request(const request_t *r) {
 }
 
 static void *worker_main(void *unused) {
+    (void) prctl(PR_SET_NAME, "cover_prefetch");
     (void)unused;
     if (install_thread_crash_altstack) install_thread_crash_altstack();
     for (;;) {

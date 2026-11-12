@@ -24,6 +24,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #define LIBRARY_SCAN_FILE_TIMEOUT_MS 5000
 #define LIBRARY_SCAN_WALK_STALL_TIMEOUT_MS 30000
@@ -141,6 +142,7 @@ static bool scan_spool_visit_cb(const char * path, void * user) {
 
 
 static void * scan_walk_worker(void * arg) {
+    (void) prctl(PR_SET_NAME, "scan_walk");
     scan_walk_work_t * w = (scan_walk_work_t *) arg;
     int writer_fd = dup(w->spool_fd);
     FILE * spool = writer_fd >= 0 ? fdopen(writer_fd, "wb") : NULL;

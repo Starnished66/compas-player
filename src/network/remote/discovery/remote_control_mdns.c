@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #define MDNS_GROUP "224.0.0.251"
 #define MDNS_PORT 5353
@@ -337,6 +338,7 @@ static bool parse_question(const uint8_t *packet, size_t len, char *name, size_t
 }
 
 static void *mdns_worker(void *unused) {
+    (void) prctl(PR_SET_NAME, "mdns");
     (void)unused;
     unsigned suffix = 1;
     char host[64]; device_host_name(host, sizeof(host), suffix);

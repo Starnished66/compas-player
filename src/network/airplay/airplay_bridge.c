@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #ifndef HOST_BUILD
   #include <poll.h>
@@ -227,6 +228,7 @@ static void run_session(uint8_t * buf, size_t buf_bytes, uint64_t * total_bytes_
 }
 
 static void * bridge_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "airplay_audio");
     (void) arg;
 
     size_t buf_bytes = (size_t) BRIDGE_PERIOD_FRAMES * FRAME_BYTES;

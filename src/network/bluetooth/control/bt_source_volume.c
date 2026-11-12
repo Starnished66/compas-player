@@ -1,4 +1,5 @@
 #include "bluetooth_control_internal.h"
+#include <sys/prctl.h>
 
 /* BlueALSA 5 has no daemon-level --a2dp-volume option; apply the equivalent
  * control command when each PCM appears. */
@@ -622,6 +623,7 @@ done:
 }
 
 static void * bt_source_vol_sync_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_srcvol");
     (void) arg;
 
     /* Establish the already-visible player value before subscribing to

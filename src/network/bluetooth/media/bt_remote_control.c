@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 #undef DBG_LOG
 #define DBG_LOG(...) DB_LOG_DBG("BT", __VA_ARGS__)
@@ -306,6 +307,7 @@ static bool register_profile(bool register_it) {
 }
 
 static void * service_thread_func(void * unused) {
+    (void) prctl(PR_SET_NAME, "bt_rfcomm");
     (void) unused;
     bool bluez_present = false;
     unsigned retry = 0;

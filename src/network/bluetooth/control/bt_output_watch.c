@@ -1,4 +1,5 @@
 #include "bluetooth_control_internal.h"
+#include <sys/prctl.h>
 
 /* See bt_control_output_disconnect_watch_start()'s own doc comment
  * (bluetooth_control.h) for what this is and why. Plain `monitor`, no `-p`
@@ -95,6 +96,7 @@ static void bt_pref_begin_work_locked(bool codec_work) {
 }
 
 static void * bt_pref_worker_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_outpref");
     (void) arg;
     pthread_mutex_lock(&bt_pref.mutex);
     while (!atomic_load(&bt_pref.stop)) {
@@ -355,6 +357,7 @@ static void bt_output_disconnect_publish_if_due(char * pending_path, uint32_t * 
 }
 
 static void * bt_output_disconnect_thread_func(void * arg) {
+    (void) prctl(PR_SET_NAME, "bt_outdisc");
     (void) arg;
 
     char * argv[] = { (char *) BLUEALSA_CTL, (char *) "monitor", NULL };

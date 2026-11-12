@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <sys/prctl.h>
 
 static const uint8_t discovery_request_prefix[] = "COMPAS_REMOTE_DISCOVER_V1";
 static const uint8_t discovery_reply[] = "COMPAS_REMOTE_V1 8899\n";
@@ -46,6 +47,7 @@ static bool is_lan_ipv4(uint32_t network_address) {
 }
 
 static void * discovery_worker_main(void * unused) {
+    (void) prctl(PR_SET_NAME, "remote_disc");
     (void) unused;
     int fd = discovery_socket;
     int wake_fd = discovery_wake_read;
