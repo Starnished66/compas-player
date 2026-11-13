@@ -337,10 +337,19 @@ static void mask_toggle_circle(lv_draw_buf_t * buf) {
     }
 }
 
+/* Remember plain-path images too, so accent changes do not decode them again. */
+static const char * qd_toggle_off_path[QD_TOGGLE_COUNT];
+static const char * qd_plugin_toggle_off_path[PLUGIN_QUICK_TOGGLE_CAPACITY];
+
 /* Off artwork stays a plain asset path unless it needs rounding. */
-static void load_toggle_off_image(asset_decoded_image_t * image, const char * relative_path) {
+static void load_toggle_off_image(asset_decoded_image_t * image, const char * relative_path,
+                                  const char ** loaded_path) {
+    const char * resolved = relative_path ? asset_path(relative_path) : NULL;
+    if (resolved && *loaded_path && strcmp(resolved, *loaded_path) == 0) return;
+    *loaded_path = NULL;
     asset_decoded_image_close(image);
     if (!relative_path || !asset_decoded_image_open(image, relative_path)) return;
+    *loaded_path = resolved;
     lv_draw_buf_t * buf = (lv_draw_buf_t *) image->decoder.decoded;
     if (!toggle_corners_opaque(buf)) {
         asset_decoded_image_close(image);
@@ -378,17 +387,19 @@ static void close_quick_drawer_toggle_images(void) {
     for (int i = 0; i < QD_TOGGLE_COUNT; i++) {
         asset_decoded_image_close(&qd_toggle_on_img[i]);
         asset_decoded_image_close(&qd_toggle_off_img[i]);
+        qd_toggle_off_path[i] = NULL;
     }
     for (int i = 0; i < PLUGIN_QUICK_TOGGLE_CAPACITY; i++) {
         asset_decoded_image_close(&qd_plugin_toggle_on_img[i]);
         asset_decoded_image_close(&qd_plugin_toggle_off_img[i]);
+        qd_plugin_toggle_off_path[i] = NULL;
     }
 }
 void load_quick_drawer_toggle_images(void) {
     lv_color_t accent = accent_lv_color();
     for (int i = 0; i < QD_TOGGLE_COUNT; i++) {
         prepare_toggle_on_image(&qd_toggle_on_img[i], qd_toggle_on_asset[i], accent);
-        load_toggle_off_image(&qd_toggle_off_img[i], qd_toggle_off_asset[i]);
+        load_toggle_off_image(&qd_toggle_off_img[i], qd_toggle_off_asset[i], &qd_toggle_off_path[i]);
     }
     int plugin_count = plugin_manager_get_quick_toggle_count();
     if (plugin_count > PLUGIN_QUICK_TOGGLE_CAPACITY) plugin_count = PLUGIN_QUICK_TOGGLE_CAPACITY;
@@ -396,11 +407,13 @@ void load_quick_drawer_toggle_images(void) {
         if (i >= plugin_count) {
             asset_decoded_image_close(&qd_plugin_toggle_on_img[i]);
             asset_decoded_image_close(&qd_plugin_toggle_off_img[i]);
+            qd_plugin_toggle_off_path[i] = NULL;
             continue;
         }
         prepare_toggle_on_image(&qd_plugin_toggle_on_img[i],
                                 plugin_manager_get_quick_toggle_icon_selected(i), accent);
-        load_toggle_off_image(&qd_plugin_toggle_off_img[i], plugin_manager_get_quick_toggle_icon(i));
+        load_toggle_off_image(&qd_plugin_toggle_off_img[i], plugin_manager_get_quick_toggle_icon(i),
+                              &qd_plugin_toggle_off_path[i]);
     }
 }
 
