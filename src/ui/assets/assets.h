@@ -57,19 +57,27 @@ void asset_png_memory_free(const lv_image_dsc_t * image);
  * After asset_decoded_image_source() publishes the buffer, callers must treat
  * its pixels and header as immutable until close. Drop its image-cache entry
  * before mutating or replacing a published buffer. */
-typedef struct {
+typedef struct asset_tint_rgb {
+    uint32_t index;
+    lv_color32_t color;
+} asset_tint_rgb_t;
+
+typedef struct asset_decoded_image {
     lv_image_decoder_dsc_t decoder;
     char * path;
-    uint8_t * pristine_pixels;
-    size_t pristine_size;
+    uint8_t * tint_keys;
+    /* Non-gray near-white pixels cannot be reconstructed from their minimum. */
+    struct asset_tint_rgb * tint_rgb;
+    size_t tint_rgb_count;
     bool open;
 } asset_decoded_image_t;
 
 bool asset_decoded_image_open(asset_decoded_image_t * image, const char * relative_path);
 /* Reuse an accent icon's decoded buffer when its resolved source is unchanged.
- * Restores pristine pixels before returning so callers can apply a new tint.
- * A missing snapshot (including allocation failure) causes a fresh decode. */
-bool asset_decoded_image_prepare_retint(asset_decoded_image_t * image, const char * relative_path);
+ * Captures min(R,G,B) once. fresh reports a new decode for one-time masking.
+ * preserve_near_white retains exact RGB for play/pause glyph restoration. */
+bool asset_decoded_image_prepare_retint(asset_decoded_image_t * image, const char * relative_path,
+                                        bool preserve_near_white, bool * fresh);
 void asset_decoded_image_close(asset_decoded_image_t * image);
 const void * asset_decoded_image_source(const asset_decoded_image_t * image);
 

@@ -348,7 +348,7 @@ static void load_toggle_off_image(asset_decoded_image_t * image, const char * re
     }
     mask_toggle_circle(buf);
 }
-static void recolor_toggle_on_accent(lv_draw_buf_t * buf, lv_color_t accent) {
+static void recolor_toggle_on_accent(lv_draw_buf_t * buf, const uint8_t * keys, lv_color_t accent) {
     if (!buf || !buf->data || !buf->header.w || !buf->header.h ||
         buf->header.cf != LV_COLOR_FORMAT_ARGB8888) return;
     uint32_t w = buf->header.w;
@@ -358,9 +358,7 @@ static void recolor_toggle_on_accent(lv_draw_buf_t * buf, lv_color_t accent) {
         lv_color32_t * row = (lv_color32_t *) (buf->data + y * stride);
         for (uint32_t x = 0; x < w; x++) {
             if (row[x].alpha == 0) continue; /* outside the circle -- leave transparent */
-            uint8_t t = row[x].red;
-            if (row[x].green < t) t = row[x].green;
-            if (row[x].blue < t) t = row[x].blue;
+            uint8_t t = keys[y * w + x];
             row[x].red   = (uint8_t) (accent.red   + ((uint16_t) (255 - accent.red)   * t) / 255);
             row[x].green = (uint8_t) (accent.green + ((uint16_t) (255 - accent.green) * t) / 255);
             row[x].blue  = (uint8_t) (accent.blue  + ((uint16_t) (255 - accent.blue)  * t) / 255);
@@ -369,11 +367,12 @@ static void recolor_toggle_on_accent(lv_draw_buf_t * buf, lv_color_t accent) {
 }
 static void prepare_toggle_on_image(asset_decoded_image_t * image, const char * relative_path,
                                     lv_color_t accent) {
-    if (!asset_decoded_image_prepare_retint(image, relative_path)) return;
+    bool fresh;
+    if (!asset_decoded_image_prepare_retint(image, relative_path, false, &fresh)) return;
     lv_draw_buf_t * buf = (lv_draw_buf_t *) image->decoder.decoded;
     /* Round first: the recolor below would paint opaque corners in the accent. */
-    mask_toggle_circle(buf);
-    recolor_toggle_on_accent(buf, accent);
+    if (fresh) mask_toggle_circle(buf);
+    recolor_toggle_on_accent(buf, image->tint_keys, accent);
 }
 static void close_quick_drawer_toggle_images(void) {
     for (int i = 0; i < QD_TOGGLE_COUNT; i++) {

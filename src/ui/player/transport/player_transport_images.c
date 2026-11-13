@@ -13,8 +13,9 @@ static bool play_btn_glyph_on_light;
 
 /* play_btn_glyph_on_light: the backdrop is too light for the stock white
  * glyph, which then takes the backdrop's text color. */
-static void recolor_play_btn_accent(lv_draw_buf_t * buf, lv_color_t accent)
+static void recolor_play_btn_accent(asset_decoded_image_t * image, lv_color_t accent)
 {
+    lv_draw_buf_t * buf = (lv_draw_buf_t *) image->decoder.decoded;
     lv_color_t glyph = lv_color_hex(GUI_BREEZE_TEXT_ON_LIGHT);
     if (play_btn_glyph_on_light) {
         lv_style_value_t value;
@@ -29,9 +30,14 @@ static void recolor_play_btn_accent(lv_draw_buf_t * buf, lv_color_t accent)
     uint8_t ar = accent.red;
     uint8_t ag = accent.green;
     uint8_t ab = accent.blue;
+    size_t saved_index = 0;
     for (uint32_t y = 0; y < h; y++) {
         lv_color32_t * row = (lv_color32_t *) (buf->data + y * stride);
         for (uint32_t x = 0; x < w; x++) {
+            const asset_tint_rgb_t * saved = NULL;
+            if (saved_index < image->tint_rgb_count &&
+                image->tint_rgb[saved_index].index == y * w + x)
+                saved = &image->tint_rgb[saved_index++];
             if (row[x].alpha == 0) continue;
             /* Normalize to the image ellipse. The outer quarter of its
              * radius contains the ring, outside either center glyph.
@@ -44,9 +50,7 @@ static void recolor_play_btn_accent(lv_draw_buf_t * buf, lv_color_t accent)
                 row[x].blue = ab;
                 continue;
             }
-            uint8_t minc = row[x].red;
-            if (row[x].green < minc) minc = row[x].green;
-            if (row[x].blue < minc) minc = row[x].blue;
+            uint8_t minc = image->tint_keys[y * w + x];
             uint8_t t = (uint8_t) (255 - minc);
             /* Disc interior is white / near-white; the glyph is the stock
              * cyan. Skip the disc so only the mark is retinted. The ring-only
@@ -57,6 +61,10 @@ static void recolor_play_btn_accent(lv_draw_buf_t * buf, lv_color_t accent)
                     row[x].red = glyph.red;
                     row[x].green = glyph.green;
                     row[x].blue = glyph.blue;
+                } else {
+                    row[x].red = saved ? saved->color.red : minc;
+                    row[x].green = saved ? saved->color.green : minc;
+                    row[x].blue = saved ? saved->color.blue : minc;
                 }
                 continue;
             }
@@ -70,10 +78,10 @@ static void recolor_play_btn_accent(lv_draw_buf_t * buf, lv_color_t accent)
 void gui_player_prepare_play_btn_images(void)
 {
     lv_color_t accent = accent_lv_color();
-    if (asset_decoded_image_prepare_retint(&play_btn_play_img, "playing_plane/btn_play.png"))
-        recolor_play_btn_accent((lv_draw_buf_t *) play_btn_play_img.decoder.decoded, accent);
-    if (asset_decoded_image_prepare_retint(&play_btn_pause_img, "playing_plane/btn_pause.png"))
-        recolor_play_btn_accent((lv_draw_buf_t *) play_btn_pause_img.decoder.decoded, accent);
+    if (asset_decoded_image_prepare_retint(&play_btn_play_img, "playing_plane/btn_play.png", true, NULL))
+        recolor_play_btn_accent(&play_btn_play_img, accent);
+    if (asset_decoded_image_prepare_retint(&play_btn_pause_img, "playing_plane/btn_pause.png", true, NULL))
+        recolor_play_btn_accent(&play_btn_pause_img, accent);
 }
 
 const void * gui_player_play_btn_image_src(bool is_playing)

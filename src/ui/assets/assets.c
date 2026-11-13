@@ -246,58 +246,54 @@ bool asset_decoded_image_open(asset_decoded_image_t * image, const char * relati
     return true;
 }
 
-bool asset_decoded_image_prepare_retint(asset_decoded_image_t * image, const char * relative_path) {
+bool asset_decoded_image_prepare_retint(asset_decoded_image_t * image, const char * relative_path,
+                                        bool preserve_near_white, bool * fresh) {
+    if (fresh) *fresh = false;
     if (!image || !relative_path) return false;
     const char * resolved = asset_path(relative_path);
     if (!resolved) return false;
-
-    bool same_source = image->open && image->path && strcmp(image->path, resolved) == 0;
-    if (!same_source && !asset_decoded_image_open(image, relative_path)) return false;
-
-    lv_draw_buf_t * buffer = (lv_draw_buf_t *) image->decoder.decoded;
-    if (!buffer || !buffer->data) return false;
-    uint64_t pixel_size_wide = (uint64_t) buffer->header.stride * buffer->header.h;
-    if (pixel_size_wide == 0 || pixel_size_wide > SIZE_MAX) return false;
-    size_t pixel_size = (size_t) pixel_size_wide;
-
-    if (same_source && image->pristine_pixels && image->pristine_size == pixel_size) {
-        /* The cache must stop referring to the published pixels before they
-         * are restored and recolored in place. */
-        lv_image_cache_drop(buffer);
-        memcpy(buffer->data, image->pristine_pixels, pixel_size);
+    if (image->open && image->path && strcmp(image->path, resolved) == 0 && image->tint_keys) {
+        lv_image_cache_drop(image->decoder.decoded);
         return true;
     }
-
-    if (same_source) {
-        /* The first snapshot allocation may have failed. Re-decode from the
-         * retained resolved path so a previous tint can never compound. */
-        lv_image_cache_drop(buffer);
-        lv_image_decoder_close(&image->decoder);
-        memset(&image->decoder, 0, sizeof(image->decoder));
-        lv_image_decoder_args_t args = { .no_cache = true };
-        if (lv_image_decoder_open(&image->decoder, image->path, &args) != LV_RESULT_OK ||
-            !image->decoder.decoded) {
-            image->open = false;
-            return false;
+    if (!asset_decoded_image_open(image, relative_path)) return false;
+    lv_draw_buf_t * buffer = (lv_draw_buf_t *) image->decoder.decoded;
+    if (!buffer || !buffer->data || buffer->header.cf != LV_COLOR_FORMAT_ARGB8888 ||
+        !buffer->header.w || !buffer->header.h) goto fail;
+    uint32_t w = buffer->header.w, h = buffer->header.h;
+    image->tint_keys = malloc((size_t) w * h);
+    if (!image->tint_keys) goto fail;
+    size_t count = 0;
+    for (uint32_t y = 0; y < h; y++) {
+        const lv_color32_t * row = (const lv_color32_t *) (buffer->data + y * buffer->header.stride);
+        for (uint32_t x = 0; x < w; x++) {
+            lv_color32_t c = row[x];
+            uint8_t key = c.red < c.green ? c.red : c.green;
+            if (c.blue < key) key = c.blue;
+            image->tint_keys[y * w + x] = key;
+            if (preserve_near_white && c.alpha && key > 239 &&
+                (c.red != c.green || c.green != c.blue)) count++;
         }
-        buffer = (lv_draw_buf_t *) image->decoder.decoded;
-        if (!buffer->data) {
-            lv_image_decoder_close(&image->decoder);
-            memset(&image->decoder, 0, sizeof(image->decoder));
-            image->open = false;
-            return false;
-        }
-        pixel_size_wide = (uint64_t) buffer->header.stride * buffer->header.h;
-        if (pixel_size_wide == 0 || pixel_size_wide > SIZE_MAX) return false;
-        pixel_size = (size_t) pixel_size_wide;
     }
-
-    free(image->pristine_pixels);
-    image->pristine_pixels = malloc(pixel_size);
-    image->pristine_size = image->pristine_pixels ? pixel_size : 0;
-    if (image->pristine_pixels) memcpy(image->pristine_pixels, buffer->data, pixel_size);
-    image->open = true;
+    if (count) {
+        image->tint_rgb = malloc(count * sizeof(*image->tint_rgb));
+        if (!image->tint_rgb) goto fail;
+        for (uint32_t y = 0; y < h; y++) {
+            const lv_color32_t * row = (const lv_color32_t *) (buffer->data + y * buffer->header.stride);
+            for (uint32_t x = 0; x < w; x++) {
+                lv_color32_t c = row[x];
+                if (c.alpha && image->tint_keys[y * w + x] > 239 &&
+                    (c.red != c.green || c.green != c.blue)) {
+                    image->tint_rgb[image->tint_rgb_count++] = (asset_tint_rgb_t) { y * w + x, c };
+                }
+            }
+        }
+    }
+    if (fresh) *fresh = true;
     return true;
+fail:
+    asset_decoded_image_close(image);
+    return false;
 }
 
 void asset_decoded_image_close(asset_decoded_image_t * image) {
@@ -307,7 +303,8 @@ void asset_decoded_image_close(asset_decoded_image_t * image) {
         lv_image_decoder_close(&image->decoder);
     }
     free(image->path);
-    free(image->pristine_pixels);
+    free(image->tint_keys);
+    free(image->tint_rgb);
     memset(image, 0, sizeof(*image));
 }
 
