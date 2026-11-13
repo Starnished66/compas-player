@@ -14,7 +14,7 @@ lv_obj_t * gui_settings_get_lyrics_screen(void);
 lv_obj_t * gui_settings_get_sound_screen(void);
 lv_obj_t * gui_settings_get_playback_screen(void);
 /* Refreshes the Accent Color screen after any accent change (gui_theme.c). */
-void gui_settings_accent_changed(void);
+void gui_settings_accent_changed(bool color_changed);
 /* The keyboard layouts offered in Settings -> Keyboard, in display order.
  * _at() returns the KEYBOARD_LAYOUT_* value and its untranslated label (pass
  * it through TR()), or -1 past the end. */

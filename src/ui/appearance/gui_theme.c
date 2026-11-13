@@ -65,7 +65,7 @@ extern player_settings_t current_settings;
 extern void player_transition_mark_dirty(void);
 extern void refresh_play_btn_icon(void);
 extern void gui_shell_refresh_quick_drawer_toggle_accent(void);
-extern void gui_settings_accent_changed(void);
+extern void gui_settings_accent_changed(bool color_changed);
 
 const lv_font_t * gui_theme_font(gui_font_role_t role) {
     switch (role) {
@@ -177,7 +177,8 @@ void gui_theme_update_surface_contrast(void) {
  * color did not change, so a new track from the same album costs nothing. */
 static void refresh_accent(void) {
     uint32_t rgb = resolve_accent();
-    if (rgb != accent_rgb) {
+    bool color_changed = rgb != accent_rgb;
+    if (color_changed) {
         accent_rgb = rgb;
         lv_color_t c = lv_color_hex(rgb);
         lv_style_set_bg_color(&style_accent, c);
@@ -208,7 +209,7 @@ static void refresh_accent(void) {
         /* Swipe transitions must not reuse frames painted with the previous accent. */
         gui_navigation_invalidate_theme_snapshots();
     }
-    gui_settings_accent_changed();
+    gui_settings_accent_changed(color_changed);
 }
 
 void gui_theme_apply_accent(uint32_t rgb) {

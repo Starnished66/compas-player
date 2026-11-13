@@ -58,8 +58,9 @@ extern lv_obj_t * stream_media_screen;
 
 /* Called by gui_theme.c after every accent change, including a new cover
  * while "Match album art" is on. */
-void gui_settings_accent_changed(void) {
+void gui_settings_accent_changed(bool color_changed) {
     gui_accent_sync();
+    if (!color_changed) return;
     gui_equalizer_accent_changed();
     gui_library_accent_changed();
 }
