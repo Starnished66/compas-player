@@ -8,6 +8,7 @@
 #include "../../shell/gui_shell.h"
 #include "../../network/gui_network.h"
 #include "../../appearance/gui_theme.h"
+#include "../../settings/setup/gui_setup.h"
 #include "../../../network/store/plugins/plugin_store.h"
 #include "../../widgets/builders/screen_builders.h"
 
@@ -49,6 +50,7 @@ static bool (*store_layout_is_selected)(const char * id);
 static void (*store_layout_select)(const char * id, const char * name);
 static bool store_setup_catalog_pending;
 static bool store_setup_catalog_ready;
+static lv_obj_t * store_setup_origin;
 static uint64_t store_preview_generation_seen;
 static int store_selected_index = -1;
 static store_action_t detail_primary_action;
@@ -65,6 +67,35 @@ static void layout_picker_card_cb(lv_event_t * e);
 static void review_updates_cb(lv_event_t * e);
 static void store_updates_refresh_cb(lv_event_t * e);
 static void theme_store_refresh_cb(lv_event_t * e);
+
+static bool ensure_store_rows(void) {
+    if (store_rows) return true;
+    store_rows = calloc(PLUGIN_STORE_MAX_RESULTS, sizeof(*store_rows));
+    if (!store_rows) return false;
+    store_row_count = 0;
+    store_result_generation_seen = UINT64_MAX;
+    return true;
+}
+
+static void release_store_rows(void) {
+    free(store_rows);
+    store_rows = NULL;
+    store_row_count = 0;
+    store_result_generation_seen = UINT64_MAX;
+    store_setup_catalog_ready = false;
+    store_setup_catalog_pending = false;
+    store_setup_origin = NULL;
+}
+
+static bool setup_catalog_in_use(void) {
+    return (store_setup_origin && gui_navigation_contains(store_setup_origin)) ||
+           (store_picker_mode && store_picker_origin && gui_navigation_contains(store_picker_origin)) ||
+           (store_picker_pending && store_picker_origin && gui_navigation_contains(store_picker_origin)) ||
+           (store_layout_picker_mode && store_layout_picker_origin &&
+            gui_navigation_contains(store_layout_picker_origin)) ||
+           (store_layout_picker_pending && store_layout_picker_origin &&
+            gui_navigation_contains(store_layout_picker_origin));
+}
 
 static bool store_refresh_allowed(void) {
     if (!gui_shell_wifi_connected()) {
@@ -222,9 +253,18 @@ static void note_changed(bool changed) {
 static void store_screen_unloaded_cb(lv_event_t * e) {
     (void) e;
     plugin_store_cancel_previews();
+    if (store_left()) {
+        gui_popup_hide(&detail_popup);
+        gui_popup_hide(&remove_popup);
+        gui_popup_hide(&confirm_popup);
+        gui_popup_hide(&picker_popup);
+    }
     if (store_picker_mode && store_left()) clear_picker_request();
     if (store_layout_picker_mode && store_left()) clear_layout_picker_request();
     if (store_changed_dirty && store_left()) apply_changes();
+    if (store_left() && !store_open_when_ready && !store_push_pending &&
+        !setup_catalog_in_use())
+        release_store_rows();
 }
 
 static void store_screen_loaded_cb(lv_event_t * e) {
@@ -345,7 +385,8 @@ static const char * row_status(const plugin_store_result_t * row, char * out, si
 }
 
 static void show_details(void) {
-    if (store_selected_index < 0 || (size_t) store_selected_index >= store_row_count) return;
+    if (!store_rows || store_selected_index < 0 ||
+        (size_t) store_selected_index >= store_row_count) return;
     const plugin_store_result_t * row = &store_rows[store_selected_index];
     snprintf(store_selected_id, sizeof(store_selected_id), "%s", row->id);
     plugin_store_details_t details = {0};
@@ -885,6 +926,8 @@ static void store_action_cb(lv_event_t * e) {
         return;
     }
     if (action == ACTION_REMOVE && gui_popup_is_visible(&detail_popup)) {
+        if (!store_rows || store_selected_index < 0 ||
+            (size_t) store_selected_index >= store_row_count) return;
         const plugin_store_result_t * row = &store_rows[store_selected_index];
         char title[128];
         snprintf(title, sizeof(title), TR("Remove %s?"), row->name[0] ? row->name : row->id);
@@ -930,16 +973,16 @@ static void store_action_cb(lv_event_t * e) {
 }
 
 static bool start_catalog_refresh(gui_plugin_store_view_t view) {
-    if (!store_rows) {
-        show_error_toast(TR("Not enough memory to load the plugin store"));
-        return false;
-    }
     if (!gui_shell_wifi_effective_enabled()) {
         show_error_toast(TR("Turn on Wi-Fi and connect first"));
         return false;
     }
     if (gui_plugin_store_operation_active()) {
         show_error_toast(TR("A plugin operation is already in progress"));
+        return false;
+    }
+    if (!ensure_store_rows()) {
+        show_error_toast(TR("Not enough memory to load the plugin store"));
         return false;
     }
     if (!plugin_store_refresh()) {
@@ -1019,30 +1062,36 @@ bool gui_plugin_store_setup_catalog_ready(void) {
     return store_setup_catalog_ready;
 }
 
-bool gui_plugin_store_setup_catalog_prepare(void) {
+static bool setup_catalog_prepare_for(lv_obj_t * origin) {
     if (store_setup_catalog_pending) return true;
     /* Entering the setup plugin step must validate catalog data with a new
      * request even when the shared backend still says READY from an older
      * store visit. */
     store_setup_catalog_ready = false;
     if (gui_plugin_store_operation_active()) return false;
-    if (!store_rows) {
-        show_error_toast(TR("Not enough memory to load the plugin store"));
-        return false;
-    }
     if (!gui_shell_wifi_connected()) {
         show_error_toast(TR("No network detected. Connect to a network to download plugins."));
+        return false;
+    }
+    if (!ensure_store_rows()) {
+        show_error_toast(TR("Not enough memory to load the plugin store"));
         return false;
     }
     if (!plugin_store_refresh()) {
         show_error_toast(TR("Could not start the plugin refresh"));
         return false;
     }
+    store_setup_origin = origin ? origin : lv_screen_active();
     store_view = STORE_VIEW_PLUGINS;
     set_store_title();
     store_setup_catalog_ready = false;
     store_setup_catalog_pending = true;
     return true;
+}
+
+bool gui_plugin_store_setup_catalog_prepare(void) {
+    lv_obj_t * setup_screen = gui_setup_get_screen();
+    return setup_catalog_prepare_for(setup_screen ? setup_screen : lv_screen_active());
 }
 
 bool gui_plugin_store_setup_get_plugin(const char * id, plugin_store_result_t * row,
@@ -1123,7 +1172,8 @@ bool gui_plugin_store_open_layout_picker(bool (*is_selected)(const char * id),
         return false;
 
     bool ready = gui_plugin_store_setup_catalog_ready();
-    if (!ready && !store_setup_catalog_pending && !gui_plugin_store_setup_catalog_prepare()) return false;
+    if (!ready && !store_setup_catalog_pending &&
+        !setup_catalog_prepare_for(lv_screen_active())) return false;
 
     clear_layout_picker_request();
     store_view = STORE_VIEW_LAYOUTS;
@@ -1162,7 +1212,7 @@ bool gui_plugin_store_open_picker(bool (*is_selected)(const char * id),
         show_picker_popup();
         return true;
     }
-    if (!gui_plugin_store_setup_catalog_prepare()) {
+    if (!setup_catalog_prepare_for(lv_screen_active())) {
         return false;
     }
     begin_picker_request(is_selected, toggle, done);
@@ -1178,6 +1228,11 @@ void gui_plugin_store_row_cb(lv_event_t * e) {
 }
 
 void poll_plugin_store(void) {
+    /* Home can drop the store from the navigation stack without unloading it.
+     * A setup flow keeps its catalog until that setup screen leaves too. */
+    if (store_left() && !store_open_when_ready && !store_push_pending &&
+        !setup_catalog_in_use())
+        release_store_rows();
     if (store_picker_mode && !store_picker_pending && store_picker_origin &&
         !gui_navigation_is_top(store_picker_origin)) {
         gui_popup_hide(&picker_popup);
@@ -1363,7 +1418,7 @@ void poll_plugin_store(void) {
 }
 
 void gui_plugin_store_init(void) {
-    store_rows = calloc(PLUGIN_STORE_MAX_RESULTS, sizeof(*store_rows));
+    release_store_rows();
     store_result_generation_seen = UINT64_MAX;
     store_row_count = 0;
     store_view = STORE_VIEW_PLUGINS;
@@ -1396,10 +1451,7 @@ void gui_plugin_store_teardown(void) {
         store_list = NULL;
         store_header_review_updates_btn = NULL;
     }
-    free(store_rows);
-    store_rows = NULL;
-    store_row_count = 0;
-    store_result_generation_seen = UINT64_MAX;
+    release_store_rows();
     store_view = STORE_VIEW_PLUGINS;
     store_title = NULL;
     store_push_pending = false;
