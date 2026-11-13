@@ -924,6 +924,7 @@ DBUS_SRCS = $(filter-out %-win.c %-win32.c %wince-glue.c $(DBUS_DIR)/dbus/dbus-s
 # are guarded with #ifndef HOST_BUILD for the same reason audio.c's own
 # Bluetooth-output code is.
 TARGET_ONLY_APP_SRCS = src/network/bluetooth/media/bt_dac_transport.c src/network/bluetooth/media/bt_media_player.c src/network/bluetooth/media/bt_remote_control.c src/network/bluetooth/control/bt_adapter_query.c src/network/bluetooth/control/bt_pairing_agent.c src/network/bluetooth/control/bt_pairing_prompt.c src/network/bluetooth/control/bt_dbus_util.c src/network/bluetooth/control/bt_link_key_watch.c src/audio/output/audio_output.c src/audio/output/usb_dsd_output.c
+TARGET_ONLY_APP_SRCS += src/core/math/fast_lrintf.c
 # Target-only (see TARGET_CFLAGS's own comment on why): provides
 # backtrace()/backtrace_symbols_fd() for main.c's SIGSEGV handler on musl,
 # which has no execinfo.h/backtrace() of its own.
