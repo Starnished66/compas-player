@@ -443,6 +443,10 @@ unsigned int dsd_get_channels(const dsd_decoder_t * dec) {
     return dec->downmix_stereo ? 2 : dec->channels;
 }
 
+unsigned int dsd_get_dst_channels(const dsd_decoder_t * dec) {
+    return dec->sacd && sacd_reader_is_dst(dec->sacd) ? dec->channels : 0;
+}
+
 unsigned int dsd_get_source_sample_rate(const dsd_decoder_t * dec) {
     return dec->dsd_sample_rate;
 }

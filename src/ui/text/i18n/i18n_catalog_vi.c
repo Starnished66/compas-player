@@ -1247,6 +1247,7 @@ const i18n_entry_t i18n_entries_vi[] = {
     {"Tint startup image", (const char * const[]){"Tô màu ảnh khởi động"}, 1},
     {"Tint title bar icons", (const char * const[]){"Tô màu biểu tượng thanh tiêu đề"}, 1},
     {"Toggle screen", (const char * const[]){"Bật/tắt màn hình"}, 1},
+    {"Too demanding for this device", (const char * const[]){"Quá nặng so với thiết bị này"}, 1},
     {"Too many audio channels", (const char * const[]){"Quá nhiều kênh âm thanh"}, 1},
     {"Too many plugins are installed. Remove one and try again.", (const char * const[]){"Quá nhiều plugin được cài đặt. Hãy xóa một cái và thử lại."}, 1},
     {"Top Rated", (const char * const[]){"Được đánh giá cao nhất"}, 1},

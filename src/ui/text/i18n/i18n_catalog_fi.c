@@ -1248,6 +1248,7 @@ const i18n_entry_t i18n_entries_fi[] = {
     {"Tint startup image", (const char * const[]){"Sävytä käynnistyskuva"}, 1},
     {"Tint title bar icons", (const char * const[]){"Sävytä otsikkopalkin kuvakkeet"}, 1},
     {"Toggle screen", (const char * const[]){"Vaihda näytön tilaa"}, 1},
+    {"Too demanding for this device", (const char * const[]){"Liian raskas tälle laitteelle"}, 1},
     {"Too many audio channels", (const char * const[]){"Liikaa äänikanavia"}, 1},
     {"Too many plugins are installed. Remove one and try again.", (const char * const[]){"Liian monta liitännäistä on asennettu. Poista yksi ja yritä uudelleen."}, 1},
     {"Top Rated", (const char * const[]){"Parhaiten arvioidut"}, 1},

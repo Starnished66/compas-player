@@ -1247,6 +1247,7 @@ const i18n_entry_t i18n_entries_ja[] = {
     {"Tint startup image", (const char * const[]){"起動画面に色を付ける"}, 1},
     {"Tint title bar icons", (const char * const[]){"タイトルバーのアイコンに色を付ける"}, 1},
     {"Toggle screen", (const char * const[]){"画面の切り替え"}, 1},
+    {"Too demanding for this device", (const char * const[]){"このデバイスには負荷が高すぎます"}, 1},
     {"Too many audio channels", (const char * const[]){"音声チャンネル数が多すぎます"}, 1},
     {"Too many plugins are installed. Remove one and try again.", (const char * const[]){"インストール済みのプラグインが多すぎます。1つ削除して、もう一度お試しください。"}, 1},
     {"Top Rated", (const char * const[]){"高評価"}, 1},

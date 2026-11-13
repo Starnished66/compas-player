@@ -1248,6 +1248,7 @@ const i18n_entry_t i18n_entries_pt_BR[] = {
     {"Tint startup image", (const char * const[]){"Colorir imagem de inicialização"}, 1},
     {"Tint title bar icons", (const char * const[]){"Colorir ícones da barra de título"}, 1},
     {"Toggle screen", (const char * const[]){"Alternar tela"}, 1},
+    {"Too demanding for this device", (const char * const[]){"Exigente demais para este dispositivo"}, 1},
     {"Too many audio channels", (const char * const[]){"Canais de áudio demais"}, 1},
     {"Too many plugins are installed. Remove one and try again.", (const char * const[]){"Há plugins instalados demais. Remova um e tente de novo."}, 1},
     {"Top Rated", (const char * const[]){"Mais bem avaliados"}, 1},

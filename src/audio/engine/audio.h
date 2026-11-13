@@ -457,6 +457,7 @@ typedef enum {
     AUDIO_ERROR_FILE_UNAVAILABLE,
     AUDIO_ERROR_UNSUPPORTED_FORMAT,
     AUDIO_ERROR_UNSUPPORTED_CHANNELS,
+    AUDIO_ERROR_TOO_DEMANDING,   /* decodes slower than real time on this device */
 } audio_error_t;
 
 /* Short, static explanation suitable for logs and playback error toasts. */

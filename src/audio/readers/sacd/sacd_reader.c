@@ -193,6 +193,7 @@ void sacd_reader_close(sacd_reader_t *r) {
 }
 
 unsigned sacd_reader_channels(const sacd_reader_t *r) { return r ? r->channels : 0; }
+bool sacd_reader_is_dst(const sacd_reader_t *r) { return r && r->dst; }
 
 sacd_reader_t *sacd_reader_open(FILE *f, uint64_t *samples) {
     sacd_area_t area;

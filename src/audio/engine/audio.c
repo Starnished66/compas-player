@@ -873,6 +873,9 @@ typedef struct {
     bool cur_replaygain_applied;
     decoder_t nxt_dec;
     bool nxt_open;
+    /* Staged-next generation whose prefetch was refused as too demanding;
+     * not retried. 0 means none (staged generations start at 1). */
+    uint64_t nxt_refused_generation;
     bool nxt_format_matches;
     float nxt_replaygain_linear_local;
     bool nxt_replaygain_applied_local;
@@ -1974,7 +1977,8 @@ static void blend_prepare(playback_session_t * s, const chunk_cmd_t * c, blend_w
     b->in_blend_window = c->xfade_on && chunk_staged_path(c) != NULL && !decoder_is_dop(&s->cur_dec) &&
                            b->frames_remaining > 0 && b->frames_remaining <= b->crossfade_frames;
 
-    if (b->in_blend_window && !s->nxt_open) {
+    if (b->in_blend_window && !s->nxt_open &&
+        s->nxt_refused_generation != c->staged_next.generation) {
         if (decoder_open_next(&s->nxt_dec, chunk_staged_path(c))) {
             s->nxt_open = true;
             s->nxt_frames_consumed = 0;
@@ -1982,6 +1986,8 @@ static void blend_prepare(playback_session_t * s, const chunk_cmd_t * c, blend_w
             s->nxt_replaygain_applied_local = c->staged_next.replaygain_applied;
             s->nxt_format_matches = (s->nxt_dec.channels == s->cur_dec.channels && s->nxt_dec.sample_rate == s->cur_dec.sample_rate);
         } else {
+            if (s->nxt_dec.open_error == AUDIO_ERROR_TOO_DEMANDING)
+                s->nxt_refused_generation = c->staged_next.generation;
             DBG_LOG("audio: failed to prefetch next track (%s)\n",
                     safe_path_tail(chunk_staged_path(c)));
         }

@@ -1247,6 +1247,7 @@ const i18n_entry_t i18n_entries_zh_CN[] = {
     {"Tint startup image", (const char * const[]){"启动画面着色"}, 1},
     {"Tint title bar icons", (const char * const[]){"标题栏图标着色"}, 1},
     {"Toggle screen", (const char * const[]){"切换屏幕"}, 1},
+    {"Too demanding for this device", (const char * const[]){"此设备性能不足，无法播放"}, 1},
     {"Too many audio channels", (const char * const[]){"音频声道过多"}, 1},
     {"Too many plugins are installed. Remove one and try again.", (const char * const[]){"已安装的插件过多。请移除一个后重试。"}, 1},
     {"Top Rated", (const char * const[]){"评分最高"}, 1},

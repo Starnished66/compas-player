@@ -1248,6 +1248,7 @@ const i18n_entry_t i18n_entries_nl[] = {
     {"Tint startup image", (const char * const[]){"Opstartafbeelding kleuren"}, 1},
     {"Tint title bar icons", (const char * const[]){"Titelbalkpictogrammen kleuren"}, 1},
     {"Toggle screen", (const char * const[]){"Scherm omschakelen"}, 1},
+    {"Too demanding for this device", (const char * const[]){"Te veeleisend voor dit apparaat"}, 1},
     {"Too many audio channels", (const char * const[]){"Te veel audiokanalen"}, 1},
     {"Too many plugins are installed. Remove one and try again.", (const char * const[]){"Er zijn te veel plugins geïnstalleerd. Verwijder er een en probeer opnieuw."}, 1},
     {"Top Rated", (const char * const[]){"Hoogst beoordeeld"}, 1},

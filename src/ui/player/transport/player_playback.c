@@ -526,7 +526,8 @@ void gui_player_handle_playback_error_ex(audio_error_t err, uint64_t err_generat
     }
 
     if (err == AUDIO_ERROR_DECODER_FAILED || err == AUDIO_ERROR_FILE_UNAVAILABLE ||
-        err == AUDIO_ERROR_UNSUPPORTED_FORMAT || err == AUDIO_ERROR_UNSUPPORTED_CHANNELS) {
+        err == AUDIO_ERROR_UNSUPPORTED_FORMAT || err == AUDIO_ERROR_UNSUPPORTED_CHANNELS ||
+        err == AUDIO_ERROR_TOO_DEMANDING) {
         char failure_message[384];
         /* Record the failed track's physical path */
         const char * failed_path = gui_player_get_current_track_path();
