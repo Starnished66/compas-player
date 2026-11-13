@@ -27,16 +27,31 @@ bool join_albums_request;
 bool join_republish_request;
 
 void reader_context_init(reader_context_t *context) {
-    memset(context, 0, sizeof(*context));
-    context->query_fd = context->artist_names_fd = context->master_fd = context->title_fd = context->recency_fd = context->path_fd = -1;
-    for (int i = 0; i < TAG_COUNT; i++) context->tag_fd[i] = -1;
-    for (int i = 0; i < 3; i++)
-        context->group_fd[i] = context->members_fd[i] = context->album_order_fd[i] = context->album_inverse_fd[i] = -1;
-    for (int i = 0; i < 2; i++) context->rank_fd[i] = -1;
-    context->fds_ready = true;
+    context->entries = context->live = context->commitid = context->generation = 0;
     context->serial = 1;
+    context->loaded_index_version = context->title_order_version = 0;
+    context->master_fd = -1;
+    for (int i = 0; i < TAG_COUNT; i++) {
+        context->tag_fd[i] = -1;
+        context->tag_size[i] = 0;
+    }
+    context->fds_ready = true;
+    context->requires_indexes = context->legacy_active = false;
+    context->compact_sort = context->compact_order = context->sort_failed = false;
+    context->query_fd = context->artist_names_fd = context->title_fd = context->recency_fd = context->path_fd = -1;
+    for (int i = 0; i < 2; i++) context->rank_fd[i] = -1;
+    for (int i = 0; i < 3; i++) {
+        context->group_fd[i] = context->members_fd[i] = -1;
+        context->group_n[i] = 0;
+        context->album_order_fd[i] = context->album_inverse_fd[i] = -1;
+    }
+    context->sort_kind = 0;
     context->album_year_known_count = -1;
+    context->join_bits = NULL;
     context->query_cache_valid = false;
+    context->query_cache_block = 0;
+    for (int i = 0; i < READER_SORT_CACHE_ROWS; i++)
+        context->sort_cache_valid[i] = false;
 }
 
 int32_t tagcache_generation(void) { return db_open ? disk_gen : 0; }

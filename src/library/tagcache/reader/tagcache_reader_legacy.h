@@ -10,15 +10,18 @@ typedef struct {
 } legacy_group_t;
 static struct { legacy_group_t rows[LEGACY_PAGE]; int base, count, total; } legacy_groups[3];
 
-static struct { char key[TAGCACHE_PATH_MAX], value[TAGCACHE_PATH_MAX]; bool valid; } legacy_text_cache[64];
+static struct { char key[TAGCACHE_PATH_MAX], value[TAGCACHE_PATH_MAX]; } legacy_text_cache[64];
+static bool legacy_text_cache_valid[64];
 
 bool reader_legacy_init(void) {
     reader_legacy_active = false;
-    memset(legacy_text_cache, 0, sizeof(legacy_text_cache));
+    for (int i = 0; i < 64; i++) legacy_text_cache_valid[i] = false;
     reader_compact_order = !choose_intern_strings(ent_count);
-    memset(legacy_orders, 0, sizeof(legacy_orders));
-    memset(legacy_groups, 0, sizeof(legacy_groups));
-    for (int k = 0; k < 3; k++) legacy_groups[k].total = -1;
+    for (int k = 0; k < 2; k++) legacy_orders[k].base = legacy_orders[k].count = 0;
+    for (int k = 0; k < 3; k++) {
+        legacy_groups[k].base = legacy_groups[k].count = 0;
+        legacy_groups[k].total = -1;
+    }
     live_count = 0;
     for (int32_t slot = 0; slot < ent_count; slot++) {
         struct index_entry idx;
@@ -36,7 +39,7 @@ bool reader_legacy_init(void) {
 static void legacy_canonical_text(char *value) {
     if (!value[0]) return;
     unsigned bucket = fnv1a(value, strlen(value)) % 64;
-    if (legacy_text_cache[bucket].valid && !strcmp(legacy_text_cache[bucket].key, value)) {
+    if (legacy_text_cache_valid[bucket] && !strcmp(legacy_text_cache[bucket].key, value)) {
         snprintf(value, TAGCACHE_PATH_MAX, "%s", legacy_text_cache[bucket].value);
         return;
     }
@@ -61,7 +64,7 @@ static void legacy_canonical_text(char *value) {
         }
     }
     snprintf(legacy_text_cache[bucket].value, TAGCACHE_PATH_MAX, "%s", value);
-    legacy_text_cache[bucket].valid = true;
+    legacy_text_cache_valid[bucket] = true;
 }
 
 

@@ -543,10 +543,8 @@ void tagcache_artist_primary(const char *raw, char *out, size_t size) {
 }
 
 void reader_reset_cache(void) {
-    for (int i = 0; i < READER_SORT_CACHE_ROWS; i++) {
-        reader_sort_cache[i].valid = false;
-        reader_sort_cache[i].loaded = 0;
-    }
+    for (int i = 0; i < READER_SORT_CACHE_ROWS; i++)
+        reader_sort_cache_valid[i] = false;
 }
 
 static void reader_song_rebase(tagcache_song_t *s) {
@@ -565,7 +563,7 @@ static bool reader_sort_song_fields(int32_t slot, unsigned fields, tagcache_song
         }
         return true;
     }
-    bool hit = reader_sort_cache[bucket].valid && reader_sort_cache[bucket].slot == slot;
+    bool hit = reader_sort_cache_valid[bucket] && reader_sort_cache[bucket].slot == slot;
     unsigned loaded = hit ? reader_sort_cache[bucket].loaded : 0;
     if (!hit || (loaded & fields) != fields) {
         unsigned requested = loaded | fields;
@@ -579,7 +577,7 @@ static bool reader_sort_song_fields(int32_t slot, unsigned fields, tagcache_song
         reader_song_rebase(&reader_sort_cache[bucket].song);
         reader_sort_cache[bucket].slot = slot;
         reader_sort_cache[bucket].loaded = requested;
-        reader_sort_cache[bucket].valid = true;
+        reader_sort_cache_valid[bucket] = true;
     }
     *out = reader_sort_cache[bucket].song;
     reader_song_rebase(out);

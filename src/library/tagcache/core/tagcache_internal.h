@@ -129,7 +129,8 @@ typedef struct {
     bool query_cache_valid;
     uint64_t query_cache_block;
     uint32_t query_cache_values[TC_QUERY_BLOCK_VALUES];
-    struct { bool valid; int32_t slot; unsigned loaded; tagcache_song_t song; } sort_cache[READER_SORT_CACHE_ROWS];
+    bool sort_cache_valid[READER_SORT_CACHE_ROWS];
+    struct { int32_t slot; unsigned loaded; tagcache_song_t song; } sort_cache[READER_SORT_CACHE_ROWS];
 } reader_context_t;
 #define READER (selected_reader ? selected_reader : &committed_reader)
 #define ent_count (READER->entries)
@@ -150,6 +151,7 @@ typedef struct {
 #define reader_sort_failed (READER->sort_failed)
 #define reader_sort_kind (READER->sort_kind)
 #define reader_sort_cache (READER->sort_cache)
+#define reader_sort_cache_valid (READER->sort_cache_valid)
 #define reader_query_fd (READER->query_fd)
 #define reader_artist_names_fd (READER->artist_names_fd)
 #define reader_title_fd (READER->title_fd)
