@@ -22,11 +22,13 @@
 #include <time.h>
 #include <unistd.h>
 
-/* Isolates decoder-based metadata parsing in a short-lived child process so
- * timeouts can be cleanly terminated with SIGKILL without leaking threads or
- * risking memory corruption from decoder crashes.
+/* Isolates decoder-based metadata parsing in one persistent worker process
+ * (compas_player --metadata-scan-worker) so a timeout or decoder crash is
+ * contained: the worker is SIGKILLed and the next read starts a fresh one.
+ * The worker is reused for every file of a scan and stopped when it ends
+ * (metadata_scan_worker_stop()).
  *
- * MP3 and raw AAC files skip the fork because they use internal bounded ID3
+ * MP3 and raw AAC files skip the worker because they use internal bounded ID3
  * readers. Embedded pictures and lyrics are omitted in isolated reads to keep
  * IPC fixed-size. */
 static bool isolated_needs_child(const char * path) {
@@ -110,106 +112,6 @@ static void metadata_read_scan_tags(const char * path, track_metadata_t * out) {
     out->lyrics = NULL;
 }
 
-static bool reap_scan_parser_child(pid_t pid, track_metadata_t * out, bool ok) {
-    /* Bounded reap, same as subprocess_run_timeout()'s own final wait --
-     * even after SIGKILL, a child genuinely stuck in an uninterruptible
-     * kernel read stays unreapable until that I/O naturally unblocks, so
-     * this can't be a plain blocking waitpid() either. */
-    /* A successful child has already sent its full result and should exit
-     * promptly; the shorter poll avoids a 50 ms delay on each quick read. */
-    const int reap_sleep_us = ok ? 1000 : 50000;
-    for (int waited_us = 0; waited_us < 1000000; waited_us += reap_sleep_us) {
-        int status = 0;
-        if (waitpid(pid, &status, WNOHANG) == pid) {
-            if (ok && WIFEXITED(status) && WEXITSTATUS(status) == 0) return true;
-            memset(out, 0, sizeof(*out));
-            return false;
-        }
-        usleep(reap_sleep_us);
-    }
-    kill(pid, SIGKILL);
-    remember_abandoned_metadata_child(&scan_child_pool, pid);
-    return ok;
-}
-
-bool metadata_read_isolated(const char * path, track_metadata_t * out, int timeout_ms) {
-    memset(out, 0, sizeof(*out));
-    if (!path || !path[0]) return false;
-    if (!isolated_needs_child(path)) {
-        metadata_read_scan_tags(path, out);
-        return true;
-    }
-
-    reap_abandoned_metadata_children(&scan_child_pool);
-    if (!abandoned_metadata_child_capacity_available(&scan_child_pool)) {
-        fprintf(stderr, "metadata scan: too many unreaped parser children; skipping %s\n", path);
-        return false;
-    }
-
-    int pipefd[2];
-    if (pipe(pipefd) != 0) {
-        fprintf(stderr, "metadata scan: pipe failed for %s: %s\n", path, strerror(errno));
-        return false;
-    }
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipefd[0]);
-        close(pipefd[1]);
-        fprintf(stderr, "metadata scan: fork failed for %s: %s\n", path, strerror(errno));
-        return false;
-    }
-
-    if (pid == 0) {
-        close(pipefd[0]);
-        /* Parser children do substantial decoder work. Explicitly retain the
-         * scan's background priority even if this API is called elsewhere. */
-        (void)setpriority(PRIO_PROCESS, 0, 19);
-        track_metadata_t result;
-        metadata_read_scan_tags(path, &result);
-        size_t written = 0;
-        while (written < sizeof(result)) {
-            ssize_t n = write(pipefd[1], (const char *) &result + written, sizeof(result) - written);
-            if (n <= 0) break;
-            written += (size_t) n;
-        }
-        _exit(0);
-    }
-
-    close(pipefd[1]);
-
-    struct timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-
-    size_t total = 0;
-    bool ok = true;
-    while (total < sizeof(*out)) {
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        int64_t elapsed_ms = (int64_t)(now.tv_sec - start.tv_sec) * 1000 +
-                             (int64_t)(now.tv_nsec - start.tv_nsec) / 1000000;
-        int remaining_ms = timeout_ms - (int) elapsed_ms;
-        if (remaining_ms <= 0) {
-            ok = false;
-            break;
-        }
-
-        struct pollfd pfd = { .fd = pipefd[0], .events = POLLIN };
-        int pr = poll(&pfd, 1, remaining_ms);
-        if (pr <= 0) { ok = false; break; }
-        ssize_t n = read(pipefd[0], (char *) out + total, sizeof(*out) - total);
-        if (n <= 0) { ok = false; break; }
-        total += (size_t) n;
-    }
-    close(pipefd[0]);
-    if (!ok) {
-        memset(out, 0, sizeof(*out));
-        kill(pid, SIGKILL);
-    }
-
-    return reap_scan_parser_child(pid, out, ok);
-}
-
 static bool read_with_deadline(int fd, void * dst, size_t size,
                                const struct timespec * start, int timeout_ms) {
     size_t total = 0;
@@ -245,7 +147,198 @@ static bool write_all(int fd, const void * src, size_t size) {
     return true;
 }
 
+/* A helper process is disposable; under unexpected memory pressure the
+ * kernel should discard it instead of the interactive player. */
+static void metadata_helper_make_disposable(void) {
+    int oom_fd = open("/proc/self/oom_score_adj", O_WRONLY);
+    if (oom_fd >= 0) {
+        const char score[] = "500";
+        ssize_t ignored = write(oom_fd, score, sizeof(score) - 1);
+        (void) ignored;
+        close(oom_fd);
+    }
+}
+
+static bool read_all(int fd, void * dst, size_t size) {
+    size_t total = 0;
+    while (total < size) {
+        ssize_t n;
+        do n = read(fd, (char *) dst + total, size - total);
+        while (n < 0 && errno == EINTR);
+        if (n <= 0) return false;
+        total += (size_t) n;
+    }
+    return true;
+}
+
 extern char ** environ;
+
+int metadata_scan_worker_run(int request_fd, int response_fd) {
+    if (request_fd < 0 || response_fd < 0) return 1;
+    (void) setpriority(PRIO_PROCESS, 0, 19);
+    metadata_helper_make_disposable();
+
+    for (;;) {
+        uint32_t len = 0;
+        if (!read_all(request_fd, &len, sizeof(len))) return 0; /* EOF: scan over */
+        if (len == 0 || len >= PATH_MAX) return 1;
+        char path[PATH_MAX];
+        if (!read_all(request_fd, path, len)) return 1;
+        path[len] = '\0';
+
+        track_metadata_t result;
+        metadata_read_scan_tags(path, &result);
+        if (!write_all(response_fd, &result, sizeof(result))) return 1;
+    }
+}
+
+/* Parent side: one worker, guarded by scan_worker_mutex. */
+static pthread_mutex_t scan_worker_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pid_t scan_worker_pid = 0;
+static int scan_worker_request_fd = -1;
+static int scan_worker_response_fd = -1;
+
+static bool scan_worker_start_locked(void) {
+    int req[2], resp[2];
+    if (pipe2(req, O_CLOEXEC) != 0) return false;
+    if (pipe2(resp, O_CLOEXEC) != 0) {
+        close(req[0]);
+        close(req[1]);
+        return false;
+    }
+    char req_arg[24], resp_arg[24];
+    snprintf(req_arg, sizeof(req_arg), "%d", req[0]);
+    snprintf(resp_arg, sizeof(resp_arg), "%d", resp[1]);
+    char * const argv[] = {
+        (char *) "compas_player",
+        (char *) "--metadata-scan-worker",
+        req_arg,
+        resp_arg,
+        NULL,
+    };
+    posix_spawn_file_actions_t fa;
+    pid_t pid = -1;
+    int rc = posix_spawn_file_actions_init(&fa);
+    if (rc == 0) {
+        rc = posix_spawn_file_actions_adddup2(&fa, req[0], req[0]);
+        if (rc == 0) rc = posix_spawn_file_actions_adddup2(&fa, resp[1], resp[1]);
+        if (rc == 0) rc = subprocess_close_inherited_fds_action(&fa);
+        if (rc == 0) rc = posix_spawn(&pid, "/proc/self/exe", &fa, NULL, argv, environ);
+        posix_spawn_file_actions_destroy(&fa);
+    }
+    close(req[0]);
+    close(resp[1]);
+    if (rc != 0) {
+        close(req[1]);
+        close(resp[0]);
+        fprintf(stderr, "metadata scan: worker spawn failed: %s\n", strerror(rc));
+        return false;
+    }
+    scan_worker_pid = pid;
+    scan_worker_request_fd = req[1];
+    scan_worker_response_fd = resp[0];
+    return true;
+}
+
+/* The worker is idle or stuck whenever this runs, so it is killed rather
+ * than asked to exit. Bounded reap, as in the artwork helper: a process stuck
+ * in uninterruptible I/O stays unreapable even after SIGKILL, so never block
+ * on it; remember it and retry later. */
+static void scan_worker_stop_locked(void) {
+    if (scan_worker_pid > 0) {
+        pid_t pid = scan_worker_pid;
+        kill(pid, SIGKILL);
+        close(scan_worker_request_fd);
+        close(scan_worker_response_fd);
+        scan_worker_pid = 0;
+        scan_worker_request_fd = -1;
+        scan_worker_response_fd = -1;
+
+        struct timespec start, now;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        bool reaped = false;
+        for (;;) {
+            int status = 0;
+            pid_t r = waitpid(pid, &status, WNOHANG);
+            if (r == pid || (r < 0 && errno == ECHILD)) { reaped = true; break; }
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            int64_t elapsed_ms = (int64_t) (now.tv_sec - start.tv_sec) * 1000 +
+                                 (now.tv_nsec - start.tv_nsec) / 1000000;
+            if (elapsed_ms >= 1000) break;
+            usleep(1000);
+        }
+        if (!reaped) remember_abandoned_metadata_child(&scan_child_pool, pid);
+    }
+    reap_abandoned_metadata_children(&scan_child_pool);
+}
+
+static bool scan_worker_send_locked(const char * path, uint32_t len) {
+    return write_all(scan_worker_request_fd, &len, sizeof(len)) &&
+           write_all(scan_worker_request_fd, path, len);
+}
+
+bool metadata_read_isolated(const char * path, track_metadata_t * out, int timeout_ms) {
+    memset(out, 0, sizeof(*out));
+    if (!path || !path[0]) return false;
+    if (!isolated_needs_child(path)) {
+        metadata_read_scan_tags(path, out);
+        return true;
+    }
+    /* Scans name files through the player's open root directory
+     * (/proc/self/fd/N/...), which the worker does not inherit. Point the
+     * worker at the player's own /proc entry so it resolves the same file. */
+    char worker_path[PATH_MAX];
+    const char * request_path = path;
+    const char self_prefix[] = "/proc/self/";
+    if (strncmp(path, self_prefix, sizeof(self_prefix) - 1) == 0) {
+        int n = snprintf(worker_path, sizeof(worker_path), "/proc/%ld/%s",
+                         (long) getpid(), path + sizeof(self_prefix) - 1);
+        if (n < 0 || (size_t) n >= sizeof(worker_path)) return false;
+        request_path = worker_path;
+    }
+    size_t len = strlen(request_path);
+    if (len >= PATH_MAX) return false;
+
+    pthread_mutex_lock(&scan_worker_mutex);
+    bool ok = false;
+    /* A worker that died while idle (the OOM killer prefers it) fails the
+     * request write. That file was never tried, so start a fresh worker and
+     * send it once more; only a failed parse counts against the file. */
+    bool sent = false;
+    for (int attempt = 0; attempt < 2 && !sent; attempt++) {
+        if (scan_worker_pid <= 0) {
+            reap_abandoned_metadata_children(&scan_child_pool);
+            if (!abandoned_metadata_child_capacity_available(&scan_child_pool)) {
+                fprintf(stderr, "metadata scan: too many unreaped parser children; skipping %s\n", path);
+                break;
+            }
+            if (!scan_worker_start_locked()) break;
+        }
+        sent = scan_worker_send_locked(request_path, (uint32_t) len);
+        if (!sent) {
+            fprintf(stderr, "metadata scan: parser worker unreachable for %s\n", path);
+            scan_worker_stop_locked();
+        }
+    }
+    if (sent) {
+        struct timespec start;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        ok = read_with_deadline(scan_worker_response_fd, out, sizeof(*out), &start, timeout_ms);
+        if (!ok) {
+            fprintf(stderr, "metadata scan: parser worker failed for %s\n", path);
+            memset(out, 0, sizeof(*out));
+            scan_worker_stop_locked();
+        }
+    }
+    pthread_mutex_unlock(&scan_worker_mutex);
+    return ok;
+}
+
+void metadata_scan_worker_stop(void) {
+    pthread_mutex_lock(&scan_worker_mutex);
+    scan_worker_stop_locked();
+    pthread_mutex_unlock(&scan_worker_mutex);
+}
 
 static bool metadata_artwork_limit_memory(artwork_priority_t prio) {
     /* Bound ALL parser allocations, including third-party container readers.
@@ -280,15 +373,7 @@ int metadata_artwork_helper_run(const char * path, int output_fd, artwork_priori
     if (!metadata_artwork_limit_memory(prio)) return 1;
     metadata_parser_enable_artwork_only();
 
-    /* This process is disposable; under unexpected memory pressure the
-     * kernel should discard it instead of the interactive player. */
-    int oom_fd = open("/proc/self/oom_score_adj", O_WRONLY);
-    if (oom_fd >= 0) {
-        const char score[] = "500";
-        ssize_t ignored = write(oom_fd, score, sizeof(score) - 1);
-        (void) ignored;
-        close(oom_fd);
-    }
+    metadata_helper_make_disposable();
 
     track_metadata_t result;
     errno = 0;

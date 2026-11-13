@@ -629,6 +629,18 @@ int main(int argc, char ** argv) {
      * helper invocation (wrong arg count, unparsable fd/priority) fails
      * fast here rather than falling through into normal application
      * startup with a leftover "--metadata-artwork-helper" argv entry. */
+    if (argc >= 2 && strcmp(argv[1], "--metadata-scan-worker") == 0) {
+        if (argc != 4) return 1;
+        long fds[2];
+        for (int i = 0; i < 2; i++) {
+            char * end = NULL;
+            errno = 0;
+            fds[i] = strtol(argv[2 + i], &end, 10);
+            if (errno != 0 || !end || end == argv[2 + i] || *end != '\0' || fds[i] < 0 || fds[i] > INT_MAX)
+                return 1;
+        }
+        return metadata_scan_worker_run((int) fds[0], (int) fds[1]);
+    }
     if (argc >= 2 && strcmp(argv[1], "--metadata-artwork-helper") == 0) {
         if (argc != 5) return 1;
         char * end = NULL;

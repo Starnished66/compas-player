@@ -956,6 +956,7 @@ void library_scan_run(void) {
             library_scan_once_with_options(false);
             break;
     }
+    metadata_scan_worker_stop();
 }
 
 void library_scan_run_full_current(void (*books_rescan)(void),
@@ -963,6 +964,7 @@ void library_scan_run_full_current(void (*books_rescan)(void),
     scan_job.books_rescan = books_rescan;
     scan_job.playlists_rescan = playlists_rescan;
     library_scan_once_with_options(false);
+    metadata_scan_worker_stop();
 }
 
 void library_scan_record_start_failure(void) {

@@ -128,15 +128,23 @@ void metadata_read_lyrics_without_artwork(const char * path, track_metadata_t * 
 
 /* Library-scan tag read. MP3/AAC (our own bounded ID3 parser) run
  * in-process. Formats that feed vendored/unbounded decoders (FLAC and
- * the other container walkers) still run in a short-lived child,
- * SIGKILLed if they don't finish within timeout_ms. Reaping is nonblocking:
- * a child stuck in uninterruptible SD I/O is remembered and retried by a
- * later scan call rather than allowing waitpid() to freeze the scanner --
- * see metadata.c. Returns true only when parsing completed. On timeout or
- * child crash it returns false and *out is zeroed, allowing the scanner to
- * preserve an older cached row instead of replacing it with placeholders.
+ * the other container walkers) go to one persistent parser worker per scan,
+ * which is SIGKILLed and replaced if a file does not finish within
+ * timeout_ms. Reaping is nonblocking: a worker stuck in uninterruptible SD
+ * I/O is remembered and retried later rather than freezing the scanner.
+ * Returns true only when parsing completed. On timeout or worker crash it
+ * returns false and *out is zeroed, allowing the scanner to preserve an older
+ * cached row instead of replacing it with placeholders.
  * picture_data/picture_size/lyrics always come back NULL/0. */
 bool metadata_read_isolated(const char * path, track_metadata_t * out, int timeout_ms);
+
+/* Stops the persistent parser worker used by metadata_read_isolated(). Call
+ * when a scan ends; the next isolated read starts a new one on demand. */
+void metadata_scan_worker_stop(void);
+
+/* Internal entry point for `--metadata-scan-worker <request_fd> <response_fd>`:
+ * serves path requests until the request pipe closes. */
+int metadata_scan_worker_run(int request_fd, int response_fd);
 
 typedef enum {
     METADATA_ARTWORK_FOUND = 0,
