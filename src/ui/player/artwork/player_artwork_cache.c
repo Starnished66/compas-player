@@ -38,7 +38,7 @@ unsigned int player_reflection_cache_epoch(void) {
     return atomic_load_explicit(&player_reflection_cache_epoch_value, memory_order_relaxed);
 }
 
-#define PLAYER_REFLECTION_CACHE_ENTRIES 2
+#define PLAYER_REFLECTION_CACHE_ENTRIES 1
 typedef struct {
     bool valid;
     cover_file_id_t file;
@@ -78,15 +78,10 @@ uint8_t * player_reflection_cache_get(const cover_file_id_t * file,
             entry->darken_num != params->darken_num || entry->darken_den != params->darken_den ||
             entry->tint_rgb != params->tint_rgb || entry->tint_weight != params->tint_weight)
             continue;
-        size_t bytes = player_reflection_bytes();
-        if (system_get_mem_available_bytes() < bytes + player_raster_cache_memory_floor()) {
-            pthread_mutex_unlock(&player_reflection_cache_mutex);
-            return NULL;
-        }
-        uint8_t * copy = malloc(bytes);
-        if (copy) memcpy(copy, entry->pixels, bytes);
+        uint8_t * pixels = entry->pixels;
+        memset(entry, 0, sizeof(*entry));
         pthread_mutex_unlock(&player_reflection_cache_mutex);
-        return copy;
+        return pixels;
     }
     pthread_mutex_unlock(&player_reflection_cache_mutex);
     return NULL;
@@ -94,21 +89,21 @@ uint8_t * player_reflection_cache_get(const cover_file_id_t * file,
 
 void player_reflection_cache_put(const cover_file_id_t * file,
                                          const player_frost_params_t * params,
-                                         const uint8_t * pixels,
+                                         uint8_t * pixels,
                                          unsigned int expected_epoch,
                                          unsigned int generation,
                                          player_artwork_cache_stale_policy_fn stale_policy) {
-    if (!file || !file->valid || !pixels) return;
-    size_t bytes = player_reflection_bytes();
-    if (system_get_mem_available_bytes() < bytes + player_raster_cache_memory_floor()) return;
-    uint8_t * copy = malloc(bytes);
-    if (!copy) return;
-    memcpy(copy, pixels, bytes);
+    if (!pixels) return;
+    if (!file || !file->valid ||
+        system_get_mem_available_bytes() < player_raster_cache_memory_floor()) {
+        free(pixels);
+        return;
+    }
     pthread_mutex_lock(&player_reflection_cache_mutex);
     if (atomic_load_explicit(&player_reflection_cache_epoch_value, memory_order_relaxed) != expected_epoch ||
         (generation && stale_policy && stale_policy(generation))) {
         pthread_mutex_unlock(&player_reflection_cache_mutex);
-        free(copy);
+        free(pixels);
         return;
     }
     unsigned i = player_reflection_cache_next++ % PLAYER_REFLECTION_CACHE_ENTRIES;
@@ -117,7 +112,7 @@ void player_reflection_cache_put(const cover_file_id_t * file,
         .valid = true, .file = *file, .width = REFLECTION_WIDTH, .height = BOARD_SCREEN_HEIGHT,
         .blur_radius = params->blur_radius, .blur_passes = params->blur_passes,
         .darken_num = params->darken_num, .darken_den = params->darken_den,
-        .tint_rgb = params->tint_rgb, .tint_weight = params->tint_weight, .pixels = copy
+        .tint_rgb = params->tint_rgb, .tint_weight = params->tint_weight, .pixels = pixels
     };
     pthread_mutex_unlock(&player_reflection_cache_mutex);
 }

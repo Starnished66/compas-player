@@ -20,7 +20,8 @@ player_frost_params_t resolve_player_frost_params(void);
 void drop_current_reflection(void);
 void apply_player_flat_background(bool has_bg_color, uint32_t bg_color);
 void player_panel_show_reflection(void);
-void player_backdrop_adopt_reflection(uint8_t * reflection, const player_frost_params_t * params);
+void player_backdrop_adopt_reflection(uint8_t * reflection, const player_frost_params_t * params,
+                                     unsigned int epoch);
 void backdrop_styles_init(void);
 lv_style_t * player_backdrop_progress_style(bool arc);
 lv_style_t * player_backdrop_surface_style(void);

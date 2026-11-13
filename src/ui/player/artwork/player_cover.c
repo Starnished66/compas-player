@@ -392,7 +392,7 @@ void poll_cover_decode(void) {
             live.tint_rgb == cover_result.tint_rgb && live.tint_weight == cover_result.tint_weight;
         free(cover_result.pixels);
         if (current && cover_result.ok && cover_result.reflection) {
-            player_backdrop_adopt_reflection(cover_result.reflection, &live);
+            player_backdrop_adopt_reflection(cover_result.reflection, &live, cover_result.reflection_epoch);
             cover_result.reflection = NULL;
             reflection_refresh_pending = false;
             reflection_refresh_retry_at = 0;
@@ -510,7 +510,7 @@ void poll_cover_decode(void) {
             free(cover_result.reflection);
             apply_player_flat_background(cover_result.has_bg_color, cover_result.bg_color);
         } else if (cover_result.reflection) {
-            player_backdrop_adopt_reflection(cover_result.reflection, &live_params);
+            player_backdrop_adopt_reflection(cover_result.reflection, &live_params, cover_result.reflection_epoch);
             reflection_refresh_pending = false;
             reflection_refresh_retry_at = 0;
         } else {

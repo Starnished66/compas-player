@@ -77,6 +77,7 @@ typedef struct {
     bool ok;
     uint16_t * pixels;
     uint8_t * reflection;
+    unsigned int reflection_epoch;
     bool flat;
     bool has_bg_color;
     uint32_t bg_color;

@@ -53,10 +53,11 @@ size_t player_raster_cache_memory_floor(void);
 void player_reflection_cache_clear(void);
 uint8_t * player_reflection_cache_get(const cover_file_id_t * file, const player_frost_params_t * params);
 void player_reflection_cache_put(const cover_file_id_t * file, const player_frost_params_t * params,
-                                 const uint8_t * pixels, unsigned int expected_epoch,
+                                 uint8_t * pixels, unsigned int expected_epoch,
                                  unsigned int generation, player_artwork_cache_stale_policy_fn stale_policy);
 unsigned int player_reflection_cache_epoch(void);
-/* get returns a caller-owned copy. clear bumps the epoch and frees entries.
+/* get moves an entry to the caller. put consumes pixels, even on rejection.
+ * clear bumps the epoch and frees entries. No raster copies are allocated.
  * For nonzero generations, put invokes stale_policy once under the cache mutex
  * after the epoch check. The callback must be synchronous, nonblocking, and
  * must not reenter this cache; it is never retained. */

@@ -49,6 +49,7 @@ static audio_current_format_info_t cover_decode_result_format;
 static bool cover_decode_result_ok;
 static uint16_t * cover_decode_result_pixels;
 static uint8_t * cover_decode_result_reflection;
+static unsigned int cover_decode_result_reflection_epoch;
 static bool cover_decode_result_flat;
 static bool cover_decode_result_has_bg_color;
 static uint32_t cover_decode_result_bg_color;
@@ -96,8 +97,12 @@ static unsigned player_cover_negative_seen_epoch;
 /* Keep only the newest request that arrives during a decode or reload. If it
  * were dropped, the visible cover could remain stuck on an earlier track. */
 
-static void cover_decode_partial_clear(void) {
+static void cover_decode_partial_clear_generation(unsigned int generation) {
     pthread_mutex_lock(&cover_decode_partial_mutex);
+    if (generation && cover_decode_partial.generation != generation) {
+        pthread_mutex_unlock(&cover_decode_partial_mutex);
+        return;
+    }
     uint16_t * pixels = cover_decode_partial.pixels;
     memset(&cover_decode_partial, 0, sizeof(cover_decode_partial));
     pthread_mutex_unlock(&cover_decode_partial_mutex);
@@ -456,9 +461,8 @@ static void * cover_decode_thread_func(void * arg) {
             .tint_rgb = req->tint_rgb, .tint_weight = req->tint_weight
         };
         reflection = player_reflection_cache_get(&file_id, &params);
-        bool reflection_cache_hit = reflection != NULL;
 #ifdef UI_PERF_TRACE
-        if (reflection_cache_hit)
+        if (reflection)
             printf("PERF frost_cache reused=1 source=worker generation=%u\n", req->generation);
 #endif
         if (!reflection)
@@ -471,10 +475,6 @@ static void * cover_decode_thread_func(void * arg) {
                                                                      req->tint_weight,
                                                                      player_cover_decode_cancelled,
                                                                      (void *) (uintptr_t) req->generation);
-        if (reflection && !reflection_cache_hit && reflection_cache_epoch ==
-            player_reflection_cache_epoch())
-            player_reflection_cache_put(&file_id, &params, reflection, reflection_cache_epoch,
-                                       req->generation, player_artwork_jobs_cache_write_stale);
     }
     if (player_cover_decode_cancelled((void *) (uintptr_t) req->generation)) {
         if (!req->reflection_only) free(pixels);
@@ -494,6 +494,8 @@ static void * cover_decode_thread_func(void * arg) {
            (unsigned)((uint32_t)(ui_perf_now_us() / 1000) - work_begin),
            req->flat, same, ok);
 #endif
+    /* An unclaimed preview is redundant once the final pixels are ready. */
+    cover_decode_partial_clear_generation(req->generation);
     cover_decode_result_for_index = req->for_index;
     cover_decode_result_generation = req->generation;
     cover_decode_result_reflection_only = req->reflection_only;
@@ -502,6 +504,7 @@ static void * cover_decode_thread_func(void * arg) {
     cover_decode_result_ok = ok;
     cover_decode_result_pixels = req->reflection_only ? NULL : pixels;
     cover_decode_result_reflection = reflection;
+    cover_decode_result_reflection_epoch = reflection_cache_epoch;
     cover_decode_result_flat = req->flat;
     cover_decode_result_has_bg_color = req->has_bg_color;
     cover_decode_result_bg_color = req->bg_color;
@@ -623,7 +626,7 @@ void player_artwork_jobs_clear_pending(void) {
     if (cover_decode_pending_valid) free(cover_decode_pending.picture_data);
     memset(&cover_decode_pending, 0, sizeof(cover_decode_pending)); cover_decode_pending_valid = false;
 }
-void player_artwork_jobs_partial_clear(void) { cover_decode_partial_clear(); }
+void player_artwork_jobs_partial_clear(void) { cover_decode_partial_clear_generation(0); }
 cover_decode_partial_t player_artwork_jobs_take_partial(void) {
     return cover_decode_partial_take();
 }
@@ -635,7 +638,7 @@ bool player_artwork_jobs_take_result(player_artwork_result_t * result) {
         .reflection_only=cover_decode_result_reflection_only,
         .source_cover_generation=cover_decode_result_source_cover_generation,.edge=cover_decode_result_edge,
         .format=cover_decode_result_format,.ok=cover_decode_result_ok,.pixels=cover_decode_result_pixels,
-        .reflection=cover_decode_result_reflection,.flat=cover_decode_result_flat,
+        .reflection=cover_decode_result_reflection,.reflection_epoch=cover_decode_result_reflection_epoch,.flat=cover_decode_result_flat,
         .has_bg_color=cover_decode_result_has_bg_color,.bg_color=cover_decode_result_bg_color,
         .blur_radius=cover_decode_result_blur_radius,.blur_passes=cover_decode_result_blur_passes,
         .darken_num=cover_decode_result_darken_num,.darken_den=cover_decode_result_darken_den,
@@ -654,7 +657,7 @@ void player_artwork_jobs_begin_reload(void) { atomic_store_explicit(&cover_reloa
 void player_artwork_jobs_end_reload(void) { atomic_store_explicit(&cover_reload_active,false,memory_order_relaxed); }
 void player_artwork_jobs_cancel_worker(void) {
     if (cover_decode_active) {
-        pthread_join(cover_decode_thread,NULL); cover_decode_active=false; cover_decode_partial_clear();
+        pthread_join(cover_decode_thread,NULL); cover_decode_active=false; cover_decode_partial_clear_generation(0);
         free(cover_decode_result_pixels); free(cover_decode_result_reflection);
         cover_decode_result_pixels=NULL; cover_decode_result_reflection=NULL;
         atomic_store_explicit(&cover_decode_done_flag,false,memory_order_relaxed);
