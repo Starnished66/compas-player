@@ -359,11 +359,14 @@ lv_style_t * gui_shell_slider_glyph_style(void) {
 const char * gui_shell_output_icon_src(const char * wired_src) {
 #ifdef HOST_BUILD
     bool bluetooth_route = gui_shell_is_bt_audio_connected();
+    bool usb_route = false;
 #else
+    bool usb_route = audio_output_is_usb_active();
     audio_output_info_t info;
     audio_output_get_info(&info);
     audio_output_route_t route = info.active ? info.route : info.requested_route;
-    bool bluetooth_route = route == AUDIO_OUTPUT_ROUTE_BLUETOOTH;
+    bool bluetooth_route = !usb_route && route == AUDIO_OUTPUT_ROUTE_BLUETOOTH;
 #endif
+    if (usb_route) return topbar_icon("usb");
     return bluetooth_route ? topbar_icon("bluetooth") : wired_src;
 }
