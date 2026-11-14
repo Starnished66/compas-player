@@ -193,13 +193,13 @@ void usb_drive_reconcile(usb_slot_t slots[USB_DRIVE_MAX], const char (* present)
     }
     for (size_t p = 0; p < present_count; p++) {
         bool tracked = false;
-        usb_slot_t * free_slot = NULL;
-        size_t free_index = 0;
+        size_t free_index = USB_DRIVE_MAX;
         for (size_t i = 0; i < USB_DRIVE_MAX; i++) {
             if (slot_active(&slots[i]) && strcmp(slots[i].drive.device, present[p]) == 0) tracked = true;
-            if (!free_slot && slots[i].state == USB_SLOT_FREE) { free_slot = &slots[i]; free_index = i; }
+            if (free_index == USB_DRIVE_MAX && slots[i].state == USB_SLOT_FREE) free_index = i;
         }
-        if (tracked || !free_slot) continue;
+        if (tracked || free_index == USB_DRIVE_MAX) continue;
+        usb_slot_t * free_slot = &slots[free_index];
         memset(free_slot, 0, sizeof(*free_slot));
         free_slot->state = USB_SLOT_SETTLING;
         snprintf(free_slot->drive.device, sizeof(free_slot->drive.device), "%s", present[p]);
