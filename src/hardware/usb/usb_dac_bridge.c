@@ -158,7 +158,8 @@ static void bridge_log(const char * fmt, ...) {
  * session boundary; the stock player simply sleeps 1 ms and reads again. The
  * device stays open through those gaps. Only a longer silence gets a reopen
  * (a real host stop/start can need one), and RECOVERY_TIMEOUT_NS of silence
- * ends the reader; the GUI restarts the bridge while DAC mode stays on. */
+ * after a stream ends the reader; the GUI restarts the bridge while DAC mode
+ * stays on. */
 #define EMPTY_READ_SLEEP_US 1000
 #define STREAM_IDLE_NS (250ULL * 1000000ULL)
 #define REOPEN_AFTER_SILENCE_NS (1000ULL * 1000000ULL)
@@ -647,7 +648,9 @@ static void * bridge_reader_thread_func(void * arg) {
         now_ns = monotonic_ns();
         uint64_t silent_ns = now_ns - last_data_ns;
         if (silent_ns >= STREAM_IDLE_NS) set_streaming(false);
-        if (silent_ns >= RECOVERY_TIMEOUT_NS) {
+        /* Only a stream that ran gets the restart; an idle host keeps the
+         * reader waiting here instead of a restart every few seconds. */
+        if (total_bytes_read > 0 && silent_ns >= RECOVERY_TIMEOUT_NS) {
             exit_reason = "no data for ~5s";
             break;
         }
