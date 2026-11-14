@@ -960,6 +960,23 @@ static bool read_udc_value(const char * path, char * out, size_t size, udc_value
     return true;
 }
 
+/* Enumeration proves a data host; VBUS alone also describes a wall charger. */
+bool usb_mode_control_host_connected(void) {
+    const char * paths[] = { ANDROID0_UDC_PATH, ADB_DEMO_UDC_PATH };
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i) {
+        char controller[256], path[512], state[32];
+        udc_value_kind_t kind;
+        if (!read_udc_value(paths[i], controller, sizeof(controller), &kind) ||
+            kind != UDC_VALUE_BOUND) continue;
+        int n = snprintf(path, sizeof(path), "%s/%s/state", USB_MODE_CONTROL_UDC_STATE_DIR, controller);
+        if (n <= 0 || n >= (int) sizeof(path) ||
+            !read_storage_host_value(path, state, sizeof(state))) continue;
+        if (!strcmp(state, "configured") || !strcmp(state, "suspended") ||
+            !strcmp(state, "address") || !strcmp(state, "addressed")) return true;
+    }
+    return false;
+}
+
 static bool write_udc_checked(const char * path, const char * value) {
     FILE * file = fopen(path, "w");
     if (!file) return false;

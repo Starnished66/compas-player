@@ -6,7 +6,6 @@
 #include "../widgets/builders/screen_builders.h"
 #include "../assets/assets.h"
 #include "../../core/device/hostname_apply.h"
-#include "../../hardware/usb/usb_dac_bridge.h"
 #include "../../network/airplay/airplay_control.h"
 #include "../../network/airplay/airplay_bridge.h"
 #include "../../network/airplay/airplay_metadata.h"
@@ -14,10 +13,6 @@
 #include <stdlib.h>
 #include "gui_network_internal.h"
 
-lv_obj_t * usb_dac_overlay_screen;
-static lv_obj_t * usb_dac_hint_label;
-static lv_obj_t * usb_dac_input_label;
-static lv_obj_t * usb_dac_path_label;
 static lv_obj_t * airplay_screen;
 static lv_obj_t * airplay_overlay_screen;
 static lv_obj_t * airplay_overlay_cover_img;
@@ -46,144 +41,7 @@ void disable_airplay_mode(void) {
     airplay_control_stop();
 }
 
-/* "Leave <DAC> mode?" popup shared by both DAC overlays. dismiss serves as
- * both the Cancel button and the tap-outside backdrop. */
-static void build_dac_leave_popup(gui_popup_t * popup, const char * title,
-                                  lv_event_cb_t confirm, lv_event_cb_t dismiss) {
-    popup->popup = build_confirm_popup(title, LV_LABEL_LONG_WRAP, NULL, NULL, TR("Leave"),
-                                       lv_color_hex(GUI_BREEZE_NEGATIVE), confirm, NULL, TR("Cancel"),
-                                       accent_lv_color(), dismiss, NULL,
-                                       dismiss, &popup->backdrop);
-}
-
-/* USB DAC takeover frame: black screen with header,
- * content container (a scrolling flex column on TEMPOTEC_V1), the source icon
- * and the title-font status label. v1_icon_px sizes the icon on V1 only
- * (0 keeps the native size). */
-static lv_obj_t * build_dac_overlay_frame(lv_event_cb_t back_cb, const char * icon_src,
-                                          int32_t v1_icon_px, const char * title,
-                                          lv_obj_t ** out_content, lv_obj_t ** out_title) {
-    lv_obj_t * scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
-
-    build_screen_header(scr, NULL, back_cb, NULL, NULL);
-
-    lv_obj_t * content = scr;
-#if defined(BOARD_TEMPOTEC_V1)
-    content = lv_obj_create(scr);
-    int32_t content_y = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
-    lv_obj_set_size(content, lv_pct(100),
-                    BOARD_SCREEN_HEIGHT - content_y - HOME_INDICATOR_CONTENT_INSET);
-    lv_obj_set_pos(content, 0, content_y);
-    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(content, 0, 0);
-    lv_obj_set_style_pad_hor(content, BOARD_SCALE_PX(12), 0);
-    lv_obj_set_style_pad_top(content, BOARD_SCALE_PY(8), 0);
-    lv_obj_set_style_pad_bottom(content, BOARD_SCALE_PY(8), 0);
-    lv_obj_set_style_pad_row(content, BOARD_SCALE_PY(8), 0);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_set_scroll_dir(content, LV_DIR_VER);
-    lv_obj_add_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-#endif
-
-    lv_obj_t * icon = lv_image_create(content);
-    lv_image_set_src(icon, asset_path(icon_src));
-#if defined(BOARD_TEMPOTEC_V1)
-    if (v1_icon_px > 0) {
-        /* Fit the glyph to the portrait panel so it clears the status/header
-         * rows and leaves room for the labels below it. */
-        lv_obj_set_size(icon, BOARD_SCALE_PX(v1_icon_px), BOARD_SCALE_PX(v1_icon_px));
-        lv_image_set_inner_align(icon, LV_IMAGE_ALIGN_CONTAIN);
-    }
-#else
-    (void) v1_icon_px;
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(-40));
-#endif
-
-    lv_obj_t * status_label = lv_label_create(content);
-    lv_label_set_text(status_label, title);
-    lv_obj_add_style(status_label, &style_theme_text_primary, 0);
-    lv_obj_set_style_text_font(status_label, gui_theme_font(GUI_FONT_ROLE_TITLE), 0);
-#if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_width(status_label, LV_PCT(90));
-    lv_label_set_long_mode(status_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
-#else
-    lv_obj_align_to(status_label, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, BOARD_SCALE_PX(24));
-#endif
-    *out_content = content;
-    *out_title = status_label;
-    return scr;
-}
-
-/* Muted, centered, fixed-width line under `below` (the labels stay centered
- * when their text updates). text may be NULL when it is filled in later. */
-static lv_obj_t * dac_overlay_add_line(lv_obj_t * content, lv_obj_t * below, const char * text,
-                                       int32_t gap) {
-    lv_obj_t * label = lv_label_create(content);
-    if (text) lv_label_set_text(label, text);
-    lv_obj_add_style(label, &style_theme_text_muted, 0);
-    lv_obj_set_style_text_font(label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
-    lv_obj_set_width(label, LV_PCT(90));
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-#if !defined(BOARD_TEMPOTEC_V1)
-    lv_obj_align_to(label, below, LV_ALIGN_OUT_BOTTOM_MID, 0, gap);
-#else
-    (void) below;
-    (void) gap;
-#endif
-    return label;
-}
-
-/* ---- USB DAC mode overlay + leave-confirmation popup --------------------
- * Full-screen takeover matching the stock firmware's hiby_usb.view (a
- * centered USB icon + a top-left back button, nothing else) -- deliberately
- * skips finalize_screen_navigation()'s swipe-to-back/swipe-to-player-screen
- * wiring: the
- * only way out is the back button, which asks for confirmation rather than
- * leaving immediately, and an accidental swipe bypassing that would defeat
- * the point. The confirmation popup itself reuses bt_action_popup's own
- * hand-built top-layer overlay shape (this codebase doesn't use LVGL's
- * lv_msgbox anywhere). ---- */
-static gui_popup_t usb_dac_leave_popup;
-
-static void usb_dac_leave_dismiss_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&usb_dac_leave_popup);
-}
-
-static void usb_dac_leave_confirm_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_hide(&usb_dac_leave_popup);
-    nav_pop(); /* leave the DAC overlay screen */
-    start_usb_mode_switch(USB_MODE_STORAGE); /* "switch back to Storage (Default)" */
-}
-
-static void usb_dac_overlay_back_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_show(&usb_dac_leave_popup);
-}
-
-static lv_obj_t * build_usb_dac_overlay_screen(void) {
-    lv_obj_t * content;
-    lv_obj_t * status_label;
-    lv_obj_t * scr = build_dac_overlay_frame(usb_dac_overlay_back_cb, "usb/usb.png", 0,
-                                             TR("USB DAC mode"), &content, &status_label);
-
-    usb_dac_hint_label = dac_overlay_add_line(content, status_label,
-                                              TR("Waiting for USB audio…"), BOARD_SCALE_PX(8));
-    usb_dac_input_label = dac_overlay_add_line(content, usb_dac_hint_label, NULL, BOARD_SCALE_PX(8));
-    usb_dac_path_label = dac_overlay_add_line(content, usb_dac_input_label, NULL, BOARD_SCALE_PX(4));
-
-    return scr;
-}
-
-static void set_label_if_changed(lv_obj_t * label, const char * text) {
-    if (label && !ui_label_text_matches(label, text)) lv_label_set_text(label, text);
-}
-
+/* USB DAC stream state is refreshed by its ordinary navigable screen. */
 void format_rate(char * out, size_t size, unsigned int rate) {
     if (rate && rate % 1000 == 0) snprintf(out, size, "%u kHz", rate / 1000);
     else if (rate) snprintf(out, size, "%.1f kHz", (double) rate / 1000.0);
@@ -191,21 +49,10 @@ void format_rate(char * out, size_t size, unsigned int rate) {
 }
 
 static lv_timer_t * dac_stream_labels_timer = NULL;
-
 static void dac_stream_labels_timer_cb(lv_timer_t * timer) {
     (void) timer;
     gui_network_bt_dac_refresh();
-    char text[160];
-    usb_dac_stream_info_t usb;
-    usb_dac_bridge_get_stream_info(&usb);
-    set_label_if_changed(usb_dac_hint_label, usb.streaming ? TR("This device is now a USB sound card") : TR("Waiting for USB audio…"));
-    char input_rate[32], output_rate[32];
-    format_rate(input_rate, sizeof(input_rate), usb.input_sample_rate);
-    format_rate(output_rate, sizeof(output_rate), usb.output_sample_rate);
-    snprintf(text, sizeof(text), TR("USB input: %s · %u-bit"), input_rate, usb.input_bit_depth);
-    set_label_if_changed(usb_dac_input_label, text);
-    snprintf(text, sizeof(text), TR("DAC path: %s · %u-bit"), output_rate, usb.output_bit_depth);
-    set_label_if_changed(usb_dac_path_label, text);
+    gui_network_usb_dac_refresh();
 }
 
 /* ---- AirPlay screen -- WiFi analogue of Bluetooth DAC mode, see
@@ -253,11 +100,11 @@ bool gui_network_toggle_airplay(void) {
         refresh_airplay_screen_if_built(); /* nothing changed, but keeps the toggle row's own drawn state honest */
         return current_settings.wifi_dac_mode_enabled;
     }
-    if (turning_on && (gui_network_usb_dac_mode_active() || gui_network_usb_dac_pending())) {
-        show_error_toast(TR("Failed to enable AirPlay"));
-        return false;
-    }
     airplay_enable_pending = false;
+    /* The newest DAC choice wins, as with Bluetooth DAC below. */
+    if (turning_on && (current_settings.usb_dac_mode_enabled || current_settings.usb_mode == USB_MODE_DAC ||
+                       gui_network_usb_dac_pending()))
+        disable_usb_dac_mode();
     if (turning_on && (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())) {
         disable_bt_dac_mode();
         airplay_enable_pending = true;
@@ -502,11 +349,9 @@ void gui_network_poll_airplay_overlay(void) {
 
 void gui_network_receivers_build(void) {
     gui_network_bt_dac_build();
-    usb_dac_overlay_screen = build_usb_dac_overlay_screen();
+    gui_network_usb_dac_build();
     airplay_screen = network_list_screen(TR("AirPlay"), &airplay_list);
     airplay_overlay_screen = build_airplay_overlay_screen();
-    build_dac_leave_popup(&usb_dac_leave_popup, TR("Leave USB DAC mode?"),
-                          usb_dac_leave_confirm_cb, usb_dac_leave_dismiss_cb);
     dac_stream_labels_timer_cb(NULL);
     /* Guarded like library_az_index.c's drag timer -- gui_network_init()
      * can run again after a UI reload, and an unguarded lv_timer_create()
@@ -517,25 +362,19 @@ void gui_network_receivers_build(void) {
 /* Deliberately does NOT touch dac_stream_labels_timer (already
  * guarded/reused correctly by gui_network_receivers_build()). */
 void gui_network_receivers_teardown(void) {
-    gui_popup_teardown(&usb_dac_leave_popup);
+    gui_network_usb_dac_teardown();
     gui_network_bt_dac_teardown();
-    network_delete_screen(&usb_dac_overlay_screen);
     network_delete_screen(&airplay_screen);
     network_delete_screen(&airplay_overlay_screen);
     /* The widgets died with their screens; the 500 ms label timer and the
      * refresh_*_if_built guards survive a reload and must see NULL. */
-    usb_dac_hint_label = NULL;
-    usb_dac_input_label = NULL;
-    usb_dac_path_label = NULL;
     airplay_list = NULL;
     airplay_overlay_cover_img = NULL;
     airplay_overlay_title_label = NULL;
 }
 
-lv_obj_t * gui_network_get_usb_dac_overlay(void) { return usb_dac_overlay_screen; }
-
 bool gui_network_boot_prompt_blocked(void) {
     lv_obj_t * active = lv_screen_active();
     return gui_network_usb_prompt_invalidated() || active == gui_network_get_bt_dac_screen() ||
-           active == usb_dac_overlay_screen || active == airplay_overlay_screen;
+           active == airplay_overlay_screen;
 }

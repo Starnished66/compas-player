@@ -110,8 +110,7 @@ bool gui_shell_back_swipe_owns_press(void) {
 bool shell_screen_blocks_swipe(lv_obj_t * screen) {
     return screen == gui_lock_screen_get_screen() || screen == gui_text_input_get_screen() ||
            screen == gui_text_view_get_screen() ||
-           (screen == gui_busy_get_screen() && !gui_busy_is_cancellable()) ||
-           screen == gui_network_get_usb_dac_overlay();
+           (screen == gui_busy_get_screen() && !gui_busy_is_cancellable());
 }
 
 /* Arms a swipe for a new press at p; it stays provisional until the
@@ -138,7 +137,6 @@ static void swipe_begin_tracking(swipe_state_t * s) {
 static void home_swipe_fill_config(gesture_home_config_t * home_cfg, int32_t h) {
     home_cfg->swipe_up_home_enabled = current_settings.swipe_up_home_enabled;
     home_cfg->quick_drawer_open = quick_drawer_open;
-    home_cfg->is_usb_dac_overlay = (lv_screen_active() == gui_network_get_usb_dac_overlay());
     home_cfg->is_lyrics_screen = (lv_screen_active() == gui_lyrics_get_screen());
     home_cfg->is_lock_screen = (lv_screen_active() == gui_lock_screen_get_screen());
     home_cfg->has_background_work = gui_library_navigation_blocked();
@@ -187,7 +185,6 @@ static bool player_swipe_candidate_at(lv_point_t p) {
            lv_screen_active() != gui_track_info_get_screen() &&
            lv_screen_active() != gui_lock_screen_get_screen() &&
            lv_screen_active() != gui_text_view_get_screen() &&
-           lv_screen_active() != gui_network_get_usb_dac_overlay() &&
            !gui_library_navigation_blocked() &&
            !player_swipe_press_excluded(p);
 }

@@ -86,7 +86,7 @@ void gui_player_stop_for_external_session(void) {
 /* A phone reserves output through handoff and receiver cleanup. */
 static const char * external_dac_block_reason(void) {
     if (gui_shell_bt_dac_owns_output()) return TR("Pause Bluetooth audio or stop Bluetooth DAC to play music on this device");
-    if (current_settings.usb_mode == USB_MODE_DAC) return TR("Exit USB DAC mode to play music on this device");
+    if (gui_shell_usb_dac_owns_output()) return TR("Exit USB DAC mode to play music on this device");
     return NULL;
 }
 

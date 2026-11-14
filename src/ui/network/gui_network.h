@@ -10,13 +10,18 @@ lv_obj_t * gui_network_get_wifi_screen(void);
 lv_obj_t * gui_network_get_bt_screen(void);
 lv_obj_t * gui_network_get_wireless_screen(void);
 lv_obj_t * gui_network_get_bt_dac_screen(void);
-lv_obj_t * gui_network_get_usb_dac_overlay(void);
+lv_obj_t * gui_network_get_usb_dac_screen(void);
 
-/* True while USB DAC mode owns the UI -- i.e. the device is presenting
- * itself to a PC as a sound card and its overlay has taken the screen.
- * Deliberately NOT current_settings.usb_mode, which is only a persisted UI
- * hint and can still read DAC after a restart with no cable attached. */
-bool gui_network_usb_dac_mode_active(void);
+bool gui_network_usb_dac_active(void);
+bool gui_network_toggle_usb_dac(void);
+void enable_usb_dac_mode(void);
+void disable_usb_dac_mode(void);
+void gui_network_open_usb_dac(void);
+/* Pause preserves intent; resume requires an enumerated USB host. */
+void gui_network_usb_dac_pause(void);
+void gui_network_usb_dac_resume(void);
+bool gui_network_usb_dac_shutdown(void);
+void gui_network_usb_dac_boot_reconcile(void);
 bool gui_network_usb_prompt_invalidated(void);
 /* Firmware updates may proceed over a verified live ADB session after a
  * Storage host was seen earlier on the same cable session. */

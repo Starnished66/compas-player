@@ -261,6 +261,7 @@ static void poll_network_jobs(void) {
 
 static void poll_storage_jobs(void) {
     poll_usb_mode_switch();
+    poll_usb_dac_session();
     PERF_MARK("usb_mode");
     poll_usb_storage_hotplug();
     PERF_MARK("usb_hotplug");
@@ -449,6 +450,7 @@ static void car_mode_shutdown_if_pending(const car_mode_state_t *s) {
          * imminent, so the final playback checkpoint must reach storage
          * before power is removed. */
         settings_save(&current_settings);
+        if (!gui_network_usb_dac_shutdown()) return;
         (void) gui_shell_bt_dac_shutdown(false);
         idle_shutdown_now(); /* full poweroff -- does not return, see idle_shutdown.h */
     }

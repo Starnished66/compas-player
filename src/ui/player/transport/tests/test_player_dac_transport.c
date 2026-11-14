@@ -9,7 +9,8 @@
 player_settings_t current_settings;
 bool bt_is_powered_cached;
 static int toasts, mutations, starts;
-static bool playing, dac_owned;
+static bool playing, dac_owned, usb_owned;
+bool gui_shell_usb_dac_owns_output(void) { return usb_owned; }
 bool gui_shell_bt_dac_owns_output(void) { return dac_owned; }
 static int selected = 3;
 static uint64_t revision = 17;
@@ -49,6 +50,8 @@ int main(void) {
     assert(gui_player_queue_select(revision, 7));
     assert(selected == 7 && revision == 18 && playing && starts == 1);
     current_settings.usb_mode = USB_MODE_DAC;
+    assert(gui_player_local_playback_allowed());
+    usb_owned = true;
     assert(!gui_player_local_playback_allowed());
     assert(!gui_player_queue_select(revision, 9));
     assert(selected == 7 && revision == 18 && starts == 1);

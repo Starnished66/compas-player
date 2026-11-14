@@ -16,9 +16,13 @@
 #include "gui_network_internal.h"
 
 static lv_obj_t * usb_mode_screen;
-/* See the mode-switch success path for why this exists rather than reading
- * current_settings.usb_mode. */
-static bool usb_dac_mode_active = false;
+/* Intent survives pauses; only a user Stop clears the saved setting. */
+static bool usb_dac_paused = true;
+static bool usb_dac_pause_pending;
+static bool usb_dac_restore_pending;
+/* A pause teardown failed; later pauses and shutdown do not wait on it again. */
+static bool usb_dac_teardown_failed;
+
 static pthread_t usb_dac_charging_thread;
 static bool usb_dac_charging_active;
 static atomic_bool usb_dac_charging_done = false;
@@ -73,8 +77,10 @@ static void finish_usb_dac_charging_update(bool show_failure, bool thread_alread
  * share (see usb_mode_control.c), so it really is orthogonal rather than a
  * third position in the same rotation. */
 static bool adb_owns_usb_port(void);
+static void usb_dac_enable(bool quiet);
 
 static void populate_usb_mode_screen(void) {
+    if (!usb_mode_list) return;
     lv_obj_clean(usb_mode_list);
 
     /* ADB itself is toggled from Developer Options, not here, but it still
@@ -147,6 +153,11 @@ bool start_usb_mode_switch(usb_mode_t target) {
         return false;
     }
     if (usb_mode_switch_active) return false;
+    if (target == USB_MODE_ADB) {
+        usb_dac_paused = true;
+        usb_dac_restore_pending = false;
+        gui_shell_usb_dac_release();
+    }
     gui_library_suspend_boot_prompt();
     usb_mode_switch_target = target;
     usb_mode_switch_active = true;
@@ -189,6 +200,10 @@ static bool adb_owns_usb_port(void) {
 
 void poll_usb_mode_switch(void) {
     finish_usb_dac_charging_update(true, false);
+    if (usb_dac_pause_pending && !usb_mode_switch_active && !usb_bridge_restart_active) {
+        if (current_settings.usb_mode != USB_MODE_DAC) usb_dac_pause_pending = false;
+        else if (!gui_library_scan_active()) start_usb_mode_switch(USB_MODE_STORAGE);
+    }
     if (usb_bridge_restart_active &&
         atomic_load_explicit(&usb_bridge_restart_done, memory_order_acquire)) {
         usb_bridge_restart_active = false;
@@ -204,10 +219,10 @@ void poll_usb_mode_switch(void) {
      * Skipped while a mode switch is in flight to avoid racing
      * usb_mode_control_apply(). */
     if (!usb_mode_switch_active && !usb_bridge_restart_active &&
-        current_settings.usb_mode == (int) USB_MODE_DAC) {
+        current_settings.usb_mode == (int) USB_MODE_DAC && !usb_dac_paused) {
         usb_dac_stream_info_t info;
         usb_dac_bridge_get_stream_info(&info);
-        if (!info.bridge_running) {
+        if (!info.bridge_running && !info.output_failed) {
             if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending())
                 disable_airplay_mode();
             if (current_settings.bt_dac_mode_enabled) disable_bt_dac_mode();
@@ -247,6 +262,11 @@ void poll_usb_mode_switch(void) {
         char msg[128];
         snprintf(msg, sizeof(msg), TR("Failed to switch to %s"), label);
         show_error_toast(msg);
+        /* One try only: a failed pause or enable stays paused, intent kept, until the
+         * next unplug/replug or tap, instead of retrying with a toast every poll. */
+        if (usb_dac_pause_pending) usb_dac_teardown_failed = true;
+        usb_dac_pause_pending = false;
+        if (usb_mode_switch_target == USB_MODE_DAC) usb_dac_paused = true;
         /* apply() tears the old gadget down before bringing the target up, so
          * a failure can leave neither bound -- the recorded mode is then not
          * merely unchanged, it is wrong. Re-read the hardware so the rollback
@@ -256,6 +276,8 @@ void poll_usb_mode_switch(void) {
             current_settings.usb_mode = (int) actual_usb_mode;
         populate_usb_mode_screen(); /* in case current_settings.usb_mode's actual row needs re-highlighting */
         gui_settings_sync_adb_toggle(); /* roll the optimistic flip back to what the hardware actually did */
+        gui_network_usb_dac_refresh();
+        gui_shell_refresh_quick_drawer_expansion_toggles();
         return;
     }
 
@@ -265,34 +287,12 @@ void poll_usb_mode_switch(void) {
         flush_sd_view_after_usb_storage();
     current_settings.usb_mode = (int) usb_mode_switch_target;
     settings_save_async(&current_settings);
-    /* Process-lifetime truth for "the DAC overlay owns the UI", as opposed to
-     * current_settings.usb_mode, which settings.h documents as only a UI hint
-     * and which silently keeps a stale DAC value across a restart with no
-     * cable attached (gui.c's startup correction only applies when
-     * usb_mode_control_detect_current() can see a bound gadget, and it can't
-     * when nothing is plugged in). Set here rather than next to the nav_push
-     * below so leaving DAC mode clears it just as reliably. */
-    usb_dac_mode_active = (usb_mode_switch_target == USB_MODE_DAC);
-    populate_usb_mode_screen(); /* refresh which row shows the accent border */
+    usb_dac_teardown_failed = false;
+    if (usb_mode_switch_target != USB_MODE_DAC) usb_dac_pause_pending = false;
+    populate_usb_mode_screen();
     gui_settings_sync_adb_toggle();
-
-    /* DAC mode takes over the whole screen with its own overlay (matching
-     * the stock firmware's hiby_usb.view) -- the device can't sensibly be
-     * used as a normal music player while it's presenting itself to a PC
-     * as a USB sound card. Storage/ADB have no such conflict (the app
-     * keeps running normally), so they don't get an overlay. */
-    if (usb_mode_switch_target == USB_MODE_DAC) {
-        /* Same three-way mutual exclusion as the Bluetooth DAC toggle/
-         * airplay_toggle_cb() -- all three (local playback, Bluetooth DAC,
-         * AirPlay) fight over the same hw:0,0 output. usb_dac_bridge_start()
-         * (called from usb_mode_control_apply(), already run on the
-         * background thread by this point) already called audio_stop()
-         * itself, but that only stops the backend -- the play button icon
-         * needs its own explicit refresh, same as every other call site
-         * that stops playback out from under the UI. */
-        stop_local_playback();
-        nav_push(usb_dac_overlay_screen);
-    }
+    gui_network_usb_dac_refresh();
+    gui_shell_refresh_quick_drawer_expansion_toggles();
 }
 
 /* A fresh boot intentionally has no gadget bound, but previously nothing
@@ -334,13 +334,13 @@ void poll_usb_storage_hotplug(void) {
                                                           connected, storage_configured);
     if (!usb_cable_state_initialized) {
         usb_cable_state_initialized = true;
-        usb_cable_was_connected = connected;
-        /* Storage is the default gadget when a PC is plugged in, including
-         * a cable already present at boot. ADB and DAC stay opt-in from
-         * Settings; usb_mode_control_apply() tears Storage down first. */
         usb_storage_rebind_pending = connected;
+        usb_dac_restore_pending = current_settings.usb_dac_mode_enabled;
     } else if (connected && !usb_cable_was_connected) {
         usb_storage_rebind_pending = true;
+        usb_dac_restore_pending = current_settings.usb_dac_mode_enabled;
+    } else if (!connected && usb_cable_was_connected) {
+        gui_network_usb_dac_pause();
     }
     usb_cable_was_connected = connected;
     if (!storage_was_active && gui_network_usb_storage_session_active())
@@ -356,8 +356,17 @@ void poll_usb_storage_hotplug(void) {
      * the rescan; anything the PC wrote during that earlier Storage phase
      * is picked up by the next ordinary rescan trigger or a manual one from
      * Settings. */
-    if (storage_session_ended && !usb_dac_mode_active && gui_library_auto_rescan_enabled()) {
+    if (storage_session_ended && current_settings.usb_mode != USB_MODE_DAC && gui_library_auto_rescan_enabled()) {
         gui_library_request_files_changed_prompt();
+    }
+
+    if (connected && usb_dac_restore_pending && !usb_dac_pause_pending &&
+        !usb_mode_switch_active && !usb_bridge_restart_active &&
+        !adb_owns_usb_port() && !firmware_update_busy() && !gui_network_bt_dac_active() && !gui_shell_bt_dac_busy() &&
+        !current_settings.wifi_dac_mode_enabled && !gui_network_airplay_enable_pending() &&
+        usb_mode_control_host_connected()) {
+        usb_dac_enable(true);
+        if (!usb_dac_paused) usb_storage_rebind_pending = false;
     }
 
     if (!connected || !usb_storage_rebind_pending || usb_mode_switch_active ||
@@ -377,15 +386,15 @@ void poll_usb_storage_hotplug(void) {
 bool gui_network_usb_storage_session_active(void) {
     if (!usb_storage_session.host_seen || !usb_cable_was_connected) return false;
 
-    bool adb_confirmed = false;
+    bool non_storage_confirmed = false;
     if (!usb_mode_switch_active) {
         usb_mode_t live_mode;
-        adb_confirmed = usb_mode_control_detect_current(&live_mode) &&
-                        live_mode == USB_MODE_ADB;
+        non_storage_confirmed = usb_mode_control_detect_current(&live_mode) &&
+                                (live_mode == USB_MODE_ADB || live_mode == USB_MODE_DAC);
     }
     return usb_storage_session_blocks_local_work(&usb_storage_session,
                                                   usb_cable_was_connected,
-                                                  adb_confirmed);
+                                                  non_storage_confirmed);
 }
 
 bool gui_network_usb_storage_switch_pending(void) {
@@ -396,8 +405,11 @@ static void usb_mode_option_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);
     usb_mode_t target = usb_mode_options[index].mode;
-    if (current_settings.usb_mode == (int) target) return;
-    start_usb_mode_switch(target);
+    if (target == USB_MODE_DAC) {
+        gui_network_open_usb_dac();
+        return;
+    }
+    disable_usb_dac_mode();
 }
 
 void usb_mode_settings_row_cb(lv_event_t * e) {
@@ -498,7 +510,7 @@ static bool usb_live_operation_blocks_update(void) {
     /* Check the live UDC state so a confirm click between polls cannot race
      * a newly-configured USB storage host. */
     return usb_mode_switch_active || usb_mode_switch_queued || usb_bridge_restart_active ||
-           usb_dac_mode_active || usb_mode_control_storage_host_configured();
+           current_settings.usb_mode == USB_MODE_DAC || usb_mode_control_storage_host_configured();
 }
 
 bool gui_network_usb_prompt_invalidated(void) {
@@ -516,4 +528,90 @@ bool gui_network_firmware_update_usb_blocked(void) {
     return !usb_mode_control_detect_current(&live_mode) || live_mode != USB_MODE_ADB;
 }
 
-bool gui_network_usb_dac_mode_active(void) { return usb_dac_mode_active; }
+
+
+
+bool gui_network_usb_dac_active(void) {
+    return current_settings.usb_dac_mode_enabled && !usb_dac_paused &&
+           current_settings.usb_mode == USB_MODE_DAC &&
+           (!usb_mode_switch_active || usb_mode_switch_target == USB_MODE_DAC);
+}
+
+/* quiet: an automatic restore, which needs no toast. */
+static void usb_dac_enable(bool quiet) {
+    if (adb_owns_usb_port()) {
+        show_info_toast(TR("Turn off ADB first (Settings > System > Advanced), then enable USB DAC from here."));
+        return;
+    }
+    if (usb_mode_switch_active || usb_bridge_restart_active || usb_dac_pause_pending) return;
+    if (!usb_mode_control_host_connected()) {
+        current_settings.usb_dac_mode_enabled = true;
+        usb_dac_paused = true;
+        usb_dac_restore_pending = true;
+        settings_save_async(&current_settings);
+        if (!quiet) show_info_toast(TR("Waiting for USB audio…"));
+        gui_network_usb_dac_refresh();
+        return;
+    }
+    if (!start_usb_mode_switch(USB_MODE_DAC)) return;
+    current_settings.usb_dac_mode_enabled = true;
+    usb_dac_paused = false;
+    usb_dac_restore_pending = false;
+    settings_save_async(&current_settings);
+    if (!quiet) show_info_toast(TR("This may take a while"));
+    gui_network_usb_dac_refresh();
+}
+
+void enable_usb_dac_mode(void) { usb_dac_enable(false); }
+
+void gui_network_usb_dac_pause(void) {
+    usb_dac_paused = true;
+    usb_dac_restore_pending = false;
+    usb_dac_pause_pending = !usb_dac_teardown_failed && (current_settings.usb_mode == USB_MODE_DAC ||
+        (usb_mode_switch_active && usb_mode_switch_target == USB_MODE_DAC) || usb_bridge_restart_active);
+    gui_shell_usb_dac_release();
+    gui_network_usb_dac_refresh();
+    gui_shell_refresh_quick_drawer_expansion_toggles();
+}
+
+void gui_network_usb_dac_resume(void) {
+    usb_dac_restore_pending = current_settings.usb_dac_mode_enabled;
+}
+
+bool gui_network_usb_dac_shutdown(void) {
+    gui_network_usb_dac_pause();
+    /* Storage teardown is refused during a library scan; the boot journal restores the role. */
+    if (gui_library_scan_active()) return true;
+    return !usb_dac_pause_pending && !usb_mode_switch_active && !usb_bridge_restart_active &&
+           !gui_shell_usb_dac_owns_output();
+}
+
+void disable_usb_dac_mode(void) {
+    current_settings.usb_dac_mode_enabled = false;
+    settings_save_async(&current_settings);
+    gui_network_usb_dac_pause();
+    if (!usb_dac_pause_pending && current_settings.usb_mode != USB_MODE_STORAGE)
+        start_usb_mode_switch(USB_MODE_STORAGE);
+}
+
+bool gui_network_toggle_usb_dac(void) {
+    if (current_settings.usb_dac_mode_enabled && (!usb_dac_paused || usb_dac_restore_pending))
+        disable_usb_dac_mode();
+    else enable_usb_dac_mode();
+    gui_shell_refresh_quick_drawer_expansion_toggles();
+    return gui_network_usb_dac_active();
+}
+
+void gui_network_usb_dac_boot_reconcile(void) {
+    /* Even a surviving gadget must relinquish its lease without a host. */
+    usb_dac_paused = true;
+    usb_dac_restore_pending = current_settings.usb_dac_mode_enabled;
+    if (current_settings.usb_mode == USB_MODE_DAC) {
+        if (current_settings.usb_dac_mode_enabled && usb_mode_control_host_connected())
+            usb_dac_enable(true);
+        else {
+            gui_network_usb_dac_pause();
+            usb_dac_restore_pending = current_settings.usb_dac_mode_enabled;
+        }
+    }
+}

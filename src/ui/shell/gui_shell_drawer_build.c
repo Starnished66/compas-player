@@ -34,6 +34,15 @@ static void quick_drawer_bt_dac_long_press_cb(lv_event_t * e) {
     quick_drawer_dismiss_for_navigation();
     gui_network_open_bt_dac();
 }
+static void quick_drawer_usb_dac_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
+    gui_network_toggle_usb_dac();
+}
+static void quick_drawer_usb_dac_long_press_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
+    quick_drawer_dismiss_for_navigation();
+    gui_network_open_usb_dac();
+}
 static void quick_drawer_dlna_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     gui_network_toggle_dlna();
@@ -390,7 +399,7 @@ static lv_obj_t * quick_drawer_create_expansion_icon(int32_t x, int32_t row_y) {
 }
 
 /* Expanded rows 2 and 3 live inside the clipping box. Row 2 is AirPlay /
- * BT DAC / DLNA / Gapless / RC, in the QD_TOGGLE_AIRPLAY.. slot order. "RC", not
+ * BT DAC / USB DAC / DLNA / Gapless / RC, in the QD_TOGGLE_AIRPLAY.. slot order. "RC", not
  * "HiBy Link": the stock asset is hibylink.png but what it actually drives
  * here is remote_control.h's own phone web UI, and the full name does not fit
  * an 84px slot at any font tier. */
@@ -404,6 +413,8 @@ static const struct {
       quick_drawer_airplay_long_press_cb },
     { N_("BT DAC"), &quick_drawer_bt_dac_icon, quick_drawer_bt_dac_event_cb,
       quick_drawer_bt_dac_long_press_cb },
+    { N_("USB DAC"), &quick_drawer_usb_dac_icon, quick_drawer_usb_dac_event_cb,
+      quick_drawer_usb_dac_long_press_cb },
     { N_("DLNA"), &quick_drawer_dlna_icon, quick_drawer_dlna_event_cb,
       quick_drawer_dlna_long_press_cb },
     { N_("Gapless"), &quick_drawer_gapless_icon, quick_drawer_gapless_event_cb,

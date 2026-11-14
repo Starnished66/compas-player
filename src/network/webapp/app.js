@@ -289,7 +289,9 @@ function poll() {
 function renderStatus() {
   var s = player;
   if (!s) return;
-  var dacMode = !!s.bluetooth_dac_mode;
+  var dacMode = s.dac_mode === 'bluetooth' || s.dac_mode === 'usb' || !!s.bluetooth_dac_mode;
+  var dacName = s.dac_mode === 'usb' ? 'USB DAC' : 'Bluetooth DAC';
+  var receivingName = s.dac_mode === 'usb' ? 'USB audio' : 'Bluetooth audio';
   var hasTrack = !!s.title && !dacMode;
   if (s.device_model) $('#deviceName').textContent = s.device_model;
   applyAccent(s.accent_color);
@@ -305,9 +307,9 @@ function renderStatus() {
     if (artUrl) probe.src = artUrl; else setArt(null);
   }
 
-  $all('[data-np-title]').concat([$('#npTitle')]).forEach(function (el) { el.textContent = dacMode ? 'Bluetooth DAC' : hasTrack ? s.title : 'Not playing'; });
-  $('#npArtist').textContent = dacMode ? (s.playing ? 'Receiving Bluetooth audio' : 'Waiting for Bluetooth audio') : hasTrack ? [s.artist, s.album].filter(Boolean).join(' — ') : '';
-  $all('[data-np-sub]').forEach(function (el) { el.textContent = dacMode ? (s.playing ? 'Receiving Bluetooth audio' : 'Waiting for Bluetooth audio') : [s.artist, s.album].filter(Boolean).join(' — '); });
+  $all('[data-np-title]').concat([$('#npTitle')]).forEach(function (el) { el.textContent = dacMode ? dacName : hasTrack ? s.title : 'Not playing'; });
+  $('#npArtist').textContent = dacMode ? (s.playing ? 'Receiving ' + receivingName : 'Waiting for ' + receivingName) : hasTrack ? [s.artist, s.album].filter(Boolean).join(' — ') : '';
+  $all('[data-np-sub]').forEach(function (el) { el.textContent = dacMode ? (s.playing ? 'Receiving ' + receivingName : 'Waiting for ' + receivingName) : [s.artist, s.album].filter(Boolean).join(' — '); });
   $all('[data-np-format]').forEach(function (el) { var f = audioFormat(s); el.textContent = f; el.style.display = f ? '' : 'none'; });
   $all('[data-play]').forEach(function (el) { el.innerHTML = icon(s.playing ? 'pause' : 'play'); el.setAttribute('aria-label', s.playing ? 'Pause' : 'Play'); });
   $all('#modeBtn, [data-mode], [data-fav], [data-seek]').forEach(function (el) { el.disabled = dacMode; el.setAttribute('aria-disabled', String(dacMode)); });

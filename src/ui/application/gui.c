@@ -312,15 +312,8 @@ static void reconcile_usb_mode_at_boot(void) {
     if (!usb_mode_control_reconcile_dac_session())
         fprintf(stderr, "gui: USB DAC session recovery incomplete; retaining conservative power policy\n");
 
-    /* ADB is the one mode that survives a restart, because enabling it means
-     * going into Developer Options and asking for it. Anything else starts as
-     * Storage: DAC in particular would otherwise block local playback on a
-     * device that may not even be plugged into anything.
-     *
-     * Applied through the ordinary switch path rather than inline --
-     * usb_mode_control_apply() spends seconds in settle and retry loops, which
-     * would stall startup if it ran on this thread. poll_usb_mode_switch()
-     * completes it in the background. */
+    /* Gadget discovery is separate from saved DAC intent. Restoration waits
+     * for host enumeration in the hotplug poll and never blocks startup. */
     if (!detected) {
         if (current_settings.usb_mode == (int) USB_MODE_ADB) {
             start_usb_mode_switch(USB_MODE_ADB);
@@ -329,6 +322,7 @@ static void reconcile_usb_mode_at_boot(void) {
             settings_save(&current_settings);
         }
     }
+    gui_network_usb_dac_boot_reconcile();
 }
 
 /* Applies the saved volume, brightness, LED, charging and timezone settings. */

@@ -173,6 +173,9 @@ bool gui_shell_player_topbar_hidden(lv_obj_t * screen);
 void gui_shell_set_status_bar_screen_context(lv_obj_t * screen);
 void gui_shell_set_home_indicator_visible(bool visible);
 
+bool gui_shell_usb_dac_owns_output(void);
+void poll_usb_dac_session(void);
+void gui_shell_usb_dac_release(void);
 bool gui_shell_bt_dac_owns_output(void);
 bool gui_shell_bt_dac_receiving(void);
 bool gui_shell_bt_dac_failed(void);

@@ -161,6 +161,7 @@ lv_obj_t * quick_drawer_expansion_handle = NULL;
 lv_obj_t * quick_drawer_card = NULL;
 lv_obj_t * quick_drawer_airplay_icon = NULL;
 lv_obj_t * quick_drawer_bt_dac_icon = NULL;
+lv_obj_t * quick_drawer_usb_dac_icon = NULL;
 lv_obj_t * quick_drawer_dlna_icon = NULL;
 lv_obj_t * quick_drawer_gapless_icon = NULL;
 lv_obj_t * quick_drawer_rc_icon = NULL;
@@ -276,6 +277,7 @@ static const char * const qd_toggle_on_asset[QD_TOGGLE_COUNT] = {
     "pull_down/fade_s.png",
     "pull_down/airplay_s.png",
     "pull_down/bt_dac_s.png",
+    "pull_down/usb_dac_s.png",
     "pull_down/dlna_s.png",
     "pull_down/gapless_play_s.png",
     "pull_down/hibylink_s.png",
@@ -288,6 +290,7 @@ static const char * const qd_toggle_off_asset[QD_TOGGLE_COUNT] = {
     "pull_down/fade.png",
     "pull_down/airplay.png",
     "pull_down/bt_dac.png",
+    "pull_down/usb_dac.png",
     "pull_down/dlna.png",
     "pull_down/gapless_play.png",
     "pull_down/hibylink.png",
@@ -500,6 +503,7 @@ void gui_shell_refresh_quick_drawer_expansion_toggles(void) {
     } toggles[] = {
         { QD_TOGGLE_AIRPLAY, quick_drawer_airplay_icon, current_settings.wifi_dac_mode_enabled },
         { QD_TOGGLE_BT_DAC, quick_drawer_bt_dac_icon, gui_network_bt_dac_active() },
+        { QD_TOGGLE_USB_DAC, quick_drawer_usb_dac_icon, gui_network_usb_dac_active() },
         { QD_TOGGLE_DLNA, quick_drawer_dlna_icon, current_settings.dlna_renderer_enabled },
         { QD_TOGGLE_GAPLESS, quick_drawer_gapless_icon, current_settings.gapless_enabled },
         { QD_TOGGLE_RC, quick_drawer_rc_icon, current_settings.remote_control_enabled },
@@ -1037,6 +1041,7 @@ void quick_drawer_teardown_widgets(void) {
     quick_drawer_card = NULL;
     quick_drawer_airplay_icon = NULL;
     quick_drawer_bt_dac_icon = NULL;
+    quick_drawer_usb_dac_icon = NULL;
     quick_drawer_dlna_icon = NULL;
     quick_drawer_gapless_icon = NULL;
     quick_drawer_rc_icon = NULL;

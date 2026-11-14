@@ -15,7 +15,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifndef HOST_BUILD
+#if !defined(HOST_BUILD) || defined(USB_DAC_BRIDGE_TEST)
+  #define USB_DAC_BRIDGE_HAS_WORKERS 1
   #include <poll.h>
   #include <sys/ioctl.h>
   #include "../../audio/output/audio_output.h"
@@ -130,6 +131,9 @@ static void bridge_log(const char * fmt, ...) {
 }
 #define BRIDGE_LOG(...) bridge_log(__VA_ARGS__)
 #endif
+#if defined(HOST_BUILD) && defined(USB_DAC_BRIDGE_TEST)
+#define BRIDGE_LOG(...) ((void) 0)
+#endif
 
 #define UAC_SA_DEVICE_PATH "/dev/uac_sa"
 /* Host stream format, as reported by the driver itself: ioctl(fd,
@@ -162,7 +166,7 @@ static void bridge_log(const char * fmt, ...) {
 /* Host format changes (a new rate) are picked up by re-reading the ioctl. */
 #define FORMAT_REQUERY_NS (100ULL * 1000000ULL)
 
-#ifndef HOST_BUILD
+#ifdef USB_DAC_BRIDGE_HAS_WORKERS
 static uint64_t monotonic_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -173,6 +177,10 @@ static uint64_t monotonic_ns(void) {
 static pthread_mutex_t bridge_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool bridge_running = false;
 static bool bridge_streaming = false;
+static bool output_allowed = false;
+static bool bridge_owns_output = false;
+static bool output_releasing = false;
+static bool output_failed = false;
 static unsigned int active_output_rate = USB_DEFAULT_SAMPLE_RATE;
 static unsigned int active_output_bits = 16;
 /* Host stream format from the driver's ioctl, published by the reader under
@@ -180,13 +188,13 @@ static unsigned int active_output_bits = 16;
  * every published change; see publish_host_format(). */
 static unsigned int g_host_rate = USB_DEFAULT_SAMPLE_RATE;
 static unsigned int g_host_bits = USB_DEFAULT_BITS;
-#ifndef HOST_BUILD
+#ifdef USB_DAC_BRIDGE_HAS_WORKERS
 static bool g_host_format_known = false;
 static unsigned int g_host_format_gen = 0;
 static atomic_bool stop_requested = false;
 #endif
 
-#ifndef HOST_BUILD
+#ifdef USB_DAC_BRIDGE_HAS_WORKERS
 /* Bounded circular byte buffer connecting the reader and writer threads.
  *
  * Buffer Capacity Rationale:
@@ -358,7 +366,12 @@ static size_t ring_buffer_read(ring_buffer_t * rb, uint8_t * dst, size_t max_len
 
     pthread_mutex_lock(&rb->mutex);
     while (rb->count == 0 && !stop_requested && !rb->producer_finished) {
-        pthread_cond_wait(&rb->cond_data_available, &rb->mutex);
+        struct timespec until;
+        clock_gettime(CLOCK_REALTIME, &until);
+        until.tv_nsec += 50000000L;
+        if (until.tv_nsec >= 1000000000L) { until.tv_sec++; until.tv_nsec -= 1000000000L; }
+        int rc = pthread_cond_timedwait(&rb->cond_data_available, &rb->mutex, &until);
+        if (rc == ETIMEDOUT) break;
     }
 
     if (rb->count == 0 || !rb->data) {
@@ -414,7 +427,13 @@ static void update_bridge_running_state(void) {
 static void set_streaming(bool streaming) {
     pthread_mutex_lock(&bridge_mutex);
     bridge_streaming = streaming && !stop_requested;
+    if (bridge_streaming) output_releasing = false;
     pthread_mutex_unlock(&bridge_mutex);
+    if (g_rb.initialized) {
+        pthread_mutex_lock(&g_rb.mutex);
+        pthread_cond_broadcast(&g_rb.cond_data_available);
+        pthread_mutex_unlock(&g_rb.mutex);
+    }
 }
 
 static void set_active_output(unsigned int rate, unsigned int bits) {
@@ -756,6 +775,8 @@ static void writer_finish(uint8_t * in, int16_t * out16, int32_t * out24, bool c
     free(out24);
     if (close_output) audio_output_close();
     pthread_mutex_lock(&bridge_mutex);
+    bridge_owns_output = false;
+    output_releasing = false;
     g_writer_running = false;
     pthread_mutex_unlock(&bridge_mutex);
     update_bridge_running_state();
@@ -768,22 +789,6 @@ static void * bridge_writer_thread_func(void * arg) {
     (void) prctl(PR_SET_NAME, "usb_dac_wr");
     (void) arg;
 
-    /* audio_stop() (called by usb_dac_bridge_start() before spawning threads)
-     * only signals the audio thread -- audio_output_close() happens
-     * asynchronously on that thread. Wait for it to actually finish before
-     * touching the shared output device ourselves, or audio_output_ensure()
-     * below will fail with EBUSY. */
-    /* Slow SD tag/decoder reads can outlast a fixed timeout. Keep the bridge
-     * pending until ownership is released, while allowing Stop to cancel it. */
-    while (!stop_requested && !audio_is_idle()) usleep(20000);
-
-    if (stop_requested) {
-        stop_requested = true;
-        ring_buffer_signal_finished(&g_rb);
-        writer_finish(NULL, NULL, NULL, false);
-        return NULL;
-    }
-
     /* Room for one period of the largest container plus a partial frame
      * carried over between reads. */
     const size_t max_frame_bytes = (size_t) BRIDGE_CHANNELS * sizeof(int32_t);
@@ -794,8 +799,11 @@ static void * bridge_writer_thread_func(void * arg) {
     if (!in || !out16 || !out24) {
         BRIDGE_LOG("usb_dac_bridge: failed to allocate write buffers\n");
         stop_requested = true;
+        pthread_mutex_lock(&bridge_mutex);
+        output_failed = true;
+        pthread_mutex_unlock(&bridge_mutex);
         ring_buffer_signal_finished(&g_rb);
-        writer_finish(in, out16, out24, true);
+        writer_finish(in, out16, out24, false);
         return NULL;
     }
 
@@ -804,8 +812,51 @@ static void * bridge_writer_thread_func(void * arg) {
     size_t have = 0;
     uint64_t fade_remaining = 0, fade_total = 0;
     uint64_t last_periodic_trim_ns = 0;
+    uint64_t release_started_ns = 0;
 
     while (!stop_requested) {
+        pthread_mutex_lock(&bridge_mutex);
+        bool allowed_now = output_allowed;
+        bool streaming_now = bridge_streaming;
+        pthread_mutex_unlock(&bridge_mutex);
+        if (started_output && (!allowed_now || !streaming_now)) {
+            if (release_started_ns == 0) {
+                release_started_ns = monotonic_ns();
+                pthread_mutex_lock(&bridge_mutex);
+                output_releasing = true;
+                pthread_mutex_unlock(&bridge_mutex);
+            }
+            if (monotonic_ns() - release_started_ns >= 300000000ULL) {
+                audio_output_close();
+                started_output = false;
+                have = 0;
+                release_started_ns = 0;
+                pthread_mutex_lock(&bridge_mutex);
+                bridge_owns_output = false;
+                output_releasing = false;
+                pthread_mutex_unlock(&bridge_mutex);
+            }
+        } else if (allowed_now && streaming_now) {
+            release_started_ns = 0;
+            pthread_mutex_lock(&bridge_mutex);
+            output_releasing = false;
+            pthread_mutex_unlock(&bridge_mutex);
+        }
+        if (!started_output && (!allowed_now || !streaming_now)) {
+            pthread_mutex_lock(&bridge_mutex);
+            if (bridge_owns_output) {
+                bridge_owns_output = false;
+                output_releasing = false;
+            }
+            pthread_mutex_unlock(&bridge_mutex);
+            pthread_mutex_lock(&g_rb.mutex);
+            bool reader_finished = g_rb.producer_finished;
+            pthread_mutex_unlock(&g_rb.mutex);
+            if (reader_finished) break;
+            usleep(10000);
+            continue;
+        }
+
         /* Whole frames already held are played before waiting for more, so
          * they neither stall while the host pauses nor get lost at the end. */
         size_t held_frame_bytes = (size_t) BRIDGE_CHANNELS * (bits / 8);
@@ -839,14 +890,70 @@ static void * bridge_writer_thread_func(void * arg) {
             rate = host_rate;
             bits = host_bits;
             format_gen = host_gen;
-            if (!audio_output_ensure(BRIDGE_CHANNELS, rate, true, true)) {
-                BRIDGE_LOG("usb_dac_bridge: audio_output_ensure failed (rate=%u)\n", rate);
-                if (!started_output) {
+            /* Publish ownership while holding the same mutex used by the
+             * session snapshot and permission revoke. This closes the race
+             * where local playback could start between the idle check and
+             * audio_output_ensure(). */
+            pthread_mutex_lock(&bridge_mutex);
+            bool may_open = output_allowed && bridge_streaming && !stop_requested;
+            if (may_open) {
+                bridge_owns_output = true;
+                output_releasing = false;
+            }
+            pthread_mutex_unlock(&bridge_mutex);
+            if (!may_open) { have = 0; continue; }
+
+            uint64_t idle_wait_started_ns = monotonic_ns();
+            while (!stop_requested && !audio_is_idle()) {
+                pthread_mutex_lock(&bridge_mutex);
+                may_open = output_allowed && bridge_streaming;
+                pthread_mutex_unlock(&bridge_mutex);
+                if (!may_open) break;
+                if (monotonic_ns() - idle_wait_started_ns >= 2000000000ULL) {
+                    pthread_mutex_lock(&bridge_mutex);
+                    output_failed = true;
+                    if (started_output) output_releasing = true;
+                    else {
+                        bridge_owns_output = false;
+                        output_releasing = false;
+                    }
+                    pthread_mutex_unlock(&bridge_mutex);
                     stop_requested = true;
                     ring_buffer_signal_finished(&g_rb);
-                    writer_finish(in, out16, out24, false);
+                    writer_finish(in, out16, out24, started_output);
                     return NULL;
                 }
+                usleep(20000);
+            }
+            pthread_mutex_lock(&bridge_mutex);
+            allowed_now = output_allowed;
+            streaming_now = bridge_streaming;
+            pthread_mutex_unlock(&bridge_mutex);
+            if (stop_requested || !allowed_now || !streaming_now) {
+                pthread_mutex_lock(&bridge_mutex);
+                if (started_output) output_releasing = true;
+                else {
+                    bridge_owns_output = false;
+                    output_releasing = false;
+                }
+                pthread_mutex_unlock(&bridge_mutex);
+                have = 0;
+                continue;
+            }
+            if (!audio_output_ensure(BRIDGE_CHANNELS, rate, true, true)) {
+                BRIDGE_LOG("usb_dac_bridge: audio_output_ensure failed (rate=%u)\n", rate);
+                pthread_mutex_lock(&bridge_mutex);
+                output_failed = true;
+                if (started_output) output_releasing = true;
+                else {
+                    bridge_owns_output = false;
+                    output_releasing = false;
+                }
+                pthread_mutex_unlock(&bridge_mutex);
+                stop_requested = true;
+                ring_buffer_signal_finished(&g_rb);
+                writer_finish(in, out16, out24, started_output);
+                return NULL;
             }
             started_output = true;
             size_t frame_bytes = (size_t) BRIDGE_CHANNELS * (bits / 8);
@@ -904,7 +1011,7 @@ static void * bridge_writer_thread_func(void * arg) {
     }
 
     BRIDGE_LOG("usb_dac_bridge: writer thread exiting\n");
-    writer_finish(in, out16, out24, true);
+    writer_finish(in, out16, out24, started_output);
     return NULL;
 }
 
@@ -959,6 +1066,10 @@ void usb_dac_bridge_start(void) {
     stop_requested = false;
     bridge_running = true;
     bridge_streaming = false;
+    output_allowed = false;
+    bridge_owns_output = false;
+    output_releasing = false;
+    output_failed = false;
     g_host_rate = USB_DEFAULT_SAMPLE_RATE;
     g_host_bits = USB_DEFAULT_BITS;
     g_host_format_known = false;
@@ -968,8 +1079,6 @@ void usb_dac_bridge_start(void) {
     /* Clear external USB DAC output request: operating as a USB audio device
      * gadget is mutually exclusive with driving an external USB host DAC. */
     audio_output_set_usb_requested(false, NULL);
-
-    audio_stop();
 
     int rc_reader = pthread_create(&g_reader_thread, NULL, bridge_reader_thread_func, NULL);
     if (rc_reader == 0) {
@@ -1020,6 +1129,8 @@ void usb_dac_bridge_stop(void) {
     pthread_mutex_lock(&bridge_mutex);
     bridge_running = false;
     bridge_streaming = false;
+    output_allowed = false;
+    output_releasing = bridge_owns_output;
     pthread_mutex_unlock(&bridge_mutex);
 
     /* Start the worker wait budget before waking the writer. Serialization
@@ -1076,9 +1187,20 @@ void usb_dac_bridge_get_stream_info(usb_dac_stream_info_t * out) {
     pthread_mutex_lock(&bridge_mutex);
     out->bridge_running = bridge_running;
     out->streaming = bridge_streaming;
+    out->owns_output = bridge_owns_output;
+    out->output_releasing = output_releasing;
+    out->output_failed = output_failed;
     out->output_sample_rate = active_output_rate;
     out->output_bit_depth = active_output_bits;
     out->input_sample_rate = g_host_rate;
     out->input_bit_depth = g_host_bits;
+    pthread_mutex_unlock(&bridge_mutex);
+}
+
+void usb_dac_bridge_set_output_allowed(bool allowed) {
+    pthread_mutex_lock(&bridge_mutex);
+    output_allowed = allowed;
+    if (allowed && bridge_streaming) output_releasing = false;
+    else if (!allowed && bridge_owns_output) output_releasing = true;
     pthread_mutex_unlock(&bridge_mutex);
 }

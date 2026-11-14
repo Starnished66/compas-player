@@ -395,12 +395,13 @@ typedef struct {
      *
      * Startup behavior: if the user enabled ADB, it persists and is
      * re-applied on boot because it lives behind Developer Options as an
-     * explicit opt-in. Any other mode (Storage, USB DAC) resets to Storage
-     * on boot to prevent unexpected USB configurations or blocking local
-     * playback. */
+     * explicit opt-in. Other modes start as Storage; usb_dac_mode_enabled
+     * independently restores DAC only after host enumeration. */
     int usb_mode;
+    /* Saved USB DAC intent, independent of the currently bound gadget. */
+    bool usb_dac_mode_enabled;
 
-    /* USB DAC overlay: leave device charging disabled while connected as a
+    /* USB DAC gadget: leave device charging disabled while connected as a
      * USB audio accessory. Enabled by default for iPhone compatibility. */
     bool usb_dac_disable_charging;
 

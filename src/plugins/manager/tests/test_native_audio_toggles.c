@@ -65,11 +65,12 @@ int main(void) {
     assert(ui_order_size(UI_ORDER_DRAWER) == UI_DRAWER_COUNT + PLUGIN_QUICK_TOGGLE_CAPACITY);
     ui_item_order_t order;
     ui_order_resolve(UI_ORDER_DRAWER, "plugins", &order);
-    assert(order.count == 9 && order.ids[7] == 17 && order.ids[8] == 5);
+    assert(order.count == 10 && order.ids[7] == 18 && order.ids[8] == 5 && order.ids[9] == 6);
     /* The legacy layout omitted most native ids. Preserve those hidden
-     * choices while appending the known tile added later (BT DAC). */
+     * choices while appending the known tiles added later (BT DAC, USB DAC). */
     ui_order_resolve(UI_ORDER_DRAWER, "plugin:test:6,wifi,!plugin:test:0,plugins", &order);
-    assert(order.count == 9 && order.ids[0] == 17 && order.ids[1] == 0);
+    assert(order.count == 10 && order.ids[0] == 18 && order.ids[1] == 0 &&
+           order.ids[8] == 5 && order.ids[9] == 6);
     char saved[UI_ORDER_TEXT_MAX];
     assert(ui_order_to_text(UI_ORDER_DRAWER, &order, "plugin:test:6,wifi,!plugin:test:0,plugins", saved, sizeof(saved)));
     assert(strstr(saved, "!bluetooth") != NULL);

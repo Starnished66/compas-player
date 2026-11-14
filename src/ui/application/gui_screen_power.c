@@ -79,8 +79,8 @@ static bool screen_off_playback_active = false;
  * power is connected or unknown, the battery is charging, or external audio
  * (USB/WiFi/BT DAC) is active.
  *
- * In addition to WiFi and Bluetooth DAC modes, USB DAC mode (USB_MODE_DAC)
- * is checked to prevent idle suspend or radio disconnect while receiving USB audio. */
+ * USB DAC blocks it only while a host streams or the gadget is switching; an
+ * armed but idle one is paused first (gui_network_usb_dac_shutdown()). */
 static bool idle_shutdown_attempted = false;
 
 /* Receiver modes that need their radio or gadget up to keep receiving. */
@@ -88,7 +88,7 @@ static bool dac_receive_mode_active(void) {
     return current_settings.wifi_dac_mode_enabled ||
            (current_settings.bt_dac_mode_enabled && bt_is_powered_cached && !gui_shell_bt_dac_suspended()) ||
            gui_shell_bt_dac_busy() || gui_network_airplay_enable_pending() ||
-           gui_network_usb_dac_pending() || current_settings.usb_mode == (int) USB_MODE_DAC;
+           gui_network_usb_dac_pending() || gui_shell_usb_dac_owns_output();
 }
 
 /* Idle radio suspend and idle shutdown never interrupt a DAC mode, playback,
@@ -474,6 +474,7 @@ static void request_screen_power(bool on) {
 }
 
 void gui_sleep_timer_expired(void) {
+    gui_network_usb_dac_pause();
     if (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy()) {
         gui_shell_bt_dac_remember(current_settings.bt_dac_mode_enabled);
         gui_shell_bt_dac_release();
@@ -933,6 +934,7 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
         !shutdown_background_work_active() &&
         gui_network_prepare_radio_sleep()) {
         if (current_settings.idle_suspend_enabled) {
+            if (!gui_network_usb_dac_shutdown()) return;
             if (!gui_shell_bt_dac_shutdown(true)) return;
             plugin_manager_notify_suspending();
             led_control_suspend();
@@ -942,6 +944,7 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
             /* Restore UI state and reset inactivity timers on resume so the
              * display does not immediately time out again. */
             resume_from_suspend_fixups();
+            gui_network_usb_dac_resume();
             plugin_manager_notify_system_resumed();
 
             /* Unlike idle_shutdown_now() (which never returns --
@@ -954,6 +957,7 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
              * indefinitely after a single spurious wake. */
             idle_shutdown_attempted = false;
         } else {
+            if (!gui_network_usb_dac_shutdown()) return;
             (void) gui_shell_bt_dac_shutdown(false);
             idle_shutdown_attempted = true;
             idle_shutdown_now();

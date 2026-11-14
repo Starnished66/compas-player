@@ -61,4 +61,7 @@ bool usb_mode_control_storage_write_blocked(void);
  * distinguish a PC host from a charge-only adapter. */
 bool usb_mode_control_cable_connected(void);
 
+/* A bound controller has enumerated with a data host, not merely VBUS. */
+bool usb_mode_control_host_connected(void);
+
 #endif /* USB_MODE_CONTROL_H */

@@ -169,6 +169,7 @@ typedef enum {
      * own comment on the expanded area. */
     QD_TOGGLE_AIRPLAY,
     QD_TOGGLE_BT_DAC,
+    QD_TOGGLE_USB_DAC,
     QD_TOGGLE_DLNA,
     QD_TOGGLE_GAPLESS,
     QD_TOGGLE_RC,
@@ -292,6 +293,7 @@ extern lv_obj_t * quick_drawer_expansion_handle;
 extern lv_obj_t * quick_drawer_card;
 extern lv_obj_t * quick_drawer_airplay_icon;
 extern lv_obj_t * quick_drawer_bt_dac_icon;
+extern lv_obj_t * quick_drawer_usb_dac_icon;
 extern lv_obj_t * quick_drawer_dlna_icon;
 extern lv_obj_t * quick_drawer_gapless_icon;
 extern lv_obj_t * quick_drawer_rc_icon;

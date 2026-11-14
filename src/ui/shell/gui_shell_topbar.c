@@ -291,8 +291,7 @@ void build_status_bar(void) {
      * this is meant to feel like the wired headphone jack, not a mode you
      * switch into). */
     usb_audio_status_icon = lv_image_create(volume_topbar_group);
-    /* Uses topbar/usb.png for the topbar status row (distinct from
-     * usb/usb.png used by the full-screen USB DAC mode overlay). */
+    /* Uses topbar/usb.png for the topbar status row. */
     lv_image_set_src(usb_audio_status_icon, topbar_icon("usb"));
     layout_usb_audio_topbar_image(usb_audio_status_icon);
     lv_obj_add_flag(usb_audio_status_icon, LV_OBJ_FLAG_HIDDEN);

@@ -220,7 +220,8 @@ void gui_external_controls_publish_status(bool favorite) {
                                   (int) audio_get_position_seconds(), (int) audio_get_duration_seconds(),
                                   audio_get_volume(), current_settings.play_mode,
                                   now_playing_path && favorite, gui_theme_accent_rgb(),
-                                  gui_shell_bt_dac_owns_output());
+                                  gui_shell_bt_dac_owns_output() ? REMOTE_DAC_BLUETOOTH :
+                                  gui_shell_usb_dac_owns_output() ? REMOTE_DAC_USB : REMOTE_DAC_NONE);
     remote_control_notify_library_sorting(current_settings.album_sort_mode |
                                           (current_settings.album_sort_reverse ? METADATA_DB_ALBUM_SORT_REVERSE : 0),
                                           current_settings.artist_albums_sort_mode |

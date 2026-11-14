@@ -8,7 +8,7 @@ static lv_obj_t * wireless_screen;
 
 bool gui_network_dac_mode_active(void) {
     return current_settings.wifi_dac_mode_enabled || gui_network_bt_dac_active() ||
-           current_settings.usb_mode == USB_MODE_DAC;
+           gui_network_usb_dac_active();
 }
 
 void configure_network_row_line(lv_obj_t * label, int32_t width, const lv_font_t * font) {

@@ -6,6 +6,9 @@
 typedef struct {
     bool bridge_running;
     bool streaming;
+    bool owns_output;
+    bool output_releasing;
+    bool output_failed;
     unsigned int input_sample_rate;
     unsigned int input_bit_depth;
     unsigned int output_sample_rate;
@@ -19,12 +22,16 @@ typedef struct {
  * the same rate, 24-bit when the output accepts it, otherwise 16-bit. */
 void usb_dac_bridge_get_stream_info(usb_dac_stream_info_t * out);
 
+/* The UI grants output ownership only after stopping local playback. */
+void usb_dac_bridge_set_output_allowed(bool allowed);
+
 /* Bridges the /dev/uac_sa character device (the raw PCM feed from the host PC
  * when the USB gadget is in UAC2 sound card mode) into the shared audio_output
  * module, routing to local hardware or connected Bluetooth output. */
 
-/* Starts the bridge workers. Stops local playback first (audio_stop()) to
- * free the shared hw:0,0 device. Safe to call again while already running
+/* Starts the bridge workers without interrupting local playback. The writer
+ * waits for output permission and an active host stream before opening the
+ * shared output. Safe to call again while already running
  * (no-op). Must only be called after usb_mode_control_apply(USB_MODE_DAC)
  * has brought the gadget up. Start/stop calls are serialized. Restarting after
  * a timed-out stop waits for the old workers to be joined before reusing any

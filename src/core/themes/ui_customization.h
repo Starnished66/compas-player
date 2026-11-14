@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 /* Native ids come first in each namespace; plugin entries follow. */
-enum { UI_ORDER_MAX = 18, UI_MUSIC_COUNT = 8, UI_MUSIC_COVER_FLOW = 7, UI_MUSIC_TOOLBAR_COUNT = 3,
-       UI_DRAWER_COUNT = 11, UI_DRAWER_MAX_TILES = UI_ORDER_MAX, UI_ORDER_KEY_MAX = 80, UI_ORDER_UNLOADED_MAX = 16,
+enum { UI_ORDER_MAX = 19, UI_MUSIC_COUNT = 8, UI_MUSIC_COVER_FLOW = 7, UI_MUSIC_TOOLBAR_COUNT = 3,
+       UI_DRAWER_COUNT = 12, UI_DRAWER_MAX_TILES = UI_ORDER_MAX, UI_ORDER_KEY_MAX = 80, UI_ORDER_UNLOADED_MAX = 16,
        /* Every loaded entry plus the remembered unloaded ones, each a full
         * key with its "!" and separator. */
        UI_ORDER_TEXT_MAX = (UI_ORDER_MAX + UI_ORDER_UNLOADED_MAX) * (UI_ORDER_KEY_MAX + 2) };
@@ -53,7 +53,7 @@ int ui_order_find_key(ui_order_kind_t kind, const char *key);
 /* Saved key text to the visible order, and back (keeps unloaded plugin keys).
  * Drawer "!key" explicitly hides natives and plugins; unmentioned new drawer
  * entries show at the end. Legacy native omissions stay hidden, except the
- * bt_dac tile added after those layouts. Music keeps native omission semantics. */
+ * bt_dac and usb_dac tiles added after those layouts. Music keeps native omission semantics. */
 void ui_order_resolve(ui_order_kind_t kind, const char *text, ui_item_order_t *out);
 bool ui_order_to_text(ui_order_kind_t kind, const ui_item_order_t *visible, const char *old_text,
                       char *out, size_t cap);

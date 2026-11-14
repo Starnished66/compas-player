@@ -17,6 +17,9 @@ int main(void) {
 
     player_settings_t settings;
     set_defaults(&settings);
+    assert(!settings.usb_dac_mode_enabled);
+    settings.usb_dac_mode_enabled = true;
+    settings.usb_mode = 0;
     settings.bt_dac_mode_enabled = true;
     settings.remote_control_enabled = true;
     settings_write_file(&settings);
@@ -24,15 +27,19 @@ int main(void) {
     player_settings_t loaded;
     assert(settings_load(&loaded));
     assert(loaded.bt_dac_mode_enabled);
+    assert(loaded.usb_dac_mode_enabled && loaded.usb_mode == 0);
     assert(loaded.remote_control_enabled);
 
+    settings.usb_dac_mode_enabled = false;
+    settings.usb_mode = 1;
     settings.bt_dac_mode_enabled = false;
     settings.remote_control_enabled = false;
     settings_write_file(&settings);
     assert(settings_load(&loaded));
     assert(!loaded.bt_dac_mode_enabled);
+    assert(!loaded.usb_dac_mode_enabled && loaded.usb_mode == 1);
     assert(!loaded.remote_control_enabled);
 
-    puts("Bluetooth DAC and remote-control persistence: ok");
+    puts("Bluetooth/USB DAC and remote-control persistence: ok");
     return 0;
 }

@@ -2,6 +2,7 @@
 #include "src/audio/engine/audio.h"
 #include "src/core/persistence/settings.h"
 #include "src/network/remote/control/remote_control.h"
+#include "src/hardware/usb/usb_dac_bridge.h"
 #include "src/ui/application/gui.h"
 #include "src/ui/library/browse/gui_library.h"
 #include "src/ui/player/queue/player_queue_model.h"
@@ -21,7 +22,14 @@ extern const luaL_Reg plugin_playback_funcs[];
 extern void handle_status_get(int fd);
 
 static bool owns_output;
+static bool usb_owns_output;
+static bool usb_streaming;
+void __wrap_usb_dac_bridge_get_stream_info(usb_dac_stream_info_t *out) {
+    *out = (usb_dac_stream_info_t){ .streaming = usb_streaming,
+        .input_sample_rate = usb_streaming ? 96000 : 0, .input_bit_depth = usb_streaming ? 24 : 0 };
+}
 bool __wrap_gui_shell_bt_dac_owns_output(void) { return owns_output; }
+bool __wrap_gui_shell_usb_dac_owns_output(void) { return usb_owns_output; }
 
 /* Synchronous response avoids the unrelated HTTP timeout integration tests. */
 static cJSON * status_json(void) {
@@ -77,20 +85,29 @@ int main(void) {
     assert(gui_player_local_playback_allowed());
     gui_external_controls_publish_status(true);
     cJSON *json = status_json();
-    assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "bluetooth_dac_mode")));
+    assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "dac_mode")), "none") == 0);
     cJSON_Delete(json);
     owns_output = true;
     assert(!gui_player_local_playback_allowed());
     assert_local_starts_refused();
     gui_external_controls_publish_status(true);
     json = status_json();
+    assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "dac_mode")), "bluetooth") == 0);
     assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "bluetooth_dac_mode")));
     assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "playing")));
     cJSON_Delete(json);
+    owns_output = false;
+    usb_owns_output = true;
+    gui_external_controls_publish_status(true);
+    json = status_json();
+    assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "dac_mode")), "usb") == 0);
+    assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "bluetooth_dac_mode")));
+    cJSON_Delete(json);
     for (int mode = 0; mode < 2; mode++) {
         remote_control_notify_status(true, true, "Local", "Artist", "Album", "music/test.wav",
-                                     12, 60, 0.5, 0, true, 0, mode);
+                                     12, 60, 0.5, 0, true, 0, mode ? REMOTE_DAC_BLUETOOTH : REMOTE_DAC_NONE);
         json = status_json();
+        assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "dac_mode")), mode ? "bluetooth" : "none") == 0);
         assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "bluetooth_dac_mode")) == mode);
         assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "playing")) == !mode);
         assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "paused")) == !mode);
@@ -100,6 +117,24 @@ int main(void) {
         assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "favorite")) == !mode);
         cJSON_Delete(json);
     }
+    remote_control_notify_status(true, false, "Local", "Artist", "Album", "music/test.wav",
+                                 12, 60, 0.5, 0, true, 0, REMOTE_DAC_USB);
+    json = status_json();
+    assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "dac_mode")), "usb") == 0);
+    assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "bluetooth_dac_mode")));
+    assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "playing")));
+    assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "favorite")));
+    assert(cJSON_GetObjectItem(json, "position_seconds")->valueint == 0);
+    assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "title")), "") == 0);
+    cJSON_Delete(json);
+    usb_streaming = true;
+    remote_control_notify_status(true, false, "Local", "Artist", "Album", "music/test.wav",
+                                 12, 60, 0.5, 0, true, 0, REMOTE_DAC_USB);
+    json = status_json();
+    assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "playing")));
+    assert(cJSON_GetObjectItem(json, "source_sample_rate")->valueint == 96000);
+    assert(cJSON_GetObjectItem(json, "source_bit_depth")->valueint == 24);
+    cJSON_Delete(json);
     puts("remote DAC state, armed-idle permission and owned local start refusal passed");
     return 0;
 }

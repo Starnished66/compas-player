@@ -1,3 +1,4 @@
+#include "../../network/gui_network.h"
 #include "gui_power_hub.h"
 
 #include "../../../hardware/indicators/backlight.h"
@@ -236,6 +237,20 @@ static void power_restart_selector_long_press_cb(lv_event_t * e) {
         show_error_toast(error[0] ? error : TR("Could not restart into the boot selector"));
 }
 
+static void power_finish(int action) {
+    (void) gui_shell_bt_dac_shutdown(false);
+    if (action == 0) idle_shutdown_now();
+    else idle_shutdown_reboot_now();
+}
+
+/* USB DAC teardown runs off the UI thread, so power is removed once it is done. */
+static void power_dac_shutdown_cb(lv_timer_t * timer) {
+    if (!gui_network_usb_dac_shutdown()) return;
+    int action = (int) (intptr_t) lv_timer_get_user_data(timer);
+    lv_timer_delete(timer);
+    power_finish(action);
+}
+
 static void power_action_clicked_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int action = (int) (intptr_t) lv_event_get_user_data(e);
@@ -257,9 +272,8 @@ static void power_action_clicked_cb(lv_event_t * e) {
             return;
         }
         power_action_hide();
-        (void) gui_shell_bt_dac_shutdown(false);
-        if (action == 0) idle_shutdown_now();
-        else idle_shutdown_reboot_now();
+        if (gui_network_usb_dac_shutdown()) power_finish(action);
+        else lv_timer_create(power_dac_shutdown_cb, 100, (void *) (intptr_t) action);
         return;
     }
     power_action_hide();

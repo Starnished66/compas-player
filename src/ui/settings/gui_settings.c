@@ -175,21 +175,7 @@ static void settings_tile_cb(lv_event_t * e) {
  * settings_about_row_cb()). ---- */
 
 static void dac_home_usb_row_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    /* If USB DAC is already active in hardware, show its overlay directly. */
-    usb_mode_t detected;
-    bool have_detected = usb_mode_control_detect_current(&detected);
-    if (have_detected && detected == USB_MODE_DAC) {
-        current_settings.usb_mode = (int) USB_MODE_DAC;
-        nav_push(gui_network_get_usb_dac_overlay());
-        return;
-    }
-    /* Require explicit disable of ADB mode before switching to USB DAC. */
-    if (have_detected && detected == USB_MODE_ADB) {
-        show_info_toast(TR("Turn off ADB first (Settings > System > Advanced), then enable USB DAC from here."));
-        return;
-    }
-    start_usb_mode_switch(USB_MODE_DAC);
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) gui_network_open_usb_dac();
 }
 
 PLUGIN_ROW_CLICK_CB(plugin_more_list_item_click_cb, plugin_manager_more_list_item_clicked)

@@ -79,7 +79,9 @@ void gui_network_pairing_build(void);
 void gui_network_pairing_teardown(void);
 
 /* gui_network_receivers.c */
-extern lv_obj_t * usb_dac_overlay_screen;
+void gui_network_usb_dac_build(void);
+void gui_network_usb_dac_refresh(void);
+void gui_network_usb_dac_teardown(void);
 void stop_local_playback(void);
 void disable_bt_dac_mode(void);
 void disable_airplay_mode(void);
