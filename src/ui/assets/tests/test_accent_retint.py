@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare production retint loops with HEAD using real PNGs and padded rows.
+"""Compare production retint loops with the pre-retint implementation using real PNGs and padded rows.
 
 Run: python3 src/ui/assets/tests/test_accent_retint.py [theme-parent-directory]
 Requires Pillow and a host C compiler. No external source is built.
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 def source(path, head=False):
     if head:
-        return subprocess.check_output(['git', 'show', 'HEAD:' + path], cwd=ROOT, text=True)
+        return subprocess.check_output(['git', 'show', '73e9d7bd7^:' + path], cwd=ROOT, text=True)
     return (ROOT / path).read_text()
 
 
@@ -165,7 +165,8 @@ for theme in ['theme1', 'theme2']:
     if not base.is_dir():
         continue
     paths += [(p, False) for p in sorted((base / 'pull_down').glob('*_s.png'))]
-    paths += [(base / 'playing_plane' / name, True) for name in ['btn_play.png', 'btn_pause.png']]
+    paths += [(base / 'playing_plane' / name, True) for name in ['btn_play.png', 'btn_pause.png']
+              if (base / 'playing_plane' / name).is_file()]
 if not paths:
     raise SystemExit('No real theme PNGs found; pass their parent directory.')
 with tempfile.TemporaryDirectory(prefix='accent-test-') as tmp:
