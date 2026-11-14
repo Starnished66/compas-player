@@ -325,8 +325,13 @@ static void text_entry_refresh_keys(void) {
     text_entry_place_key(text_entry_right_key, numeric ? 0 : 1, numeric ? 1 : 3);
     text_entry_place_key(text_entry_key_img[0], numeric ? 2 : 4, numeric ? 3 : 1);
     if (numeric) {
-        lv_obj_set_size(text_entry_key_img[0], lv_obj_get_width(text_entry_space_key),
-                        lv_obj_get_height(text_entry_space_key));
+        /* Space's footprint, known before any layout pass: the V1 sets it, elsewhere it is the image's own size. */
+#if defined(BOARD_TEMPOTEC_V1)
+        lv_obj_set_size(text_entry_key_img[0], 2 * TEXT_ENTRY_KEY_WIDTH + TEXT_ENTRY_KEY_GAP, TEXT_ENTRY_KEY_HEIGHT);
+#else
+        lv_obj_set_size(text_entry_key_img[0], lv_image_get_src_width(text_entry_space_key),
+                        lv_image_get_src_height(text_entry_space_key));
+#endif
         lv_image_set_inner_align(text_entry_key_img[0], LV_IMAGE_ALIGN_CONTAIN);
     } else {
         text_entry_fit_key(text_entry_key_img[0]);
