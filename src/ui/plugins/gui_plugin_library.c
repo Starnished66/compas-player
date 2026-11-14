@@ -105,10 +105,25 @@ char ** gui_plugin_get_album_tracks(const char * artist, const char * album, int
     return load_plugin_album_group_paths(album, matched_album_artist, out_count);
 }
 
+/* The first playable album of the artists after `artist`, in the Artists screen's order. */
+static char ** next_artist_album_tracks(const char * artist, metadata_db_album_sort_t sort, int * out_count) {
+    int64_t position = metadata_db_get_group_offset(METADATA_DB_GROUP_ARTIST, artist, NULL);
+    if (position < 0) return NULL;
+    group_row_t next, first;
+    while (position < INT_MAX - 1 && metadata_db_get_groups_page(METADATA_DB_GROUP_ARTIST, (int) ++position, 1, &next) == 1) {
+        if (metadata_db_get_albums_for_group_sorted(METADATA_DB_GROUP_ARTIST, next.name, sort, 0, 1, &first) != 1) continue;
+        char ** tracks = load_plugin_album_group_paths(first.name, first.album_artist, out_count);
+        if (tracks && *out_count > 0) return tracks;
+        gui_plugin_free_string_array(tracks, *out_count);
+        *out_count = 0;
+    }
+    return NULL;
+}
+
 char ** gui_plugin_get_next_album_tracks(const char * artist, const char * current_album, int * out_count) {
     *out_count = 0;
     int64_t count64 = metadata_db_count_albums_for_group(METADATA_DB_GROUP_ARTIST, artist);
-    if (count64 <= 1 || count64 > INT_MAX) return NULL;
+    if (count64 <= 0 || count64 > INT_MAX) return NULL;
     /* The next album as the artist's page orders them, so playing through follows the chosen sort. */
     metadata_db_album_sort_t sort = gui_library_group_album_sort(METADATA_DB_GROUP_ARTIST);
     group_row_t rows[32];
@@ -124,7 +139,7 @@ char ** gui_plugin_get_next_album_tracks(const char * artist, const char * curre
             group_row_t next;
             if (metadata_db_get_albums_for_group_sorted(METADATA_DB_GROUP_ARTIST, artist, sort, offset + got, 1, &next) == 1)
                 return load_plugin_album_group_paths(next.name, next.album_artist, out_count);
-            return NULL;
+            return next_artist_album_tracks(artist, sort, out_count);
         }
         offset += got;
         if (got < want) break;

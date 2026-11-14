@@ -13,8 +13,9 @@
  * NULL/0. get_album_tracks() also rejects ambiguous album names within an
  * artist's albums. Album tracks expand embedded CUE sheets into virtual
  * references. Results follow database ordering, except
- * get_next_album_tracks(), which follows the artist page's album sort and
- * stops at the last album without wrapping. */
+ * get_next_album_tracks(), which follows the artist page's album sort, moves
+ * on to the next artist's first album after an artist's last one, and stops
+ * at the library's end without wrapping. */
 char ** gui_plugin_get_artist_albums(const char * artist, int * out_count);
 char ** gui_plugin_get_album_tracks(const char * artist, const char * album, int * out_count);
 char ** gui_plugin_get_next_album_tracks(const char * artist, const char * current_album, int * out_count);

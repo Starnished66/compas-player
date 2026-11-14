@@ -46,8 +46,8 @@ int l_plugin_get_album_tracks(lua_State * L) {
 
 /* plugin.get_next_album_tracks(artist, current_album) -> { track_path, ... }
  * | nil -- nil both when current_album isn't found and when it's the
- * artist's last album (see gui_plugin_get_next_album_tracks()'s own
- * comment: no wraparound). */
+ * library's last album (it moves on to the next artist's first album;
+ * see gui_plugin_get_next_album_tracks()'s own comment: no wraparound). */
 int l_plugin_get_next_album_tracks(lua_State * L) {
     const char * artist = luaL_checkstring(L, 1);
     const char * current_album = luaL_checkstring(L, 2);

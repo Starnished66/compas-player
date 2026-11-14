@@ -5,6 +5,8 @@
 #include "../widgets/builders/screen_builders.h"
 #include "../text/i18n/i18n.h"
 #include "../../audio/engine/audio.h"
+#include "../../library/browser/paths/library_paths.h"
+#include "../../library/parsers/cue/cue_parser.h"
 #include "../../core/persistence/settings.h"
 #include <dirent.h>
 #include <stdio.h>
@@ -81,37 +83,85 @@ failed:
     return NULL;
 }
 
-static char ** next_folder_tracks(const char * path, int * count) {
+/* The queue's final file for a track: a cue reference counts only as its sheet's last track. */
+static bool track_file(const char * path, char * file, size_t size) {
+    if (!cue_reference_is(path)) return snprintf(file, size, "%s", path) < (int)size;
+    cue_sheet_t sheet;
+    unsigned ordinal;
+    if (!cue_reference_resolve(path, &sheet, &ordinal)) return false;
+    bool last = ordinal == (unsigned)sheet.track_count;
+    cue_sheet_free(&sheet);
+    return last && cue_reference_parse(path, file, size, &ordinal);
+}
+
+static bool cut_last_component(char * path) {
+    char * slash = strrchr(path, '/');
+    if (!slash || slash == path) return false;
+    *slash = '\0';
+    return true;
+}
+
+static bool path_below(const char * path, const char * root) {
+    size_t length = strlen(root);
+    return !strncmp(path, root, length) && path[length] == '/';
+}
+
+#define FOLDER_DESCENT_MAX 16 /* guards against symlink loops */
+
+/* The audio of the first folder at or below dir, in lexical depth-first order. */
+static char ** first_audio_in(const char * dir, int depth, int * count) {
+    char ** tracks = directory_paths(dir, false, count);
+    if (*count > 0 || depth <= 0) return tracks;
+    int folders_count;
+    char ** folders = directory_paths(dir, true, &folders_count);
+    for (int i = 0; i < folders_count && *count == 0; ++i)
+        tracks = first_audio_in(folders[i], depth - 1, count);
+    gui_plugin_free_string_array(folders, folders_count);
+    return tracks;
+}
+
+/* Audio of the first sibling after dir (inside parent) that has any. */
+static char ** later_sibling_tracks(const char * dir, const char * parent, int * count) {
     *count = 0;
-    char * directory = strdup(path);
-    if (!directory) return NULL;
-    char * slash = strrchr(directory, '/');
-    if (!slash || slash == directory) { free(directory); return NULL; }
-    *slash = '\0';
-    int tracks_count;
-    char ** tracks = directory_paths(directory, false, &tracks_count);
-    bool last = tracks_count > 0 && !strcmp(tracks[tracks_count - 1], path);
-    gui_plugin_free_string_array(tracks, tracks_count);
-    if (!last) { free(directory); return NULL; }
-    char * parent = strdup(directory);
-    if (!parent) { free(directory); return NULL; }
-    slash = strrchr(parent, '/');
-    if (!slash || slash == parent) { free(parent); free(directory); return NULL; }
-    *slash = '\0';
     int folders_count;
     char ** folders = directory_paths(parent, true, &folders_count);
+    char ** tracks = NULL;
     bool found = false;
-    tracks = NULL;
-    for (int i = 0; i < folders_count; ++i) {
-        if (found) {
-            tracks = directory_paths(folders[i], false, count);
-            if (*count > 0) break;
-            free(tracks);
-        } else if (!strcmp(folders[i], directory)) found = true;
+    for (int i = 0; i < folders_count && *count == 0; ++i) {
+        if (found) tracks = first_audio_in(folders[i], FOLDER_DESCENT_MAX, count);
+        else if (!strcmp(folders[i], dir)) found = true;
     }
     gui_plugin_free_string_array(folders, folders_count);
+    return tracks;
+}
+
+/* When path is its folder's last track, the next folder's tracks: the following sibling,
+ * else the parent's following sibling and so on, never above root. Outside root only
+ * the first level is tried. */
+static char ** next_folder_tracks(const char * path, const char * root, int * count) {
+    *count = 0;
+    char file[1024];
+    char * dir = strdup(path);
+    char * parent = strdup(path);
+    char ** tracks = NULL;
+    if (!dir || !parent || !track_file(path, file, sizeof(file)) ||
+        !cut_last_component(dir) || !strcmp(dir, root)) goto done;
+    int tracks_count;
+    char ** own = directory_paths(dir, false, &tracks_count);
+    bool last = tracks_count > 0 && !strcmp(own[tracks_count - 1], file);
+    gui_plugin_free_string_array(own, tracks_count);
+    if (!last) goto done;
+    bool inside = path_below(dir, root);
+    for (;;) {
+        strcpy(parent, dir);
+        if (!cut_last_component(parent)) break;
+        tracks = later_sibling_tracks(dir, parent, count);
+        if (*count > 0 || !inside || !path_below(parent, root)) break;
+        strcpy(dir, parent);
+    }
+done:
     free(parent);
-    free(directory);
+    free(dir);
     return tracks;
 }
 
@@ -135,7 +185,7 @@ void gui_play_through_track_started(const char * artist, const char * album) {
         if (last) candidates = gui_plugin_get_next_album_tracks(artist, album, &candidate_count);
     }
     if (!candidates && current_settings.native_play_through_folders)
-        candidates = next_folder_tracks(path, &candidate_count);
+        candidates = next_folder_tracks(path, MUSIC_ROOT_DIR, &candidate_count);
 }
 
 void gui_play_through_stopped(void) {
@@ -206,8 +256,8 @@ static void about_cb(lv_event_t * e) {
     if (!about_screen) {
         lv_obj_t * list;
         about_screen = build_subsonic_list_screen(TR("How it works"), NULL, &list);
-        add_wrapped_section_header(list, TR("Albums continue in the artist's alphabetical album order."));
-        add_wrapped_section_header(list, TR("Folders continue in lexical (alphabetical, case-insensitive) sibling-folder order."));
+        add_wrapped_section_header(list, TR("Albums continue in the artist's album order, then with the next artist."));
+        add_wrapped_section_header(list, TR("Folders continue alphabetically, then with the next folder one level up."));
         add_wrapped_section_header(list, TR("Album mode has priority when both options are enabled."));
         add_wrapped_section_header(list, TR("Shuffle and repeat modes are left unchanged."));
     }

@@ -52,6 +52,23 @@ void gui_plugin_play_paths(const char * const * paths, int count, int start, boo
     gui_play_through_stopped();
     gui_play_through_track_started("Artist", "Album");
 }
+/* Cue stand-ins: any reference resolves to a three-track sheet. */
+bool cue_reference_is(const char * reference) { return reference && strstr(reference, "#compas-cue="); }
+bool cue_reference_parse(const char * reference, char * source, size_t size, unsigned * ordinal) {
+    const char * mark = strstr(reference, "#compas-cue=");
+    if (!mark || (size_t)(mark - reference) >= size) return false;
+    memcpy(source, reference, (size_t)(mark - reference));
+    source[mark - reference] = '\0';
+    *ordinal = (unsigned)atoi(mark + strlen("#compas-cue="));
+    return true;
+}
+bool cue_reference_resolve(const char * reference, cue_sheet_t * sheet, unsigned * ordinal) {
+    char source[1024];
+    memset(sheet, 0, sizeof(*sheet));
+    sheet->track_count = 3;
+    return cue_reference_parse(reference, source, sizeof(source), ordinal);
+}
+void cue_sheet_free(cue_sheet_t * sheet) { (void)sheet; }
 static void touch_file(const char * root, const char * tail) {
     char path[1024];
     snprintf(path, sizeof(path), "%s/%s", root, tail);
@@ -62,7 +79,7 @@ static void touch_file(const char * root, const char * tail) {
 int main(void) {
     char root[] = "/tmp/compas-play-through-XXXXXX";
     assert(mkdtemp(root));
-    char a[1024], b[1024], empty[1024];
+    char a[1024], b[1024], empty[1024], path[1024];
     snprintf(a, sizeof(a), "%s/a", root); assert(!mkdir(a, 0700));
     snprintf(b, sizeof(b), "%s/B", root); assert(!mkdir(b, 0700));
     snprintf(empty, sizeof(empty), "%s/aa-empty", root); assert(!mkdir(empty, 0700));
@@ -70,12 +87,60 @@ int main(void) {
     touch_file(root, "B/Z.mp3"); touch_file(root, "B/a.flac");
     snprintf(current_path, sizeof(current_path), "%s/a/A.mp3", root);
     int count;
-    char ** tracks = next_folder_tracks(current_path, &count);
+    char ** tracks = next_folder_tracks(current_path, root, &count);
     assert(!tracks && !count); /* Must be final file in current folder. */
     snprintf(current_path, sizeof(current_path), "%s/a/z.FLAC", root);
-    tracks = next_folder_tracks(current_path, &count);
+    tracks = next_folder_tracks(current_path, root, &count);
     assert(count == 2 && strstr(tracks[0], "/B/a.flac"));
     gui_plugin_free_string_array(tracks, count);
+
+    /* Nested Artist/Album folders climb into the next artist; the music root is a hard ceiling. */
+    char music[1024], outside[1024];
+    snprintf(music, sizeof(music), "%s/music", root); assert(!mkdir(music, 0700));
+    snprintf(outside, sizeof(outside), "%s/zz-outside", root); assert(!mkdir(outside, 0700));
+    const char * dirs[] = { "music/Artist1", "music/Artist1/Album", "music/Artist2", "music/Artist2/Album1",
+                            "music/Artist2/Album2", "music/Artist3", "music/Artist3/Empty", "music/Artist3/Sub",
+                            "music/Artist3/Sub/Deep", "music/Artist4", "music/Artist4/Album" };
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i) {
+        snprintf(path, sizeof(path), "%s/%s", root, dirs[i]); assert(!mkdir(path, 0700));
+    }
+    const char * nested_files[] = { "music/Artist1/Album/cue.flac", "music/Artist2/Album1/x.flac",
+                                    "music/Artist2/Album2/y.flac", "music/Artist3/Sub/Deep/d.flac",
+                                    "music/Artist4/Album/last.flac", "zz-outside/o.flac", "music/root.flac" };
+    for (size_t i = 0; i < sizeof(nested_files) / sizeof(nested_files[0]); ++i) touch_file(root, nested_files[i]);
+    snprintf(path, sizeof(path), "%s/music/Artist1/Album/cue.flac#compas-cue=2", root);
+    assert(!next_folder_tracks(path, music, &count)); /* Not the sheet's last track. */
+    snprintf(path, sizeof(path), "%s/music/Artist1/Album/cue.flac#compas-cue=3", root);
+    tracks = next_folder_tracks(path, music, &count);
+    assert(count == 1 && strstr(tracks[0], "/Artist2/Album1/x.flac")); /* Cue reference as last track. */
+    gui_plugin_free_string_array(tracks, count);
+    snprintf(path, sizeof(path), "%s/music/Artist2/Album1/x.flac", root);
+    tracks = next_folder_tracks(path, music, &count);
+    assert(count == 1 && strstr(tracks[0], "/Artist2/Album2/y.flac"));
+    gui_plugin_free_string_array(tracks, count);
+    snprintf(path, sizeof(path), "%s/music/Artist2/Album2/y.flac", root);
+    tracks = next_folder_tracks(path, music, &count);
+    assert(count == 1 && strstr(tracks[0], "/Artist3/Sub/Deep/d.flac")); /* Skips empty, goes deep. */
+    gui_plugin_free_string_array(tracks, count);
+    snprintf(path, sizeof(path), "%s/music/Artist3/Sub/Deep/d.flac", root);
+    tracks = next_folder_tracks(path, music, &count);
+    assert(count == 1 && strstr(tracks[0], "/Artist4/Album/last.flac"));
+    gui_plugin_free_string_array(tracks, count);
+    snprintf(path, sizeof(path), "%s/music/Artist4/Album/last.flac", root);
+    assert(!next_folder_tracks(path, music, &count) && !count); /* End of library; never past the root. */
+    snprintf(path, sizeof(path), "%s/music/root.flac", root);
+    assert(!next_folder_tracks(path, music, &count) && !count); /* Files directly in the root stay put. */
+    snprintf(path, sizeof(path), "%s/music/Artist4/Album/last.flac", root);
+    tracks = next_folder_tracks(path, root, &count); /* Under a wider root the climb continues. */
+    assert(count == 1 && strstr(tracks[0], "/zz-outside/o.flac"));
+    gui_plugin_free_string_array(tracks, count);
+    for (size_t i = 0; i < sizeof(nested_files) / sizeof(nested_files[0]); ++i) {
+        snprintf(path, sizeof(path), "%s/%s", root, nested_files[i]); assert(!unlink(path));
+    }
+    for (size_t i = sizeof(dirs) / sizeof(dirs[0]); i-- > 0;) {
+        snprintf(path, sizeof(path), "%s/%s", root, dirs[i]); assert(!rmdir(path));
+    }
+    assert(!rmdir(music)); assert(!rmdir(outside));
 
     current_settings.native_play_through_folders = true;
     current_settings.native_play_through_albums = true;
@@ -115,7 +180,6 @@ int main(void) {
     mode = "shuffle";
     gui_play_through_track_started("Artist", "Album"); assert(!candidates);
     clear_candidates();
-    char path[1024];
     const char * files[] = { "a/z.FLAC", "a/A.mp3", "B/Z.mp3", "B/a.flac" };
     for (int i = 0; i < 4; ++i) { snprintf(path, sizeof(path), "%s/%s", root, files[i]); assert(!unlink(path)); }
     assert(!rmdir(a)); assert(!rmdir(b)); assert(!rmdir(empty)); assert(!rmdir(root));
