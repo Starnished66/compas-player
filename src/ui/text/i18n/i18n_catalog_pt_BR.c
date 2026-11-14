@@ -1384,3 +1384,5 @@ const i18n_entry_t i18n_entries_pt_BR[] = {
     {"network error", (const char * const[]){"Erro de rede"}, 1},
     {"unknown", (const char * const[]){"desconhecido"}, 1},
 };
+
+const size_t i18n_count_pt_BR = sizeof(i18n_entries_pt_BR) / sizeof(i18n_entries_pt_BR[0]);

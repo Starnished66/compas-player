@@ -2,32 +2,45 @@
 #include "i18n.h"
 
 extern const i18n_entry_t i18n_entries_de[];
+extern const size_t i18n_count_de;
 extern const i18n_entry_t i18n_entries_es[];
+extern const size_t i18n_count_es;
 extern const i18n_entry_t i18n_entries_fi[];
+extern const size_t i18n_count_fi;
 extern const i18n_entry_t i18n_entries_fr[];
+extern const size_t i18n_count_fr;
 extern const i18n_entry_t i18n_entries_it[];
+extern const size_t i18n_count_it;
 extern const i18n_entry_t i18n_entries_ja[];
+extern const size_t i18n_count_ja;
 extern const i18n_entry_t i18n_entries_nl[];
+extern const size_t i18n_count_nl;
 extern const i18n_entry_t i18n_entries_pt_BR[];
+extern const size_t i18n_count_pt_BR;
 extern const i18n_entry_t i18n_entries_pt_PT[];
+extern const size_t i18n_count_pt_PT;
 extern const i18n_entry_t i18n_entries_ru[];
+extern const size_t i18n_count_ru;
 extern const i18n_entry_t i18n_entries_uk[];
+extern const size_t i18n_count_uk;
 extern const i18n_entry_t i18n_entries_vi[];
+extern const size_t i18n_count_vi;
 extern const i18n_entry_t i18n_entries_zh_CN[];
+extern const size_t i18n_count_zh_CN;
 
 const i18n_lang_t i18n_catalog_langs[] = {
-    {"de", "Deutsch", i18n_entries_de, 1379},
-    {"es", "Español", i18n_entries_es, 1379},
-    {"fi", "Suomi", i18n_entries_fi, 1379},
-    {"fr", "Français", i18n_entries_fr, 1379},
-    {"it", "Italiano", i18n_entries_it, 1379},
-    {"ja", "日本語", i18n_entries_ja, 1378},
-    {"nl", "Nederlands", i18n_entries_nl, 1379},
-    {"pt_BR", "Português (Brasil)", i18n_entries_pt_BR, 1379},
-    {"pt_PT", "Português (Portugal)", i18n_entries_pt_PT, 1379},
-    {"ru", "Русский", i18n_entries_ru, 1379},
-    {"uk", "Українська", i18n_entries_uk, 1379},
-    {"vi", "Tiếng Việt", i18n_entries_vi, 1378},
-    {"zh_CN", "简体中文", i18n_entries_zh_CN, 1378},
+    {"de", "Deutsch", i18n_entries_de, &i18n_count_de},
+    {"es", "Español", i18n_entries_es, &i18n_count_es},
+    {"fi", "Suomi", i18n_entries_fi, &i18n_count_fi},
+    {"fr", "Français", i18n_entries_fr, &i18n_count_fr},
+    {"it", "Italiano", i18n_entries_it, &i18n_count_it},
+    {"ja", "日本語", i18n_entries_ja, &i18n_count_ja},
+    {"nl", "Nederlands", i18n_entries_nl, &i18n_count_nl},
+    {"pt_BR", "Português (Brasil)", i18n_entries_pt_BR, &i18n_count_pt_BR},
+    {"pt_PT", "Português (Portugal)", i18n_entries_pt_PT, &i18n_count_pt_PT},
+    {"ru", "Русский", i18n_entries_ru, &i18n_count_ru},
+    {"uk", "Українська", i18n_entries_uk, &i18n_count_uk},
+    {"vi", "Tiếng Việt", i18n_entries_vi, &i18n_count_vi},
+    {"zh_CN", "简体中文", i18n_entries_zh_CN, &i18n_count_zh_CN},
 };
-const size_t i18n_catalog_lang_count = 13;
+const size_t i18n_catalog_lang_count = sizeof(i18n_catalog_langs) / sizeof(i18n_catalog_langs[0]);

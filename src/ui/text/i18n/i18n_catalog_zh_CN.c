@@ -1384,3 +1384,5 @@ const i18n_entry_t i18n_entries_zh_CN[] = {
     {"network error", (const char * const[]){"网络错误"}, 1},
     {"unknown", (const char * const[]){"未知"}, 1},
 };
+
+const size_t i18n_count_zh_CN = sizeof(i18n_entries_zh_CN) / sizeof(i18n_entries_zh_CN[0]);

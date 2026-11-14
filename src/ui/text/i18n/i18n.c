@@ -60,7 +60,7 @@ const char * i18n_language_name(size_t index)
 static const i18n_entry_t * lookup(const i18n_lang_t * lang, const char * key)
 {
     size_t lo = 0;
-    size_t hi = lang->count;
+    size_t hi = *lang->count;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
         int c = strcmp(key, lang->entries[mid].key);

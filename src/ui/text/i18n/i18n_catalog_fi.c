@@ -1384,3 +1384,5 @@ const i18n_entry_t i18n_entries_fi[] = {
     {"network error", (const char * const[]){"Verkkovirhe"}, 1},
     {"unknown", (const char * const[]){"tuntematon"}, 1},
 };
+
+const size_t i18n_count_fi = sizeof(i18n_entries_fi) / sizeof(i18n_entries_fi[0]);

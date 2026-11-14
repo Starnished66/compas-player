@@ -32,7 +32,7 @@ typedef struct {
     const char * code;
     const char * name;      /* the language's own name */
     const i18n_entry_t * entries;
-    size_t count;
+    const size_t * count; /* Derived beside the entries array. */
 } i18n_lang_t;
 
 /* Language list generated in i18n_catalog.c (non-English languages only). */
