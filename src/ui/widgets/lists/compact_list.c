@@ -89,7 +89,7 @@ typedef struct {
     int cache_start; /* requested logical offset; -1 = cache empty/invalid, forces a fetch on next window update */
     int cache_count; /* how many returned rows are valid in cache_rows[] */
     int cache_requested_count; /* requested range covered by the completed fetch, even if the provider returned fewer rows */
-    compact_list_page_row_t cache_rows[COMPACT_LIST_PAGE_CACHE_SIZE];
+    compact_list_page_row_t * cache_rows; /* Allocated for paged lists, retained until deletion. */
     compact_list_row_decorator_cb_t row_decorator;
     void * row_decorator_ctx;
     compact_list_click_cb_t on_trailing_click;
@@ -465,6 +465,11 @@ static void compact_list_ensure_cache(lv_obj_t * list, compact_list_virtual_data
         return;
     }
 
+    if (!data->cache_rows) {
+        data->cache_rows = malloc(COMPACT_LIST_PAGE_CACHE_SIZE * sizeof(*data->cache_rows));
+        if (!data->cache_rows) return; /* next scroll tick retries */
+    }
+
     compact_list_fetch_job_t * job = malloc(sizeof(*job));
     if (!job) return; /* next scroll tick retries */
     job->fetch_page = data->fetch_page;
@@ -828,8 +833,8 @@ static void compact_list_poll_fetch_cb(lv_timer_t * timer) {
     if (job->result_count >= 0) {
         pthread_join(job->thread, NULL); /* already returned by the time result_count landed -- instant, not a real wait */
         data->pending_job = NULL;
-        memcpy(data->cache_rows, job->rows, sizeof(data->cache_rows));
         data->cache_count = LV_MIN(job->result_count, LV_MIN(job->count, COMPACT_LIST_PAGE_CACHE_SIZE));
+        memcpy(data->cache_rows, job->rows, (size_t) data->cache_count * sizeof(*data->cache_rows));
         data->cache_start = job->offset;
         data->cache_requested_count = job->count;
         compact_list_job_release(job); /* the UI-side reference -- see compact_list_fetch_job_s's own doc comment */
@@ -978,6 +983,7 @@ static void compact_list_delete_event_cb(lv_event_t * e) {
     for (int slot = 0; slot < COMPACT_LIST_POOL_SIZE; slot++) free(data->row_ctx[slot]);
     free(data->items);
     data->magic = 0;
+    free(data->cache_rows);
     lv_obj_set_user_data(list, NULL);
     free(data);
 }
@@ -1084,6 +1090,8 @@ void compact_list_set_paged_provider(lv_obj_t * list, compact_list_fetch_page_cb
     if (data->press_timer) { lv_timer_delete(data->press_timer); data->press_timer = NULL; }
     data->fetch_page = fetch_page;
     data->provider_ctx = ctx;
+    if (fetch_page && !data->cache_rows)
+        data->cache_rows = malloc(COMPACT_LIST_PAGE_CACHE_SIZE * sizeof(*data->cache_rows));
     data->cache_start = -1; /* forces compact_list_ensure_cache() to actually fetch on next window update */
     data->cache_count = 0;
     data->cache_requested_count = 0;
