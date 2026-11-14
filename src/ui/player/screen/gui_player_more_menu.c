@@ -144,10 +144,11 @@ void more_icon_event_cb(lv_event_t * e) {
     if (path && !is_http_url(path) && !remote_track_path_is_remote(path)) /* only files can be deleted */
         rows[row_count++] = (menu_popup_row_t) { TR("Delete"), more_menu_delete_cb, true };
     hide_more_menu_popup();
-    /* Kept short: the heart already toggles the favorite, and navigation
-     * and metadata refresh live in the library song menus. */
+    /* The shared song menu keeps Favorites and library navigation consistent
+     * with the menus opened from library rows. */
     open_song_context_menu_with_rows(path,
-        SONG_MENU_PLAYLIST | SONG_MENU_INFORMATION, rows, row_count);
+        SONG_MENU_PLAYLIST | SONG_MENU_FAVORITE | SONG_MENU_NAVIGATION |
+        SONG_MENU_INFORMATION, rows, row_count);
 }
 
 void player_more_menu_teardown(void) {
