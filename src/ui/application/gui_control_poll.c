@@ -267,6 +267,7 @@ static void poll_storage_jobs(void) {
     PERF_MARK("usb_hotplug");
     poll_sd_card_hotplug();
     PERF_MARK("sd_hotplug");
+    poll_usb_drive_hotplug();
     gui_library_poll_playlists();
     gui_library_poll_track_probes();
     PERF_MARK("storage_jobs");

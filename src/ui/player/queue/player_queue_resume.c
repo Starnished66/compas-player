@@ -303,6 +303,14 @@ void gui_player_queue_flush(void) {
     player_queue_storage_checkpoint_join();
 }
 
+/* Drops the queue and the player screen after its source storage left. */
+static void clear_queue_and_leave_player(void) {
+    free_playlist();
+    clear_player_source();
+    player_show_empty_queue();
+    if (lv_screen_active() == gui_player_get_screen()) nav_pop();
+}
+
 void gui_player_handle_sd_unmount(void) {
     atomic_store(&sd_card_absent_immediate, true);
     checkpoint_revision_sd = 0;
@@ -333,10 +341,20 @@ void gui_player_handle_sd_unmount(void) {
         audio_stop();
         plugin_manager_notify_stopped();
     }
-    free_playlist();
-    clear_player_source();
-    player_show_empty_queue();
-    if (lv_screen_active() == gui_player_get_screen()) nav_pop();
+    clear_queue_and_leave_player();
+}
+
+/* A USB drive went away. Only a track playing from it stops the player; a
+ * queue that merely lists tracks on it while another storage plays is left
+ * alone, and those entries fail to open like any missing file. */
+void gui_player_handle_storage_removed(const char * root) {
+    const char * cur_path = gui_player_get_current_track_path();
+    size_t root_len = root ? strlen(root) : 0;
+    if (!cur_path || !root_len || strncmp(cur_path, root, root_len) != 0 ||
+        (cur_path[root_len] != '/' && cur_path[root_len] != '\0')) return;
+    audio_stop();
+    plugin_manager_notify_stopped();
+    clear_queue_and_leave_player();
 }
 
 bool build_sd_card_resume_playlist(char *** out_playlist, int * out_count, int * out_index, double * out_position) {

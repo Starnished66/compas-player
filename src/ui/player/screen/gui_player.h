@@ -211,6 +211,8 @@ int gui_player_boot_resume_mode(void);
 void gui_player_notify_sd_unmounted_immediate(void);
 void gui_player_notify_sd_mounted(void);
 void gui_player_handle_sd_unmount(void);
+/* A USB drive mounted at root went away: stops and clears the queue when its track played from there. */
+void gui_player_handle_storage_removed(const char * root);
 bool install_saved_resume_playlist(char ** resume_playlist, int resume_count);
 void prepare_deferred_resume(int index, double start_seconds);
 

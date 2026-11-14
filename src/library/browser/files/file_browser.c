@@ -1,6 +1,7 @@
 #include <stdatomic.h>
 #include "file_browser.h"
 #include "../../../core/files/file_visibility.h"
+#include "../../../core/storage/storage_roots.h"
 #include "../../../ui/text/i18n/i18n.h"
 #include "../../../ui/assets/assets.h"
 #include "../../../ui/widgets/builders/screen_builders.h" /* STATUS_BAR_CLEARANCE / TITLE_ROW_HEIGHT / LIST_ROW_* */
@@ -86,6 +87,14 @@ struct file_browser {
     lv_timer_t * index_poll_timer;
     char root_dir[PATH_MAX];
     char current_dir[PATH_MAX];
+    /* Storage list (options.storage_roots): home_dir is the SD card root the
+     * browser was created with; root_dir is the storage being browsed. While
+     * roots_view is set the top level is the list of storages and current_dir
+     * is empty. */
+    char home_dir[PATH_MAX];
+    char root_label[USB_DRIVE_LABEL_BYTES];
+    bool storage_roots;
+    bool roots_view;
     unsigned list_flags;
     file_browser_options_t callbacks;
 
@@ -149,7 +158,11 @@ static void browser_screen_unloaded_cb(lv_event_t * event) {
 /* Keep the browser's heading useful on the small display while leaving the
  * actual paths in current_dir untouched for navigation and callbacks. */
 static void set_path_label(file_browser_t *fb) {
-    char friendly[PATH_MAX + 8];
+    if (fb->roots_view) {
+        lv_label_set_text(fb->path_label, TR("Storage"));
+        return;
+    }
+    char friendly[PATH_MAX + USB_DRIVE_LABEL_BYTES];
     const char *root = fb->root_dir;
     const char *current = fb->current_dir;
     size_t root_len = strlen(root);
@@ -166,9 +179,10 @@ static void set_path_label(file_browser_t *fb) {
     }
 
     if (relative && !*relative) {
-        snprintf(friendly, sizeof(friendly), "SD/");
+        snprintf(friendly, sizeof(friendly), "%s/", fb->root_label);
     } else if (relative) {
-        snprintf(friendly, sizeof(friendly), "SD/%.*s", (int)(current_len - (size_t)(relative - current)), relative);
+        snprintf(friendly, sizeof(friendly), "%s/%.*s", fb->root_label,
+                 (int)(current_len - (size_t)(relative - current)), relative);
     } else {
         snprintf(friendly, sizeof(friendly), "%.*s", (int)current_len, current);
     }
@@ -816,7 +830,7 @@ static void index_poll_cb(lv_timer_t *timer) {
             pthread_mutex_unlock(&index_worker_mu);
         }
         /* Nothing left to wait for: sleep until scan_current_dir() asks again. */
-        if (!running && (fb->current_index ||
+        if (!running && (fb->current_index || fb->roots_view ||
                          fb->index_error_rendered_generation == fb->index_request_generation))
             lv_timer_pause(timer);
         return;
@@ -843,6 +857,21 @@ static void index_poll_cb(lv_timer_t *timer) {
     }
 }
 
+/* The list of storages: every mounted one is a folder row. It is built here,
+ * not by the index worker, because it is a handful of rows in memory. */
+static void fill_storage_entries(file_browser_t * fb) {
+    storage_root_t roots[STORAGE_ROOTS_MAX];
+    size_t count = storage_roots_list(roots, STORAGE_ROOTS_MAX);
+    for (size_t i = 0; i < count && i < FILE_BROWSER_PAGE_SIZE; i++) {
+        dir_entry_t * entry = &fb->entries[i];
+        memset(entry, 0, sizeof(*entry));
+        utf8_truncate_safe(entry->name, storage_root_name(&roots[i], TR("SD card"), TR("USB storage")),
+                           sizeof(entry->name));
+        entry->is_dir = true;
+        fb->entry_count = (int) (i + 1);
+    }
+}
+
 static void scan_current_dir(file_browser_t * fb) {
     page_jump_hide(fb);
     free_entries(fb);
@@ -852,11 +881,15 @@ static void scan_current_dir(file_browser_t * fb) {
     atomic_store(&fb->index_worker_oversized, false);
     atomic_store(&fb->index_worker_cancel, true);
     if (fb->index_worker_result) { file_browser_index_close(fb->index_worker_result); fb->index_worker_result = NULL; }
-    if (!atomic_load(&fb->index_worker_running) && !index_worker_launch_locked(fb, generation)) {
+    if (!fb->roots_view && !atomic_load(&fb->index_worker_running) && !index_worker_launch_locked(fb, generation)) {
         atomic_store(&fb->index_worker_error, true);
         fb->index_error_generation = generation;
     }
     pthread_mutex_unlock(&index_worker_mu);
+    if (fb->roots_view) {
+        fill_storage_entries(fb);
+        return;
+    }
     fb->entry_count = 0;
     if (fb->index_poll_timer) lv_timer_resume(fb->index_poll_timer);
 }
@@ -997,6 +1030,58 @@ static bool at_root(const file_browser_t * fb) {
     return strlen(fb->current_dir) <= strlen(fb->root_dir);
 }
 
+/* With a USB drive mounted the top level is the list of storages. */
+static bool storage_list_wanted(const file_browser_t * fb) {
+    return fb->storage_roots && storage_roots_drive_count() > 0;
+}
+
+/* Nothing above: the storage list, or the root when there is no list. */
+static bool at_top(const file_browser_t * fb) {
+    return fb->roots_view || (at_root(fb) && !storage_list_wanted(fb));
+}
+
+static void notify_storage_list(const file_browser_t * fb) {
+    if (fb->callbacks.on_storage_list) fb->callbacks.on_storage_list(fb->roots_view);
+}
+
+static void set_root_dir(file_browser_t * fb, const char * path, const char * label) {
+    fb->roots_view = false;
+    notify_storage_list(fb);
+    snprintf(fb->root_dir, sizeof(fb->root_dir), "%s", path);
+    snprintf(fb->current_dir, sizeof(fb->current_dir), "%s", path);
+    snprintf(fb->root_label, sizeof(fb->root_label), "%s", label);
+}
+
+static void enter_storage(file_browser_t * fb, const storage_root_t * root) {
+    set_root_dir(fb, root->path, root->removable ? storage_root_name(root, "", TR("USB storage")) : "SD");
+}
+
+static void show_listing_from_top(file_browser_t * fb) {
+    fb->page_start = 0;
+    fb->position_depth = fb->position_overflow = 0;
+    fb->restore_pending = false;
+    scan_current_dir(fb);
+    rebuild_list(fb);
+}
+
+static void show_storage_list(file_browser_t * fb) {
+    fb->roots_view = true;
+    notify_storage_list(fb);
+    fb->current_dir[0] = '\0';
+    show_listing_from_top(fb);
+}
+
+/* Back to where a fresh browser starts: the storage list while a drive is
+ * mounted, otherwise the SD card. */
+static void reset_to_home(file_browser_t * fb) {
+    set_root_dir(fb, fb->home_dir, "SD");
+    if (storage_list_wanted(fb)) {
+        show_storage_list(fb);
+        return;
+    }
+    show_listing_from_top(fb);
+}
+
 /* Steps current_dir up one level toward root_dir and rebuilds the list.
  * No-op if already at root. */
 static void go_up(file_browser_t * fb) {
@@ -1034,8 +1119,9 @@ bool file_browser_go_up_for_screen(lv_obj_t * screen) {
             return true;
         }
         if (fb->selecting) { file_browser_set_selecting(fb, false); return true; }
-        if (at_root(fb)) return false;
-        go_up(fb);
+        if (at_top(fb)) return false;
+        if (at_root(fb)) show_storage_list(fb);
+        else go_up(fb);
         return true;
     }
     return false;
@@ -1330,6 +1416,14 @@ static void rebuild_list_in_place(file_browser_t * fb, int anchor_ordinal) {
 static void entry_click_cb(lv_event_t * e) {
     file_browser_t * fb = browser_of(e);
     int index = (int) (intptr_t) lv_event_get_user_data(e);
+    if (fb->roots_view) {
+        storage_root_t roots[STORAGE_ROOTS_MAX];
+        size_t count = storage_roots_list(roots, STORAGE_ROOTS_MAX);
+        if (index < 0 || (size_t) index >= count) return;
+        enter_storage(fb, &roots[index]);
+        show_listing_from_top(fb);
+        return;
+    }
     dir_entry_t clicked;
     if (!index_entry_at(fb->current_index, (unsigned)index, &clicked)) return;
 
@@ -1396,7 +1490,7 @@ static void entry_click_cb(lv_event_t * e) {
  * actions. Selection mode retains precedence for More > File Manager. */
 static void entry_long_press_cb(lv_event_t * e) {
     file_browser_t * fb = browser_of(e);
-    if (fb->selecting) return;
+    if (fb->selecting || fb->roots_view) return;
     unsigned ordinal = (unsigned) (intptr_t) lv_event_get_user_data(e);
     if (fb->callbacks.on_selection) {
         if (!fb->selected) return;
@@ -1577,8 +1671,14 @@ file_browser_t * file_browser_create(lv_obj_t * parent, const char * root,
     fb->callbacks = *options;
     fb->list_flags = ((options->on_cue_select || options->on_pick_file) ? LIST_CUE : 0u) |
                      ((options->on_open_other || options->on_pick_file) ? LIST_ALL_FILES : 0u);
-    snprintf(fb->root_dir, sizeof(fb->root_dir), "%s", root);
-    snprintf(fb->current_dir, sizeof(fb->current_dir), "%s", root);
+    fb->storage_roots = options->storage_roots;
+    snprintf(fb->home_dir, sizeof(fb->home_dir), "%s", root);
+    set_root_dir(fb, root, "SD");
+    if (storage_list_wanted(fb)) {
+        fb->roots_view = true;
+        notify_storage_list(fb);
+        fb->current_dir[0] = '\0';
+    }
     fb->next = browsers;
     browsers = fb;
     lv_obj_add_event_cb(parent, browser_delete_cb, LV_EVENT_DELETE, fb);
@@ -1637,14 +1737,23 @@ file_browser_t * file_browser_create(lv_obj_t * parent, const char * root,
 /* Resets each browser to root and refreshes the directory listing on SD card
  * hotplug events (mount/unmount) to avoid displaying stale or removed files. */
 void file_browser_reset_to_root(void) {
+    for (file_browser_t * fb = browsers; fb; fb = fb->next) reset_to_home(fb);
+}
+
+void file_browser_storage_changed(void) {
+    storage_root_t roots[STORAGE_ROOTS_MAX];
+    size_t count = storage_roots_list(roots, STORAGE_ROOTS_MAX);
     for (file_browser_t * fb = browsers; fb; fb = fb->next) {
-        snprintf(fb->current_dir, sizeof(fb->current_dir), "%s", fb->root_dir);
-        fb->page_start = 0;
-        fb->position_depth = fb->position_overflow = 0;
-        fb->restore_pending = false;
-        scan_current_dir(fb);
-        rebuild_list(fb);
+        if (!fb->storage_roots) continue;
+        bool in_home = strcmp(fb->root_dir, fb->home_dir) == 0;
+        if (fb->roots_view && count > 1) show_storage_list(fb); /* the names or the set changed */
+        else if (fb->roots_view || !storage_roots_find_path(roots, count, fb->root_dir, NULL)) reset_to_home(fb);
+        else if (in_home && count > 1 && at_root(fb)) show_storage_list(fb);
     }
+}
+
+bool file_browser_at_storage_list(const file_browser_t * fb) {
+    return fb && fb->roots_view;
 }
 
 void file_browser_refresh(file_browser_t * fb) {
@@ -1659,7 +1768,15 @@ void file_browser_refresh(file_browser_t * fb) {
 }
 
 bool file_browser_open_dir(file_browser_t * fb, const char * dir) {
-    size_t root_len = strlen(fb->root_dir);
+    storage_root_t storage[STORAGE_ROOTS_MAX];
+    size_t storage_index = 0;
+    const char * root = fb->root_dir;
+    if (fb->storage_roots) {
+        size_t count = storage_roots_list(storage, STORAGE_ROOTS_MAX);
+        if (!storage_roots_find_path(storage, count, dir, &storage_index)) return false;
+        root = storage[storage_index].path;
+    }
+    size_t root_len = strlen(root);
     size_t len = strlen(dir);
     while (len > root_len && dir[len - 1] == '/') len--;
     struct stat st;
@@ -1667,14 +1784,11 @@ bool file_browser_open_dir(file_browser_t * fb, const char * dir) {
     if (len >= sizeof(path)) return false;
     memcpy(path, dir, len);
     path[len] = '\0';
-    if (!file_op_path_in_root(path, fb->root_dir) || stat(path, &st) != 0 || !S_ISDIR(st.st_mode))
+    if (!file_op_path_in_root(path, root) || stat(path, &st) != 0 || !S_ISDIR(st.st_mode))
         return false;
+    if (fb->storage_roots) enter_storage(fb, &storage[storage_index]);
     memcpy(fb->current_dir, path, len + 1);
-    fb->page_start = 0;
-    fb->position_depth = fb->position_overflow = 0;
-    fb->restore_pending = false;
-    scan_current_dir(fb);
-    rebuild_list(fb);
+    show_listing_from_top(fb);
     return true;
 }
 

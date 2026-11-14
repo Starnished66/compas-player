@@ -60,6 +60,18 @@ typedef struct {
     char * argv[6];
 } sd_fsck_plan_t;
 
+/* One parsed /proc/mounts line. Fields that do not fit are a malformed line. */
+typedef struct {
+    char device[SD_FSCK_DEVICE_BYTES];
+    char mount_point[SD_FSCK_MOUNT_BYTES];
+    char fstype[SD_FSCK_FSTYPE_BYTES];
+    char options[512];
+} sd_mount_entry_t;
+
+/* Reads the next well-formed line of /proc/mounts text and moves *cursor past
+ * it. False at the end. Shared by the SD and USB drive code. */
+bool sd_mounts_next(const char ** cursor, sd_mount_entry_t * out);
+
 /* Last matching SD mount line wins. Recognizes both /data/mnt/sd_0 and
  * /usr/data/mnt/sd_0. A line is read-only only when its option list has
  * an exact "ro" token and no "rw" token. */

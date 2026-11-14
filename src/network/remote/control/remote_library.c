@@ -5,6 +5,7 @@
 #include "../../../library/artwork/support/library_endian.h"
 #include "../../../library/playlists/favorite_writer.h"
 #include "../../../library/browser/paths/library_paths.h"
+#include "../../../core/storage/storage_roots.h"
 #include "../../../ui/library/browse/gui_library.h" /* sd_card_root_is_mounted() */
 #include "../../../audio/engine/audio.h"
 
@@ -150,18 +151,27 @@ void handle_art_request(int cfd, const char * path) {
 
 /* ---- Folders ---- */
 
-/* The player has a single music storage root, the SD card. */
-#define FOLDER_ROOT_ID "sd"
+/* Storage roots: "sd" is the SD card (the default when root= is left out),
+ * "usbN" a mounted USB drive partition. */
+#define FOLDER_ABS_BYTES (REMOTE_CONTROL_PATH_MAX + USB_DRIVE_MOUNT_BYTES)
+
+static bool folder_root_available(const storage_root_t * root) {
+    return root->removable || sd_card_root_is_mounted();
+}
 
 /* A folder path is relative to the root: "" (or "/") is the root itself,
  * otherwise '/'-separated components that are not empty, ".", "..", or
  * hidden (leading '.', which the Files view never lists either), with no
  * backslash or control bytes. Writes the absolute path. */
-static bool folder_resolve(const char * path, char * out_rel, size_t rel_size,
+static bool folder_resolve(const char * path, storage_root_t * out_root, char * out_rel, size_t rel_size,
                            char * out_abs, size_t abs_size) {
     char root_id[16];
     int root_state = query_decoded(path, "root", root_id, sizeof(root_id));
-    if (root_state < 0 || (root_state == 1 && strcmp(root_id, FOLDER_ROOT_ID) != 0)) return false;
+    if (root_state < 0) return false;
+    storage_root_t roots[STORAGE_ROOTS_MAX];
+    size_t count = storage_roots_list(roots, STORAGE_ROOTS_MAX), root_index = 0;
+    if (root_state == 1 && !storage_roots_find_id(roots, count, root_id, &root_index)) return false;
+    *out_root = roots[root_index];
     char rel[REMOTE_CONTROL_PATH_MAX];
     if (query_decoded(path, "path", rel, sizeof(rel)) < 0) return false;
     const char * start = rel[0] == '/' ? rel + 1 : rel;
@@ -179,25 +189,33 @@ static bool folder_resolve(const char * path, char * out_rel, size_t rel_size,
         }
     }
     if (snprintf(out_rel, rel_size, "%s", start) >= (int) rel_size) return false;
-    int n = len ? snprintf(out_abs, abs_size, "%s/%s", MUSIC_ROOT_DIR, start)
-                : snprintf(out_abs, abs_size, "%s", MUSIC_ROOT_DIR);
+    int n = len ? snprintf(out_abs, abs_size, "%s/%s", out_root->path, start)
+                : snprintf(out_abs, abs_size, "%s", out_root->path);
     return n >= 0 && (size_t) n < abs_size;
 }
 
 /* An existing path must still resolve inside the root once symlinks are
  * followed (the SD card's FAT has none; this guards other mounts). */
-static bool folder_within_root(const char * abs_path) {
+static bool folder_within_root(const storage_root_t * storage, const char * abs_path) {
     char root[PATH_MAX], real[PATH_MAX];
-    if (!realpath(MUSIC_ROOT_DIR, root) || !realpath(abs_path, real)) return false;
+    if (!realpath(storage->path, root) || !realpath(abs_path, real)) return false;
     size_t n = strlen(root);
     return strncmp(real, root, n) == 0 && (real[n] == '\0' || real[n] == '/');
 }
 
 void handle_folder_roots_request(int cfd) {
-    char json[160];
-    snprintf(json, sizeof(json),
-             "{\"roots\":[{\"id\":\"" FOLDER_ROOT_ID "\",\"name\":\"SD card\",\"available\":%s}]}",
-             sd_card_root_is_mounted() ? "true" : "false");
+    storage_root_t roots[STORAGE_ROOTS_MAX];
+    size_t count = storage_roots_list(roots, STORAGE_ROOTS_MAX);
+    char json[STORAGE_ROOTS_MAX * 400 + 32];
+    int used = snprintf(json, sizeof(json), "{\"roots\":[");
+    for (size_t i = 0; i < count; i++) {
+        char name_esc[USB_DRIVE_LABEL_BYTES * 6] = {0};
+        json_escape_append(name_esc, sizeof(name_esc), storage_root_name(&roots[i], "SD card", "USB storage"));
+        used += snprintf(json + used, sizeof(json) - (size_t) used,
+                         "%s{\"id\":\"%s\",\"name\":\"%s\",\"available\":%s}", i ? "," : "",
+                         roots[i].id, name_esc, folder_root_available(&roots[i]) ? "true" : "false");
+    }
+    snprintf(json + used, sizeof(json) - (size_t) used, "]}");
     send_response(cfd, "200 OK", "application/json", json);
 }
 
@@ -222,9 +240,10 @@ static unsigned folder_count_of(const file_browser_index_t * index, unsigned cou
  * entries and symlinks omitted). Tracks carry their library song id, or -1
  * when the file is not in the library. */
 void handle_folder_list_request(int cfd, const char * path) {
-    char rel[REMOTE_CONTROL_PATH_MAX], abs_path[REMOTE_CONTROL_PATH_MAX + sizeof(MUSIC_ROOT_DIR)];
+    char rel[REMOTE_CONTROL_PATH_MAX], abs_path[FOLDER_ABS_BYTES];
+    storage_root_t storage;
     int offset, limit;
-    if (!folder_resolve(path, rel, sizeof(rel), abs_path, sizeof(abs_path))) {
+    if (!folder_resolve(path, &storage, rel, sizeof(rel), abs_path, sizeof(abs_path))) {
         send_api_error(cfd, "400 Bad Request", "folder_error", "invalid_path");
         return;
     }
@@ -232,12 +251,12 @@ void handle_folder_list_request(int cfd, const char * path) {
         send_api_error(cfd, "400 Bad Request", "folder_error", "invalid_paging");
         return;
     }
-    if (!sd_card_root_is_mounted()) {
+    if (!folder_root_available(&storage)) {
         send_api_error(cfd, "503 Service Unavailable", "folder_error", "storage_unavailable");
         return;
     }
     struct stat st;
-    if (stat(abs_path, &st) != 0 || !S_ISDIR(st.st_mode) || !folder_within_root(abs_path)) {
+    if (stat(abs_path, &st) != 0 || !S_ISDIR(st.st_mode) || !folder_within_root(&storage, abs_path)) {
         send_api_error(cfd, "404 Not Found", "folder_error", "folder_not_found");
         return;
     }
@@ -266,7 +285,7 @@ void handle_folder_list_request(int cfd, const char * path) {
         track_at[i] = -1;
         if (!file_browser_index_entry_name(index, first + i, names[i], sizeof(names[i]), &dirs[i])) { ok = false; break; }
         if (dirs[i] || library_is_m3u_file(names[i])) continue;
-        char full[REMOTE_CONTROL_PATH_MAX + sizeof(MUSIC_ROOT_DIR) + 256];
+        char full[FOLDER_ABS_BYTES + 256];
         snprintf(full, sizeof(full), "%s/%s", abs_path, names[i]);
         track_paths[track_count] = strdup(full);
         if (!track_paths[track_count]) { ok = false; break; }
@@ -288,9 +307,9 @@ void handle_folder_list_request(int cfd, const char * path) {
             json_escape_append(parent_esc, sizeof(parent_esc), parent);
         }
         json_builder_appendf(&json,
-            "{\"root\":\"" FOLDER_ROOT_ID "\",\"path\":\"%s\",\"parent\":%s%s%s,\"total\":%u,"
+            "{\"root\":\"%s\",\"path\":\"%s\",\"parent\":%s%s%s,\"total\":%u,"
             "\"folder_count\":%u,\"offset\":%d,\"entries\":[",
-            rel_esc, rel[0] ? "\"" : "null", rel[0] ? parent_esc : "", rel[0] ? "\"" : "",
+            storage.id, rel_esc, rel[0] ? "\"" : "null", rel[0] ? parent_esc : "", rel[0] ? "\"" : "",
             count, folders, offset);
         for (unsigned i = 0; i < page && !json.truncated; i++) {
             char row[4096], name_esc[256 * 6] = {0};
@@ -330,19 +349,20 @@ void handle_folder_list_request(int cfd, const char * path) {
 /* POST /api/folders/play?root=sd&path=REL_FILE -- plays a file with its
  * folder as the queue, as tapping it in Files does. */
 void handle_folder_play_request(int cfd, const char * path) {
-    char rel[REMOTE_CONTROL_PATH_MAX], abs_path[REMOTE_CONTROL_PATH_MAX + sizeof(MUSIC_ROOT_DIR)];
-    if (!folder_resolve(path, rel, sizeof(rel), abs_path, sizeof(abs_path)) || !rel[0] ||
+    char rel[REMOTE_CONTROL_PATH_MAX], abs_path[FOLDER_ABS_BYTES];
+    storage_root_t storage;
+    if (!folder_resolve(path, &storage, rel, sizeof(rel), abs_path, sizeof(abs_path)) || !rel[0] ||
         strlen(abs_path) >= REMOTE_CONTROL_PATH_MAX) {
         send_api_error(cfd, "400 Bad Request", "folder_error", "invalid_path");
         return;
     }
     const char * base = strrchr(abs_path, '/');
     struct stat st;
-    if (!sd_card_root_is_mounted()) {
+    if (!folder_root_available(&storage)) {
         send_api_error(cfd, "503 Service Unavailable", "folder_error", "storage_unavailable");
         return;
     }
-    if (lstat(abs_path, &st) != 0 || !S_ISREG(st.st_mode) || !folder_within_root(abs_path)) {
+    if (lstat(abs_path, &st) != 0 || !S_ISREG(st.st_mode) || !folder_within_root(&storage, abs_path)) {
         send_api_error(cfd, "404 Not Found", "folder_error", "track_not_found");
         return;
     }

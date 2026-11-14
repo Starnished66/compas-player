@@ -261,6 +261,8 @@ static lv_obj_t * files_search_list = NULL;
 static file_browser_t * music_files_browser = NULL;
 static lv_obj_t * files_title_label = NULL;
 static lv_obj_t * files_options_btn = NULL;
+static lv_obj_t * files_sort_btn = NULL;
+static bool files_search_registered; /* the Search binding outlives the screen; trust it only once re-registered */
 
 lv_obj_t * all_songs_screen = NULL;
 lv_obj_t * all_songs_list = NULL;
@@ -341,6 +343,8 @@ static void files_screen_delete_cb(lv_event_t * e) {
     music_files_browser = NULL;
     files_title_label = NULL;
     files_options_btn = NULL;
+    files_sort_btn = NULL;
+    files_search_registered = false;
 }
 
 static void files_header_back_cb(lv_event_t * e) {
@@ -360,6 +364,26 @@ void open_add_to_playlist_for(const char * path) {
 
 void on_cue_file_selected(const char * cue_path);
 
+/* Sorting and folder options mean nothing on the list of storages: they
+ * hide, Search moves to the right edge and the title takes the room. */
+static void files_storage_list_cb(bool showing) {
+    lv_obj_t * buttons[] = { files_options_btn, files_sort_btn };
+    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); i++) {
+        if (!buttons[i]) continue;
+        if (showing) lv_obj_add_flag(buttons[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_remove_flag(buttons[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_t * search = files_search_registered ? library_search_button(SEARCH_BINDING_FILES) : NULL;
+    if (!search || !files_title_label || !files_sort_btn) return; /* register_search applies it once built */
+    lv_obj_align(search, LV_ALIGN_TOP_RIGHT, showing ? 0 : -HEADER_BUTTON_WIDTH,
+                 STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
+    reserve_title_width_before(files_title_label, showing ? search : files_sort_btn);
+}
+
+static bool files_options_wanted(void) {
+    return !music_files_browser || !file_browser_at_storage_list(music_files_browser);
+}
+
 static void files_sort_cb(lv_event_t * e) {
     (void)e;
     gui_settings_open_sorting(true);
@@ -376,6 +400,7 @@ static lv_obj_t * build_files_screen(void) {
     files_options_btn = build_top_right_icon_button(scr, asset_path("navigation/more.png"),
                                                     files_current_folder_options_cb);
     lv_obj_t * sort = build_top_right_icon_button(scr, asset_path("breeze_rows/library_sorting.png"), files_sort_cb);
+    files_sort_btn = sort;
     lv_obj_align(sort, LV_ALIGN_TOP_RIGHT, -2 * HEADER_BUTTON_WIDTH,
                  STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
     reserve_title_width_before(files_title_label, sort);
@@ -388,6 +413,8 @@ static lv_obj_t * build_files_screen(void) {
         .on_cue_select = on_cue_file_selected,
         .on_index_select = on_file_browser_index_selected,
         .on_long_press = file_browser_long_press,
+        .storage_roots = true,
+        .on_storage_list = files_storage_list_cb,
     };
     music_files_browser = file_browser_create(scr, MUSIC_ROOT_DIR, &options);
 
@@ -660,6 +687,7 @@ void register_search(search_binding_id_t id, lv_obj_t *screen, lv_obj_t *list,
     if (id == SEARCH_BINDING_FILES) {
         config.files_title = files_title_label;
         config.files_options = files_options_btn;
+        config.files_options_wanted = files_options_wanted;
         config.inset_search_beside_options = true;
     } else if (id == SEARCH_BINDING_GROUP_SONGS) {
         config.restore_thumbnail_list = group_songs_list;
@@ -1436,6 +1464,8 @@ void gui_library_init(void) {
     library_teardown_diag("register_search(files) before");
     register_search(SEARCH_BINDING_FILES, files_screen, files_search_list, NULL, NULL, true,
                      true, METADATA_DB_AZ_ALL_SONGS, all_songs_fetch_page);
+    files_search_registered = true;
+    files_storage_list_cb(!files_options_wanted()); /* the browser was built before Search */
 
     library_teardown_diag("build_compact_list_widget(group_songs_search) before");
     group_songs_search_list = build_compact_list_widget(group_songs_screen, NULL, 0,

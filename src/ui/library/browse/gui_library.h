@@ -124,6 +124,8 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
 bool gui_library_play_remote_collection(const remote_collection_play_request_t *request);
 void gui_library_cancel_remote_collection(void);
 void poll_sd_card_hotplug(void);
+/* USB drive plugged into the USB-C port: mounted automatically, toasts, cleanup on unplug. */
+void poll_usb_drive_hotplug(void);
 
 void gui_library_resume_fast_timers(void);
 void gui_library_reset_drag_state(void);

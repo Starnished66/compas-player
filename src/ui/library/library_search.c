@@ -84,6 +84,7 @@ typedef struct {
     char global_server_key[SUBSONIC_CACHE_KEY_SIZE];
     int32_t global_generation;
     lv_obj_t *files_title, *files_options, *restore_thumbnail_list;
+    bool (*files_options_wanted)(void);
     bool inset_search_beside_options;
     library_search_group_item_cb_t group_item;
     library_search_az_strip_cb_t az_strip_for_screen;
@@ -860,7 +861,8 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
 
     lv_obj_add_flag(b->search_bar, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(b->search_btn, LV_OBJ_FLAG_HIDDEN);
-    if (b->id == SEARCH_BINDING_FILES && b->files_options)
+    if (b->id == SEARCH_BINDING_FILES && b->files_options &&
+        (!b->files_options_wanted || b->files_options_wanted()))
         lv_obj_remove_flag(b->files_options, LV_OBJ_FLAG_HIDDEN);
 
     if (b->is_overlay_list) {
@@ -1044,6 +1046,7 @@ void library_search_register(search_binding_id_t id, const library_search_config
         .is_overlay_list = config->is_overlay_list, .db_backed = config->db_backed,
         .db_kind = config->db_kind, .restore_fetch_page = config->restore_fetch_page,
         .files_title = config->files_title, .files_options = config->files_options,
+        .files_options_wanted = config->files_options_wanted,
         .inset_search_beside_options = config->inset_search_beside_options,
         .restore_thumbnail_list = config->restore_thumbnail_list, .group_item = config->group_item,
         .az_strip_for_screen = config->az_strip_for_screen,
@@ -1119,6 +1122,10 @@ void library_search_quiesce_for_ui_reload(void) {
 void library_search_join_for_shutdown(void) {
     search_job_pending_valid = false;
     search_job_finish(true);
+}
+
+lv_obj_t * library_search_button(search_binding_id_t id) {
+    return search_bindings[id].search_btn;
 }
 
 void library_search_update_header(search_binding_id_t id, lv_obj_t *title,

@@ -55,12 +55,9 @@ bool sd_fsck_device_allowed(const char * device) {
     return device && (strcmp(device, "/dev/mmcblk0") == 0 || strcmp(device, "/dev/mmcblk0p1") == 0);
 }
 
-bool sd_fsck_parse_mounts(const char * mounts_text, sd_mount_info_t * out) {
-    if (!out) return false;
-    memset(out, 0, sizeof(*out));
-    if (!mounts_text) return false;
-
-    const char * line = mounts_text;
+bool sd_mounts_next(const char ** cursor, sd_mount_entry_t * out) {
+    if (!cursor || !*cursor || !out) return false;
+    const char * line = *cursor;
     while (*line) {
         const char * next = strchr(line, '\n');
         size_t line_len = next ? (size_t) (next - line) : strlen(line);
@@ -78,25 +75,35 @@ bool sd_fsck_parse_mounts(const char * mounts_text, sd_mount_info_t * out) {
             }
             start = i + 1;
         }
-        char device[SD_FSCK_DEVICE_BYTES];
-        char mount_point[SD_FSCK_MOUNT_BYTES];
-        char fstype[SD_FSCK_FSTYPE_BYTES];
-        char options[512];
+        line = next ? next + 1 : line + line_len;
         if (count == 4 &&
-            unescape_field(fields[0], field_len[0], device, sizeof(device)) &&
-            unescape_field(fields[1], field_len[1], mount_point, sizeof(mount_point)) &&
-            unescape_field(fields[2], field_len[2], fstype, sizeof(fstype)) &&
-            unescape_field(fields[3], field_len[3], options, sizeof(options)) &&
-            sd_mount_point(mount_point)) {
-            out->found = true;
-            out->readonly = option_token(options, "ro") && !option_token(options, "rw");
-            out->kind = sd_fsck_kind_from_type(fstype);
-            snprintf(out->device, sizeof(out->device), "%s", device);
-            snprintf(out->mount_point, sizeof(out->mount_point), "%s", mount_point);
-            snprintf(out->fstype, sizeof(out->fstype), "%s", fstype);
+            unescape_field(fields[0], field_len[0], out->device, sizeof(out->device)) &&
+            unescape_field(fields[1], field_len[1], out->mount_point, sizeof(out->mount_point)) &&
+            unescape_field(fields[2], field_len[2], out->fstype, sizeof(out->fstype)) &&
+            unescape_field(fields[3], field_len[3], out->options, sizeof(out->options))) {
+            *cursor = line;
+            return true;
         }
-        if (!next) break;
-        line = next + 1;
+    }
+    *cursor = line;
+    return false;
+}
+
+bool sd_fsck_parse_mounts(const char * mounts_text, sd_mount_info_t * out) {
+    if (!out) return false;
+    memset(out, 0, sizeof(*out));
+    if (!mounts_text) return false;
+
+    const char * cursor = mounts_text;
+    sd_mount_entry_t entry;
+    while (sd_mounts_next(&cursor, &entry)) {
+        if (!sd_mount_point(entry.mount_point)) continue;
+        out->found = true;
+        out->readonly = option_token(entry.options, "ro") && !option_token(entry.options, "rw");
+        out->kind = sd_fsck_kind_from_type(entry.fstype);
+        snprintf(out->device, sizeof(out->device), "%s", entry.device);
+        snprintf(out->mount_point, sizeof(out->mount_point), "%s", entry.mount_point);
+        snprintf(out->fstype, sizeof(out->fstype), "%s", entry.fstype);
     }
     return out->found;
 }

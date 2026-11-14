@@ -394,6 +394,11 @@ static void menu_button_cb(lv_event_t * e) {
             add_menu_row(rows, &count, TR("Delete"), MENU_DELETE);
         }
         add_menu_row(rows, &count, TR("Select all"), MENU_SELECT_ALL);
+    } else if (file_browser_at_storage_list(browser)) {
+        /* Storages are not files: nothing to paste into, select or create. */
+        add_menu_row(rows, &count, file_browser_shows_hidden(browser) ? TR("Hide hidden files")
+                                                                     : TR("Show hidden files"),
+                     MENU_TOGGLE_HIDDEN);
     } else {
         if (clipboard_count) {
             snprintf(paste_label, sizeof(paste_label),
@@ -442,6 +447,7 @@ static void build_screen(void) {
         .on_index_select = on_file_browser_index_selected,
         .on_open_other = open_other_cb,
         .on_selection = selection_changed_cb,
+        .storage_roots = true,
     };
     browser = file_browser_create(screen, FILE_MANAGER_ROOT, &options);
     finalize_screen_navigation(screen);

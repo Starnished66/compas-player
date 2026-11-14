@@ -68,6 +68,8 @@ typedef struct {
     compact_list_fetch_page_cb_t restore_fetch_page;
     lv_obj_t *files_title;
     lv_obj_t *files_options;
+    /* Optional: false keeps files_options hidden when the search closes. */
+    bool (*files_options_wanted)(void);
     bool inset_search_beside_options;
     lv_obj_t *restore_thumbnail_list;
     /* Optional except for SEARCH_BINDING_GROUP_SONGS. */
@@ -89,6 +91,8 @@ typedef struct {
 void library_search_register(search_binding_id_t id, const library_search_config_t *config);
 void library_search_set_restore_thumbnail_list(search_binding_id_t id, lv_obj_t *list);
 void library_search_open(search_binding_id_t id);
+/* The title-row Search button, or NULL before the binding is registered. */
+lv_obj_t * library_search_button(search_binding_id_t id);
 void library_search_global_select(int display_index, bool long_press);
 /* Optional, after registering: the full row (subtitle, cover) for a source
  * index, used when search opens and closes. Without it rows are label-only. */

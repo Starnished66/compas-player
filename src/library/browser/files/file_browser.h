@@ -55,6 +55,8 @@ typedef struct {
     file_browser_pick_file_cb_t on_pick_file;       /* non-NULL selects any file as a raw path */
     file_browser_selection_cb_t on_selection;       /* non-NULL: long press selects */
     file_browser_long_press_cb_t on_long_press;    /* folders/playable files; ignored with on_selection */
+    bool storage_roots;                             /* top level lists the SD card and USB drives while a drive is mounted */
+    void (*on_storage_list)(bool showing);          /* optional: the storage list appeared or went away */
 } file_browser_options_t;
 
 /* Builds a file browser (current-path label + scrollable list) as a child of
@@ -69,6 +71,13 @@ file_browser_t * file_browser_create(lv_obj_t * parent, const char * root_dir,
  * refreshing after the underlying storage changes out from under the UI
  * (SD card removed/reinserted) rather than in response to user navigation. */
 void file_browser_reset_to_root(void);
+
+/* A USB drive was mounted or removed. Browsers with storage_roots show the
+ * list of storages, or fall back to the SD card when the drive they were in
+ * is gone. */
+void file_browser_storage_changed(void);
+/* True while the browser shows the list of storages rather than a folder. */
+bool file_browser_at_storage_list(const file_browser_t * browser);
 
 /* Rescans the current folder (after files changed), keeping the position.
  * Ends selection mode. */
