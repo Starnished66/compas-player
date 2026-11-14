@@ -16,6 +16,7 @@
 #include "../shell/gui_reload.h"
 #include "../../core/system/logging/db_log.h"
 #include "../../hardware/usb/usb_dac_bridge.h"
+#include "../../hardware/usb/wireless_adb.h"
 #include <string.h>
 #include "gui_settings_internal.h"
 
@@ -58,6 +59,14 @@ static void adb_switch_event_cb(lv_event_t * e) {
     /* Accepted: the switch already shows the requested state, and applying it
      * takes seconds. Leave it optimistically flipped; poll_usb_mode_switch()
      * confirms or rolls it back. */
+}
+
+/* Takes effect now unless USB ADB owns the port; the setting is kept either way. */
+static void wireless_adb_switch_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
+    current_settings.wireless_adb_enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    settings_save_async(&current_settings);
+    wireless_adb_sync(current_settings.wireless_adb_enabled);
 }
 
 static void dev_options_row_cb(lv_event_t * e) {
@@ -257,7 +266,7 @@ static lv_obj_t * build_settings_tools_screen(void) {
 }
 
 static lv_obj_t * build_advanced_screen(void) {
-    pill_list_item_t items[4];
+    pill_list_item_t items[5];
     /* ADB lives here rather than on the USB Mode screen: it overrides
      * Storage/DAC while on and persists across a reboot, so it sits behind
      * the Advanced page as the explicit opt-in that makes re-applying it on
@@ -265,17 +274,20 @@ static lv_obj_t * build_advanced_screen(void) {
      * while it owns the port. */
     items[0] = (pill_list_item_t){ TR("ADB"), PILL_ACCESSORY_TOGGLE, gui_network_adb_active(),
                                     NULL, adb_switch_event_cb, NULL, &adb_switch };
-    items[1] = (pill_list_item_t){ TR("Enable debug logging"), PILL_ACCESSORY_TOGGLE,
+    items[1] = (pill_list_item_t){ TR("Wireless ADB"), PILL_ACCESSORY_TOGGLE,
+                                    current_settings.wireless_adb_enabled, NULL,
+                                    wireless_adb_switch_event_cb, NULL };
+    items[2] = (pill_list_item_t){ TR("Enable debug logging"), PILL_ACCESSORY_TOGGLE,
                                     current_settings.db_logging_enabled, NULL, db_logging_switch_event_cb, NULL };
-    items[2] = (pill_list_item_t){ screenshot_row_label(), PILL_ACCESSORY_TOGGLE,
+    items[3] = (pill_list_item_t){ screenshot_row_label(), PILL_ACCESSORY_TOGGLE,
                                     current_settings.screenshot_combo_enabled, NULL,
                                     screenshot_combo_switch_event_cb, NULL };
-    items[3] = (pill_list_item_t){ TR("Reboot to bootloader"), PILL_ACCESSORY_CHEVRON, false,
+    items[4] = (pill_list_item_t){ TR("Reboot to bootloader"), PILL_ACCESSORY_CHEVRON, false,
                                     reboot_to_boot_selector_row_cb, NULL, NULL };
     lv_obj_t * title, * list;
     lv_obj_t * scr = build_subsonic_list_screen(TR("Advanced"), &title, &list);
     add_section_header(list, TR("Developer"));
-    add_pill_list_rows(list, items, 4);
+    add_pill_list_rows(list, items, 5);
     add_section_header(list, TR("Maintenance"));
     add_pill_chevron_row(list, TR("Hostname"), hostname_row_cb);
     add_pill_chevron_row(list, TR("Factory reset"), factory_reset_btn_cb);

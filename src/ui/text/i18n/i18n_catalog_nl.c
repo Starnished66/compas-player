@@ -1372,6 +1372,7 @@ const i18n_entry_t i18n_entries_nl[] = {
     {"Wired", (const char * const[]){"Bekabeld"}, 1},
     {"Wired headphones", (const char * const[]){"Bedrade koptelefoon"}, 1},
     {"Wireless", (const char * const[]){"Draadloos"}, 1},
+    {"Wireless ADB", (const char * const[]){"Draadloze ADB"}, 1},
     {"Working...", (const char * const[]){"Bezig..."}, 1},
     {"Write a Lua plugin on your computer. Copy its .lua file to the .plugins folder on your SD card.", (const char * const[]){"Schrijf een Lua-plugin op je computer. Kopieer het .lua-bestand naar de map .plugins op je SD-kaart."}, 1},
     {"You can select up to 32 plugins", (const char * const[]){"Je kunt maximaal 32 plugins selecteren"}, 1},

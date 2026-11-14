@@ -139,6 +139,7 @@ static const pfield_t plain_fields[] = {
     PF("idle_suspend_enabled", PF_BOOL, idle_suspend_enabled),
     PF("idle_suspend_default_migrated", PF_BOOL, idle_suspend_default_migrated),
     PF("usb_mode", PF_INT, usb_mode),
+    PF("wireless_adb", PF_BOOL, wireless_adb_enabled),
     PF("usb_dac_mode", PF_BOOL, usb_dac_mode_enabled),
     PF("usb_dac_disable_charging", PF_BOOL, usb_dac_disable_charging),
     PF("play_mode", PF_INT, play_mode),
@@ -475,6 +476,7 @@ static void set_defaults(player_settings_t * out) {
     out->idle_suspend_enabled = true;
     out->idle_suspend_default_migrated = true; /* prevent older releases from re-migrating saved preferences */
     out->usb_mode = 0; /* USB_MODE_STORAGE -- see settings.h's own comment on why this is a plain int */
+    out->wireless_adb_enabled = false;
     out->usb_dac_mode_enabled = false;
     out->usb_dac_disable_charging = true;
     out->play_mode = 0; /* PLAY_MODE_SEQUENTIAL */

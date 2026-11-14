@@ -398,6 +398,8 @@ typedef struct {
      * explicit opt-in. Other modes start as Storage; usb_dac_mode_enabled
      * independently restores DAC only after host enumeration. */
     int usb_mode;
+    /* Wireless ADB (adbd on TCP 5555), off by default; see wireless_adb.h. */
+    bool wireless_adb_enabled;
     /* Saved USB DAC intent, independent of the currently bound gadget. */
     bool usb_dac_mode_enabled;
 

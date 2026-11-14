@@ -112,6 +112,9 @@ bool subprocess_start(char * const argv[], pid_t * out_pid);
  * Exposed for the host test. */
 bool subprocess_ps_line_is_command(const char * line, const char * name);
 
+/* True when a process named `name` (its /proc comm, at most 15 chars) runs. */
+bool subprocess_is_running(const char * name);
+
 /* SIGKILLs every process whose command name is `name` -- for a daemon/
  * script this app doesn't itself own the pid of (started detached via
  * subprocess_spawn_daemon(), by a stock shell script, or otherwise outside

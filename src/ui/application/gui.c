@@ -23,6 +23,7 @@
 #include "../effects/transition_compositor.h"
 #include "../../network/bluetooth/control/bluetooth_control.h"
 #include "../../hardware/device/headphone_status.h"
+#include "../../hardware/usb/wireless_adb.h"
 #include "../plugins/manage/gui_plugin_manage.h"
 #include "../plugins/manage/gui_plugin_store.h"
 #include "../plugins/emulators/gui_emulator_store.h"
@@ -312,6 +313,10 @@ static void reconcile_usb_mode_at_boot(void) {
     if (!usb_mode_control_reconcile_dac_session())
         fprintf(stderr, "gui: USB DAC session recovery incomplete; retaining conservative power policy\n");
 
+    /* Live or about to start, USB ADB owns the port; claimed before the boot
+     * switch so its result, success or failure, is the last word. */
+    wireless_adb_usb_adb_claim(current_settings.usb_mode == (int) USB_MODE_ADB);
+
     /* Gadget discovery is separate from saved DAC intent. Restoration waits
      * for host enumeration in the hotplug poll and never blocks startup. */
     if (!detected) {
@@ -322,6 +327,7 @@ static void reconcile_usb_mode_at_boot(void) {
             settings_save(&current_settings);
         }
     }
+    wireless_adb_sync(current_settings.wireless_adb_enabled);
     gui_network_usb_dac_boot_reconcile();
 }
 

@@ -1,6 +1,7 @@
 #include "subprocess.h"
 
 #include <dirent.h>
+#include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -367,6 +368,27 @@ bool subprocess_ps_line_is_command(const char * line, const char * name) {
         break;
     }
     return len == strlen(name) && memcmp(p, name, len) == 0;
+}
+
+bool subprocess_is_running(const char * name) {
+    DIR * proc = opendir("/proc");
+    if (!proc) return false;
+    bool found = false;
+    struct dirent * entry;
+    while (!found && (entry = readdir(proc))) {
+        if (entry->d_name[0] < '1' || entry->d_name[0] > '9') continue;
+        char path[300], comm[32];
+        snprintf(path, sizeof(path), "/proc/%s/comm", entry->d_name);
+        FILE * f = fopen(path, "r");
+        if (!f) continue;
+        if (fgets(comm, sizeof(comm), f)) {
+            comm[strcspn(comm, "\n")] = '\0';
+            found = strcmp(comm, name) == 0;
+        }
+        fclose(f);
+    }
+    closedir(proc);
+    return found;
 }
 
 void subprocess_kill_all_matching(const char * name) {

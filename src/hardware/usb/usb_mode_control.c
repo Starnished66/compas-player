@@ -6,6 +6,7 @@
 #include "../../core/storage/sd_fsck.h"
 #include "../../core/process/subprocess.h"
 #include "usb_dac_bridge.h"
+#include "wireless_adb.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -887,7 +888,11 @@ bool usb_mode_control_apply_with_status(usb_mode_t mode, bool * storage_busy) {
         fprintf(stderr, "usb_mode_control: mode switch rejected while SD write lease is active\n");
         return false;
     }
+    /* One adbd at a time: the TCP one steps aside before USB ADB starts and
+     * comes back after any other outcome, a failed ADB switch included. */
+    if (mode == USB_MODE_ADB) wireless_adb_usb_adb_claim(true);
     bool applied = usb_mode_control_apply_locked(mode);
+    wireless_adb_usb_adb_claim(mode == USB_MODE_ADB && applied);
     pthread_mutex_unlock(&usb_mode_mutex);
     return applied;
 }
