@@ -594,10 +594,12 @@ static lv_obj_t * text_entry_make_tile(lv_obj_t * pad, int col, int row, int32_t
  * with fewer keys gives the spare unit at each edge to its edge key (3 units)
  * so keys keep the same width and column positions on every page instead of
  * being stretched to fill the row, with no dead gap. Row 4 is the same
- * shape on every page: page key 3 units (the "abc" label needs that width on
- * every board), second mode key 2, arrows 2, Space 7, Enter 4; the second key
+ * shape on every page: first mode key 3 units, second mode key 2, arrows 2,
+ * Space 7, Enter 4; on V1's Cyrillic page "abc" borrows one unit from Space.
+ * The second key
  * is drawn checked on the accents page, where it names the current page. */
 #define QWERTY_ROW4_CTRL(other_key) QWERTY_FUNC(3), other_key, QWERTY_FUNC(2), QWERTY_FUNC(7), QWERTY_FUNC(2), QWERTY_CHECKED(4)
+#define QWERTY_ROW4_CTRL_CYRILLIC QWERTY_FUNC(3), QWERTY_FUNC(3), QWERTY_FUNC(2), QWERTY_FUNC(6), QWERTY_FUNC(2), QWERTY_CHECKED(4)
 #define QWERTY_ROW4(mode_key, other_key) mode_key, other_key, QWERTY_KEY_LEFT, QWERTY_KEY_SPACE, QWERTY_KEY_RIGHT, QWERTY_KEY_ENTER
 
 /* Letters: 10 columns; the 9-key middle row's a and l are 3 units wide. */
@@ -701,7 +703,11 @@ static const lv_buttonmatrix_ctrl_t qwerty_ctrl_cyrillic[] = {
     QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2),
     QWERTY_CHAR(3), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(3),
     QWERTY_FUNC(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_CHAR(2), QWERTY_BACKSPACE(2),
+#if BOARD_TEMPOTEC_V1
+    QWERTY_ROW4_CTRL_CYRILLIC,
+#else
     QWERTY_ROW4_CTRL(QWERTY_FUNC(2)),
+#endif
 };
 static const char * const qwerty_map_russian_lower[] = {
     "й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ъ", "\n",
