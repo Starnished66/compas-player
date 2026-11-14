@@ -59,6 +59,7 @@ const uint32_t accent_palette[ACCENT_PALETTE_COUNT] = {
 /* Effective accent (see accent_lv_color()) and the last cover's color. */
 static uint32_t accent_rgb = DEFAULT_ACCENT_COLOR;
 static bool cover_accent_valid;
+static bool cover_accent_known;
 static uint32_t cover_accent;
 
 extern player_settings_t current_settings;
@@ -103,7 +104,7 @@ uint32_t gui_anim_ms(uint32_t base_ms) {
 
 static uint32_t resolve_accent(void) {
     if (current_settings.accent_dynamic && cover_accent_valid) return cover_accent;
-    if (current_settings.accent_dynamic && current_settings.accent_dynamic_color_valid)
+    if (current_settings.accent_dynamic && !cover_accent_known && current_settings.accent_dynamic_color_valid)
         return current_settings.accent_dynamic_color & 0xFFFFFF;
     return current_settings.accent_color & 0xFFFFFF;
 }
@@ -230,7 +231,9 @@ void gui_theme_set_accent_dynamic(bool on) {
 }
 
 void gui_theme_set_cover_accent(bool valid, uint32_t rgb) {
-    if (valid == cover_accent_valid && (!valid || rgb == cover_accent)) return;
+    if (cover_accent_known && valid == cover_accent_valid && (!valid || rgb == cover_accent)) return;
+    /* Keep the saved boot color only until the first artwork result. */
+    cover_accent_known = true;
     cover_accent_valid = valid;
     cover_accent = valid ? (rgb & 0xFFFFFF) : 0;
     if (current_settings.accent_dynamic && valid) {
@@ -312,4 +315,3 @@ void gui_theme_reload_styles(void) {
     init_style_objects();
     screen_builders_refresh_font_geometry(NULL);
 }
-
