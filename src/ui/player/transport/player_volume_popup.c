@@ -11,6 +11,7 @@
 #include "../../input/hw_volume_coalesce.h"
 #include "../layout/player_layout_internal.h"
 #include "../../../core/persistence/settings.h"
+#include <string.h>
 
 extern lv_obj_t * volume_slider;
 
@@ -24,6 +25,7 @@ static lv_obj_t * volume_popup_speaker_icon = NULL;
 static lv_obj_t * volume_popup_value_label = NULL;
 static lv_timer_t * volume_popup_hide_timer = NULL;
 static asset_decoded_image_t volume_popup_speaker_image;
+static const char * volume_popup_output_src = NULL;
 
 void poll_volume_popup_timeout(void) {
     if (volume_popup && !lv_obj_has_flag(volume_popup, LV_OBJ_FLAG_HIDDEN)) {
@@ -44,6 +46,15 @@ static void volume_popup_hide_timer_cb(lv_timer_t * timer) {
 
 static const char * volume_popup_output_icon_src(void) {
     return gui_shell_output_icon_src(topbar_icon("headphones"));
+}
+
+static void volume_popup_refresh_output_icon(void) {
+    const char * src = volume_popup_output_icon_src();
+    if (volume_popup_output_icon && volume_popup_output_src != src &&
+        (!volume_popup_output_src || !src || strcmp(volume_popup_output_src, src) != 0)) {
+        lv_image_set_src(volume_popup_output_icon, src);
+        volume_popup_output_src = src;
+    }
 }
 
 static void volume_popup_output_event_cb(lv_event_t * e) {
@@ -119,6 +130,10 @@ bool gui_player_volume_control_hit_test(lv_point_t point) {
         lv_obj_has_flag(volume_popup, LV_OBJ_FLAG_HIDDEN)) return false;
     lv_area_t area;
     lv_obj_get_coords(volume_popup_track, &area);
+    area.x1 -= 24;
+    area.x2 += 24;
+    area.y1 -= 24;
+    area.y2 += 24;
     if (point.x >= area.x1 && point.x <= area.x2 &&
         point.y >= area.y1 && point.y <= area.y2) return true;
     if (!volume_popup_output_button) return false;
@@ -133,13 +148,15 @@ bool gui_player_volume_control_hit_test(lv_point_t point) {
 #define VOLUME_PILL_H BOARD_SCALE_PY(405)
 #define VOLUME_BUTTON BOARD_SCALE_PX(76)
 #define VOLUME_GAP BOARD_SCALE_PY(12)
+#define VOLUME_CLICK_EXT 24
 
 /* The pill and Output button share one transparent top-layer column. */
 void player_volume_popup_init(void) {
     volume_popup = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(volume_popup);
-    lv_obj_set_size(volume_popup, VOLUME_PILL_W, VOLUME_PILL_H + VOLUME_GAP + VOLUME_BUTTON);
-    lv_obj_align(volume_popup, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(14), BOARD_SCALE_PY(10));
+    lv_obj_set_size(volume_popup, VOLUME_PILL_W + 2 * VOLUME_CLICK_EXT,
+                    VOLUME_PILL_H + VOLUME_GAP + VOLUME_BUTTON + 2 * VOLUME_CLICK_EXT);
+    lv_obj_align(volume_popup, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(14) + VOLUME_CLICK_EXT, BOARD_SCALE_PY(10));
     lv_obj_remove_flag(volume_popup, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(volume_popup, LV_OBJ_FLAG_HIDDEN);
 
@@ -152,9 +169,10 @@ void player_volume_popup_init(void) {
         .value_format = "%d", .event_cb = volume_popup_track_event_cb
     });
     volume_popup_track = ui.slider;
+    lv_obj_set_ext_click_area(volume_popup_track, VOLUME_CLICK_EXT);
     volume_popup_value_label = ui.label;
     volume_popup_speaker_icon = ui.icon;
-    lv_obj_align(volume_popup_track, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_align(volume_popup_track, LV_ALIGN_TOP_MID, 0, VOLUME_CLICK_EXT);
     player_fit_small_screen_icon(volume_popup_speaker_icon, 30);
 
     volume_popup_output_button = lv_obj_create(volume_popup);
@@ -166,7 +184,8 @@ void player_volume_popup_init(void) {
     lv_obj_align_to(volume_popup_output_button, volume_popup_track, LV_ALIGN_OUT_BOTTOM_MID, 0, VOLUME_GAP);
     lv_obj_add_event_cb(volume_popup_output_button, volume_popup_output_event_cb, LV_EVENT_ALL, NULL);
     volume_popup_output_icon = lv_image_create(volume_popup_output_button);
-    lv_image_set_src(volume_popup_output_icon, volume_popup_output_icon_src());
+    volume_popup_output_src = NULL;
+    volume_popup_refresh_output_icon();
     lv_obj_add_style(volume_popup_output_icon, &style_theme_text_primary, 0);
     /* 28 px art drawn at 42 px on the 480-wide reference, smaller on narrower panels. */
     lv_image_set_scale(volume_popup_output_icon,
@@ -194,7 +213,7 @@ void show_volume_popup(int32_t percent) {
     /* Keep modal surfaces and the moving drawer above the pill. */
     if (!gui_popup_backdrop_visible() && !gui_shell_quick_drawer_visible())
         lv_obj_move_foreground(volume_popup);
-    lv_image_set_src(volume_popup_output_icon, volume_popup_output_icon_src());
+    volume_popup_refresh_output_icon();
     if (volume_popup_hide_timer && !dragged &&
         !lv_obj_has_state(volume_popup_track, LV_STATE_PRESSED) &&
         !lv_obj_has_state(volume_popup_output_button, LV_STATE_PRESSED)) {
@@ -226,6 +245,7 @@ void player_volume_popup_teardown(void) {
     if (volume_popup) { lv_obj_delete(volume_popup); volume_popup = NULL; }
     volume_popup_output_button = NULL;
     volume_popup_output_icon = NULL;
+    volume_popup_output_src = NULL;
     volume_popup_speaker_icon = NULL;
     volume_popup_value_label = NULL;
     asset_decoded_image_close(&volume_popup_speaker_image);
@@ -234,7 +254,7 @@ void player_volume_popup_teardown(void) {
 
 void player_volume_popup_refresh_assets(void) {
     if (!volume_popup) return;
-    lv_image_set_src(volume_popup_output_icon, volume_popup_output_icon_src());
+    volume_popup_refresh_output_icon();
     asset_decoded_image_close(&volume_popup_speaker_image);
     const void * speaker = asset_decoded_image_open(&volume_popup_speaker_image, "volume/vol.png")
                          ? asset_decoded_image_source(&volume_popup_speaker_image) : NULL;
