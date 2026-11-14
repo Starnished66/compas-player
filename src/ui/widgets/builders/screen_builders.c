@@ -634,7 +634,7 @@ void ui_marquees_sync(bool screen_on) {
     marquees_screen_on = screen_on;
     if (woke) {
         marquee_screen_shown(lv_screen_active(), true);
-        ui_restart_marquees(lv_layer_top());
+        marquee_screen_shown(lv_layer_top(), true);
     }
     pause_hidden_marquees();
 }
