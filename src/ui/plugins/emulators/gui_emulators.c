@@ -91,11 +91,6 @@ static void show_message_or_list(lv_obj_t * list, lv_obj_t * message, bool show_
 }
 
 #ifndef HOST_BUILD
-static bool dac_mode_active(void) {
-    return current_settings.wifi_dac_mode_enabled || current_settings.bt_dac_mode_enabled ||
-           current_settings.usb_mode == USB_MODE_DAC;
-}
-
 /* The player's environment plus the two variables of the emulator contract.
  * Free with free(); the strings are static. */
 static char ** emulator_environment(void) {
@@ -203,7 +198,7 @@ static void launch_game(const emulator_manifest_t * emulator, const char * path)
         show_info_toast(TR("Check the SD card and disconnect USB storage before playing."));
         return;
     }
-    if (dac_mode_active()) {
+    if (gui_network_dac_mode_active()) {
         show_info_toast(TR("Turn off DAC mode to play games."));
         return;
     }

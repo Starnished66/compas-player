@@ -56,13 +56,6 @@ typedef struct {
     bool has_file;
 } launch_request_t;
 
-#ifndef HOST_BUILD
-static bool dac_mode_active(void) {
-    return current_settings.wifi_dac_mode_enabled || current_settings.bt_dac_mode_enabled ||
-           current_settings.usb_mode == USB_MODE_DAC;
-}
-#endif
-
 static bool approval_show(const app_manifest_t * app, const char * file, const char * sha);
 
 /* Runs the app with the emulators' guards: SD card, USB storage, DAC mode,
@@ -82,7 +75,7 @@ static void launch_now(const char * app_id, const char * file) {
         show_info_toast(TR("Check the SD card and disconnect USB storage before running apps."));
         return;
     }
-    if (dac_mode_active()) {
+    if (gui_network_dac_mode_active()) {
         show_info_toast(TR("Turn off DAC mode to run apps."));
         return;
     }

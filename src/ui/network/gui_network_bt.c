@@ -162,7 +162,7 @@ static void * bt_connect_thread_func(void * arg) {
 }
 
 static void start_bt_connect(const char * mac) {
-    if (current_settings.bt_dac_mode_enabled) {
+    if (gui_network_bt_dac_active()) {
         show_info_toast(TR("Pause Bluetooth DAC to connect a device"));
         return;
     }

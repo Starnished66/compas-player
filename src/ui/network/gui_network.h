@@ -2,6 +2,9 @@
 #include <lvgl/lvgl.h>
 #include "../../hardware/usb/usb_mode_control.h"
 
+/* Shared DAC guard for external apps and emulators. */
+bool gui_network_dac_mode_active(void);
+
 /* Screen accessors */
 lv_obj_t * gui_network_get_wifi_screen(void);
 lv_obj_t * gui_network_get_bt_screen(void);

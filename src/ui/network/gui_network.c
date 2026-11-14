@@ -6,6 +6,11 @@
 
 static lv_obj_t * wireless_screen;
 
+bool gui_network_dac_mode_active(void) {
+    return current_settings.wifi_dac_mode_enabled || gui_network_bt_dac_active() ||
+           current_settings.usb_mode == USB_MODE_DAC;
+}
+
 void configure_network_row_line(lv_obj_t * label, int32_t width, const lv_font_t * font) {
     lv_obj_set_width(label, width);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
