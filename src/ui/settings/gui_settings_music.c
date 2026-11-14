@@ -311,7 +311,7 @@ static void populate_dac_settings_screen(void) {
     if (lv_obj_get_child_count(dac_settings_list) != 0) {
         gui_option_menu_set_selected(dac_filter_menu, (unsigned)current_settings.dac_filter);
         bool nos = native_dac_nos_supported() && current_settings.dac_nos;
-        lv_obj_set_state(dac_filter_menu, LV_STATE_DISABLED, nos);
+        if (dac_filter_menu) lv_obj_set_state(dac_filter_menu, LV_STATE_DISABLED, nos);
         if (dac_nos_hint) lv_obj_set_flag(dac_nos_hint, LV_OBJ_FLAG_HIDDEN, !nos);
         gui_pill_toggle_row_set_checked(dac_nos_row, nos);
         gui_pill_toggle_row_set_checked(dac_dre_row, current_settings.dac_dre);
@@ -328,7 +328,7 @@ static void populate_dac_settings_screen(void) {
     if (native_dac_nos_supported()) {
         dac_nos_hint = add_wrapped_section_header(dac_settings_list, TR("Turn off NOS to choose a filter"));
         lv_obj_set_flag(dac_nos_hint, LV_OBJ_FLAG_HIDDEN, !current_settings.dac_nos);
-        lv_obj_set_state(dac_filter_menu, LV_STATE_DISABLED, current_settings.dac_nos);
+        if (dac_filter_menu) lv_obj_set_state(dac_filter_menu, LV_STATE_DISABLED, current_settings.dac_nos);
         dac_nos_row = add_pill_toggle_row(dac_settings_list, TR("NOS mode"),
                                         current_settings.dac_nos, dac_nos_event_cb);
         wrap_row_label(dac_nos_row);

@@ -1041,6 +1041,13 @@ void compact_list_set_empty_heading(lv_obj_t * list, const char * heading) {
 void compact_list_set_items(lv_obj_t * list, const compact_list_item_t * items, int item_count) {
     COMPACT_LIST_DATA_OR_RETURN("set_items");
 
+    compact_list_item_t * copy = NULL;
+    if (item_count > 0) {
+        copy = malloc(sizeof(*copy) * (size_t) item_count);
+        if (!copy) return;
+        memcpy(copy, items, sizeof(*copy) * (size_t) item_count);
+    }
+
     compact_list_cancel_pending_job(data);
     data->bind_gen++;
     /* The press stays on record (the release rejects it); only its deferred notice is withdrawn. */
@@ -1052,11 +1059,7 @@ void compact_list_set_items(lv_obj_t * list, const compact_list_item_t * items, 
     data->cache_requested_count = 0;
 
     free(data->items);
-    data->items = NULL;
-    if (item_count > 0) {
-        data->items = malloc(sizeof(compact_list_item_t) * (size_t) item_count);
-        memcpy(data->items, items, sizeof(compact_list_item_t) * (size_t) item_count);
-    }
+    data->items = copy;
     data->item_count = item_count;
     compact_list_apply_paged_header(data);
     data->window_start = -1; /* force compact_list_update_window() below to actually repaint */

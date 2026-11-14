@@ -743,6 +743,7 @@ static const char * option_text(option_menu_row_t * ctx, unsigned index, size_t 
     return start;
 }
 void gui_option_menu_set_selected(lv_obj_t * row, unsigned selected) {
+    if (!row) return;
     option_menu_row_t * ctx = lv_obj_get_user_data(row);
     ctx->selected = selected;
     size_t len;
@@ -776,6 +777,7 @@ void gui_option_menu_open(lv_obj_t * row) {
         size_t len;
         const char * text = option_text(ctx, i, &len);
         char * label = lv_malloc(len + 1);
+        if (!label) continue;
         memcpy(label, text, len); label[len] = 0;
         lv_obj_t * row = add_pill_option_row(option_popup.popup, label, i == ctx->selected,
                                             option_selected, (void *)(uintptr_t)i);
@@ -807,7 +809,9 @@ static void option_row_deleted(lv_event_t * e) {
 lv_obj_t * add_pill_option_menu_row(lv_obj_t * parent, const char * title,
     const char * options, unsigned selected, gui_option_selected_cb_t callback) {
     option_menu_row_t * ctx = lv_malloc(sizeof(*ctx));
+    if (!ctx) return NULL;
     ctx->options = lv_malloc(strlen(options) + 1);
+    if (!ctx->options) { lv_free(ctx); return NULL; }
     strcpy(ctx->options, options);
     ctx->callback = callback;
     ctx->row = add_pill_chevron_row(parent, title, NULL);
