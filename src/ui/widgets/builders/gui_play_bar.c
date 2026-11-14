@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 static int play_bar_marker;
+static int play_buttons_marker;
 
 static lv_color_t play_label_color(void) {
     return lv_color_brightness(accent_lv_color()) > 160 ? lv_color_hex(GUI_BREEZE_TEXT_ON_LIGHT) : lv_color_white();
@@ -63,8 +64,8 @@ static void pills_fit(lv_obj_t * const * pills, uint32_t n) {
     }
 }
 
-lv_obj_t * gui_pill_button(lv_obj_t * parent, int32_t w, int32_t h, const char * text, bool filled,
-                           lv_event_cb_t cb, void * user_data) {
+static lv_obj_t * pill_button_create(lv_obj_t * parent, int32_t w, int32_t h, const char * text, bool filled,
+                                     lv_event_cb_t cb, void * user_data, bool fit_label) {
     lv_obj_t * button = plain(parent);
     lv_obj_set_size(button, w, h);
     lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, 0);
@@ -83,9 +84,14 @@ lv_obj_t * gui_pill_button(lv_obj_t * parent, int32_t w, int32_t h, const char *
         lv_obj_set_style_border_opa(button, LV_OPA_COVER, 0);
         lv_obj_add_style(label, &style_theme_text_primary, 0);
     }
-    pills_fit(&button, 1);
+    if (fit_label) pills_fit(&button, 1);
     if (cb) lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, user_data);
     return button;
+}
+
+lv_obj_t * gui_pill_button(lv_obj_t * parent, int32_t w, int32_t h, const char * text, bool filled,
+                           lv_event_cb_t cb, void * user_data) {
+    return pill_button_create(parent, w, h, text, filled, cb, user_data, true);
 }
 
 lv_obj_t * gui_play_buttons_build(lv_obj_t * parent, int32_t row_w, lv_event_cb_t play_cb, void * play_data,
@@ -93,14 +99,15 @@ lv_obj_t * gui_play_buttons_build(lv_obj_t * parent, int32_t row_w, lv_event_cb_
     int32_t bgap = BOARD_SCALE_PX(12), bw = (row_w - bgap) / 2;
     int32_t bh = pill_height();
     lv_obj_t * buttons = plain(parent);
+    lv_obj_set_user_data(buttons, &play_buttons_marker);
     lv_obj_set_size(buttons, row_w, bh);
     lv_obj_set_style_pad_column(buttons, bgap, 0);
     lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
     char play[64], shuffle[64];
     snprintf(play, sizeof(play), LV_SYMBOL_PLAY "  %s", TR("Play"));
     snprintf(shuffle, sizeof(shuffle), LV_SYMBOL_SHUFFLE "  %s", TR("Shuffle"));
-    lv_obj_t * pills[] = { gui_pill_button(buttons, bw, bh, play, true, play_cb, play_data),
-                           gui_pill_button(buttons, bw, bh, shuffle, false, shuffle_cb, shuffle_data) };
+    lv_obj_t * pills[] = { pill_button_create(buttons, bw, bh, play, true, play_cb, play_data, false),
+                           pill_button_create(buttons, bw, bh, shuffle, false, shuffle_cb, shuffle_data, false) };
     pills_fit(pills, 2);
     return buttons;
 }
@@ -126,16 +133,13 @@ lv_obj_t * gui_play_bar_build(lv_obj_t * parent, int32_t row_w, const char * cou
 }
 
 bool gui_play_bar_is(const lv_obj_t * obj) {
-    return obj && lv_obj_get_user_data((lv_obj_t *) obj) == &play_bar_marker;
+    if (!obj) return false;
+    void * marker = lv_obj_get_user_data((lv_obj_t *) obj);
+    return marker == &play_bar_marker || marker == &play_buttons_marker;
 }
 
-void gui_play_bar_restyle(lv_obj_t * root) {
-    if (!gui_play_bar_is(root) || lv_obj_get_child_count(root) < 2) return;
-    lv_obj_t * count = lv_obj_get_child(root, 0);
-    lv_obj_t * buttons = lv_obj_get_child(root, 1);
-    const lv_font_t * body = gui_theme_font(GUI_FONT_ROLE_BODY);
-    lv_obj_set_style_text_font(count, body, 0);
-    lv_obj_set_height(count, lv_font_get_line_height(body));
+static void play_buttons_restyle(lv_obj_t * buttons) {
+    if (!buttons || lv_obj_get_child_count(buttons) < 1) return;
     int32_t bh = pill_height();
     lv_obj_set_height(buttons, bh);
     lv_obj_t * pills[2];
@@ -147,5 +151,21 @@ void gui_play_bar_restyle(lv_obj_t * root) {
     pills_fit(pills, n);
     lv_obj_t * play_label = n ? lv_obj_get_child(pills[0], 0) : NULL;
     if (play_label) lv_obj_set_style_text_color(play_label, play_label_color(), 0);
-    lv_obj_update_layout(root);
+    lv_obj_t * parent = lv_obj_get_parent(buttons);
+    if (parent) lv_obj_update_layout(parent);
+}
+
+void gui_play_bar_restyle(lv_obj_t * root) {
+    if (!gui_play_bar_is(root)) return;
+    if (lv_obj_get_user_data(root) == &play_buttons_marker) {
+        play_buttons_restyle(root);
+        return;
+    }
+    if (lv_obj_get_child_count(root) < 2) return;
+    lv_obj_t * count = lv_obj_get_child(root, 0);
+    lv_obj_t * buttons = lv_obj_get_child(root, 1);
+    const lv_font_t * body = gui_theme_font(GUI_FONT_ROLE_BODY);
+    lv_obj_set_style_text_font(count, body, 0);
+    lv_obj_set_height(count, lv_font_get_line_height(body));
+    play_buttons_restyle(buttons);
 }

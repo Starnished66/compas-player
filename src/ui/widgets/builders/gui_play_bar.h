@@ -18,7 +18,7 @@ lv_obj_t * gui_play_buttons_build(lv_obj_t * parent, int32_t row_w, lv_event_cb_
 lv_obj_t * gui_play_bar_build(lv_obj_t * parent, int32_t row_w, const char * count_text,
                               lv_event_cb_t play_cb, lv_event_cb_t shuffle_cb);
 
-/* True for a bar made by gui_play_bar_build(). */
+/* True for a bar or shared Play / Shuffle row built by this module. */
 bool gui_play_bar_is(const lv_obj_t * obj);
 
 /* Re-applies the fonts, pill heights and the Play label colour of a long-lived bar after a text size, font

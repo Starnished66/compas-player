@@ -55,6 +55,7 @@ typedef struct {
     int32_t requested_row_height;
     int32_t row_stride;
     int32_t top_offset; /* height of the header above the first row (compact_list_set_header()); 0 without one */
+    lv_obj_t * header; /* current non-paged header, if any */
     lv_obj_t * paged_header; /* compact_list_set_paged_header(): shown only while a provider feeds the list */
     int32_t paged_header_height;
     uint32_t magic; /* COMPACT_LIST_MAGIC while alive; cleared on delete (stale-list guard) */
@@ -1511,18 +1512,34 @@ void compact_list_set_row_height(lv_obj_t * list, int32_t row_height) {
     compact_list_update_window(list, data);
 }
 
+static void compact_list_restyle_play_controls(lv_obj_t * obj) {
+    if (gui_play_bar_is(obj)) {
+        gui_play_bar_restyle(obj);
+        return;
+    }
+    int32_t children = lv_obj_get_child_count(obj);
+    for (int32_t i = 0; i < children; i++)
+        compact_list_restyle_play_controls(lv_obj_get_child(obj, i));
+}
+
 void compact_list_refresh_font_layout(lv_obj_t * list) {
     compact_list_virtual_data_t * data = lv_obj_get_user_data(list);
     if (!data) return;
     int32_t old_stride = data->row_stride;
     int32_t old_y = lv_obj_get_scroll_y(list);
+    int32_t old_header_height = data->header ? lv_obj_get_height(data->header) : 0;
     compact_list_set_row_height(list, data->requested_row_height);
     if (old_stride != data->row_stride)
         lv_obj_scroll_to_y(list, (int32_t)((int64_t)old_y * data->row_stride / old_stride), LV_ANIM_OFF);
-    if (data->paged_header && gui_play_bar_is(data->paged_header)) {
-        gui_play_bar_restyle(data->paged_header);
+    /* Artist headers are regular list children, while the library Play / Shuffle
+     * bars are stored as paged_header. Refresh any marked play controls in either
+     * shape after a font-tier change. */
+    compact_list_restyle_play_controls(list);
+    if (data->paged_header)
         compact_list_set_paged_header(list, data->paged_header, lv_obj_get_height(data->paged_header));
-    }
+    else if (data->header)
+        compact_list_set_header(list, data->header,
+            data->top_offset + lv_obj_get_height(data->header) - old_header_height);
     compact_list_refresh_visible(list);
 }
 
@@ -1551,6 +1568,7 @@ void compact_list_set_header(lv_obj_t * list, lv_obj_t * header, int32_t height)
     COMPACT_LIST_DATA_OR_RETURN("set_header");
     if (height < 0 || !header) height = 0;
     int32_t old_top = data->top_offset;
+    data->header = height > 0 ? header : NULL;
     data->top_offset = height;
     if (header) {
         int32_t x = (lv_display_get_horizontal_resolution(lv_display_get_default()) - lv_obj_get_width(header)) / 2;
