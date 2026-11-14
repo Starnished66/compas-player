@@ -158,7 +158,7 @@ static void format_idle_shutdown(char * buf, size_t buf_size, int minutes) {
         snprintf(buf, buf_size, TR("%d min"), minutes);
         return;
     }
-    snprintf(buf, buf_size, TR("%d h"), minutes / 60);
+    snprintf(buf, buf_size, TR("%d hr"), minutes / 60);
 }
 
 static int idle_shutdown_minutes_to_step_index(int minutes) {
