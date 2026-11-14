@@ -249,6 +249,7 @@ const i18n_entry_t i18n_entries_ja[] = {
     {"Connecting to server...", (const char * const[]){"サーバーに接続中…"}, 1},
     {"Connection PIN", (const char * const[]){"接続PIN"}, 1},
     {"Connection failed", (const char * const[]){"接続に失敗しました"}, 1},
+    {"Connections", (const char * const[]){"接続"}, 1},
     {"Container", (const char * const[]){"コンテナ"}, 1},
     {"Continue", (const char * const[]){"続行"}, 1},
     {"Continue Playing", (const char * const[]){"再生を続ける"}, 1},

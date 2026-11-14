@@ -249,6 +249,7 @@ const i18n_entry_t i18n_entries_vi[] = {
     {"Connecting to server...", (const char * const[]){"Đang kết nối với máy chủ..."}, 1},
     {"Connection PIN", (const char * const[]){"Mã PIN kết nối"}, 1},
     {"Connection failed", (const char * const[]){"Kết nối không thành công"}, 1},
+    {"Connections", (const char * const[]){"Kết nối"}, 1},
     {"Container", (const char * const[]){"Định dạng chứa"}, 1},
     {"Continue", (const char * const[]){"Tiếp tục"}, 1},
     {"Continue Playing", (const char * const[]){"Tiếp tục phát"}, 1},
