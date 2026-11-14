@@ -88,6 +88,7 @@ void unregister_swipe_dead_zone(lv_obj_t * obj);
 /* For gui_reload.c's in-process UI reload -- see its own comment. Must run
  * before any screen's sliders are actually deleted. */
 void reset_swipe_dead_zones(void);
+bool gui_shell_quick_drawer_visible(void);
 void open_quick_drawer(void);
 void close_quick_drawer(void);
 

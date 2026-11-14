@@ -445,6 +445,12 @@ int32_t quick_drawer_motion_y(void) {
     if (quick_drawer_direct_motion) return quick_drawer_direct_y;
     return lv_obj_get_y(quick_drawer_bitmap_motion ? quick_drawer_motion_image : quick_drawer);
 }
+bool gui_shell_quick_drawer_visible(void) {
+    return quick_drawer && (quick_drawer_open || quick_drawer_bitmap_motion ||
+        quick_drawer_direct_motion || quick_drawer_motion_y() >
+        -lv_display_get_vertical_resolution(lv_display_get_default()));
+}
+
 static void quick_drawer_schedule_snapshot_retry(void);
 static void quick_drawer_free_motion_buf(void) {
     if (!quick_drawer_motion_buf) return;

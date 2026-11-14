@@ -191,7 +191,9 @@ void show_volume_popup(int32_t percent) {
         if (volume_popup_value_label) lv_label_set_text_fmt(volume_popup_value_label, "%d", (int) percent);
     }
     lv_obj_remove_flag(volume_popup, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(volume_popup);
+    /* Keep modal surfaces and the moving drawer above the pill. */
+    if (!gui_popup_backdrop_visible() && !gui_shell_quick_drawer_visible())
+        lv_obj_move_foreground(volume_popup);
     lv_image_set_src(volume_popup_output_icon, volume_popup_output_icon_src());
     if (volume_popup_hide_timer && !dragged &&
         !lv_obj_has_state(volume_popup_track, LV_STATE_PRESSED) &&
