@@ -106,6 +106,7 @@ const i18n_entry_t i18n_entries_uk[] = {
     {"April", (const char * const[]){"Квітень"}, 1},
     {"Arctic", (const char * const[]){"Арктика"}, 1},
     {"Artist pages", (const char * const[]){"Сторінки виконавців"}, 1},
+    {"Artist unavailable", (const char * const[]){"Виконавець недоступний"}, 1},
     {"Artists", (const char * const[]){"Виконавці"}, 1},
     {"Asia", (const char * const[]){"Азія"}, 1},
     {"Atlantic", (const char * const[]){"Атлантика"}, 1},

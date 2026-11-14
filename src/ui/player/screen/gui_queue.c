@@ -12,6 +12,7 @@
 #include "../../widgets/builders/screen_builders.h"
 #include "../../../library/metadata/parsing/metadata.h"
 #include "../../../library/parsers/cue/cue_parser.h"
+#include "../../../library/browser/paths/library_paths.h"
 #include "../../../library/remote/remote_track.h"
 #include "../../assets/assets.h"
 #include "../../text/rendering/fallback_font.h"
@@ -563,15 +564,17 @@ static void song_context_menu_favorite_cb(lv_event_t * e) {
 static void song_context_menu_album_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_song_context_menu_popup();
-    if (song_context_menu_target_path[0])
-        (void) gui_library_open_now_playing_group(song_context_menu_target_path, true);
+    if (song_context_menu_target_path[0] &&
+        !gui_library_open_now_playing_group(song_context_menu_target_path, true))
+        show_info_toast(TR("Album unavailable"));
 }
 
 static void song_context_menu_artist_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     hide_song_context_menu_popup();
-    if (song_context_menu_target_path[0])
-        (void) gui_library_open_now_playing_group(song_context_menu_target_path, false);
+    if (song_context_menu_target_path[0] &&
+        !gui_library_open_now_playing_group(song_context_menu_target_path, false))
+        show_info_toast(TR("Artist unavailable"));
 }
 
 static void song_context_menu_information_cb(lv_event_t * e) {
@@ -616,10 +619,24 @@ void open_song_context_menu_stream(const char * path, void (*queue_cb)(bool next
 }
 
 static unsigned int song_menu_supported_capabilities(const char * path) {
-    if (!path || (!is_http_url(path) && !remote_track_path_is_remote(path)))
-        return SONG_MENU_ALL;
-    const char * current = gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
-    return current && strcmp(current, path) == 0 ? SONG_MENU_PLAYBACK | SONG_MENU_INFORMATION : SONG_MENU_PLAYBACK;
+    if (!path || is_http_url(path) || remote_track_path_is_remote(path)) {
+        const char * current = gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
+        return current && strcmp(current, path ? path : "") == 0
+            ? SONG_MENU_PLAYBACK | SONG_MENU_INFORMATION : SONG_MENU_PLAYBACK;
+    }
+    char cue_source[600];
+    unsigned cue_ordinal;
+    if (cue_reference_parse(path, cue_source, sizeof(cue_source), &cue_ordinal))
+        return SONG_MENU_ALL & ~SONG_MENU_NAVIGATION;
+    /* A local path outside the mounted music root cannot be a tagcache row.
+     * Keep this a lexical check so opening a menu never waits on the DB lock. */
+    size_t path_len = strlen(path);
+    size_t root_len = strlen(MUSIC_ROOT_DIR);
+    if (path_len < root_len) return SONG_MENU_ALL & ~SONG_MENU_NAVIGATION;
+    if (strncmp(path, MUSIC_ROOT_DIR, root_len) != 0 ||
+        (path[root_len] != '\0' && path[root_len] != '/' && path[root_len] != '#'))
+        return SONG_MENU_ALL & ~SONG_MENU_NAVIGATION;
+    return SONG_MENU_ALL;
 }
 
 void open_song_context_menu_with_rows(const char * path, unsigned int capabilities,

@@ -106,6 +106,7 @@ const i18n_entry_t i18n_entries_fi[] = {
     {"April", (const char * const[]){"huhtikuu"}, 1},
     {"Arctic", (const char * const[]){"Arktinen alue"}, 1},
     {"Artist pages", (const char * const[]){"Esittäjäsivut"}, 1},
+    {"Artist unavailable", (const char * const[]){"Esittäjä ei ole käytettävissä"}, 1},
     {"Artists", (const char * const[]){"Esittäjät"}, 1},
     {"Asia", (const char * const[]){"Aasia"}, 1},
     {"Atlantic", (const char * const[]){"Atlantti"}, 1},

@@ -106,6 +106,7 @@ const i18n_entry_t i18n_entries_zh_CN[] = {
     {"April", (const char * const[]){"四月"}, 1},
     {"Arctic", (const char * const[]){"北极"}, 1},
     {"Artist pages", (const char * const[]){"艺术家页面"}, 1},
+    {"Artist unavailable", (const char * const[]){"艺术家不可用"}, 1},
     {"Artists", (const char * const[]){"艺术家"}, 1},
     {"Asia", (const char * const[]){"亚洲"}, 1},
     {"Atlantic", (const char * const[]){"大西洋"}, 1},

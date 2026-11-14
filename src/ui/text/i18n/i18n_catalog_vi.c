@@ -106,6 +106,7 @@ const i18n_entry_t i18n_entries_vi[] = {
     {"April", (const char * const[]){"Tháng 4"}, 1},
     {"Arctic", (const char * const[]){"Bắc Cực"}, 1},
     {"Artist pages", (const char * const[]){"Trang nghệ sĩ"}, 1},
+    {"Artist unavailable", (const char * const[]){"Nghệ sĩ không có sẵn"}, 1},
     {"Artists", (const char * const[]){"Nghệ sĩ"}, 1},
     {"Asia", (const char * const[]){"Châu Á"}, 1},
     {"Atlantic", (const char * const[]){"Đại Tây Dương"}, 1},

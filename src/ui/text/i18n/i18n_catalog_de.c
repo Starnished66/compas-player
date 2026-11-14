@@ -106,6 +106,7 @@ const i18n_entry_t i18n_entries_de[] = {
     {"April", (const char * const[]){"April"}, 1},
     {"Arctic", (const char * const[]){"Arktis"}, 1},
     {"Artist pages", (const char * const[]){"Künstlerseiten"}, 1},
+    {"Artist unavailable", (const char * const[]){"Künstler nicht verfügbar"}, 1},
     {"Artists", (const char * const[]){"Interpreten"}, 1},
     {"Asia", (const char * const[]){"Asien"}, 1},
     {"Atlantic", (const char * const[]){"Atlantik"}, 1},

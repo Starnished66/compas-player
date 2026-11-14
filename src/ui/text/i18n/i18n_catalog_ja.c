@@ -106,6 +106,7 @@ const i18n_entry_t i18n_entries_ja[] = {
     {"April", (const char * const[]){"4月"}, 1},
     {"Arctic", (const char * const[]){"北極"}, 1},
     {"Artist pages", (const char * const[]){"アーティストのページ"}, 1},
+    {"Artist unavailable", (const char * const[]){"アーティストを利用できません"}, 1},
     {"Artists", (const char * const[]){"アーティスト"}, 1},
     {"Asia", (const char * const[]){"アジア"}, 1},
     {"Atlantic", (const char * const[]){"大西洋"}, 1},
