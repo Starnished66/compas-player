@@ -3,6 +3,7 @@
 
 static pthread_mutex_t bt_dac_info_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t bt_dac_monitor_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t bt_dac_monitor_cond = PTHREAD_COND_INITIALIZER;
 static bt_dac_stream_info_t bt_dac_info;
 static pthread_t bt_dac_info_thread;
 static bool bt_dac_info_active;
@@ -13,7 +14,12 @@ static struct { char path[256]; bool running; } pcm_edges[32];
 static uint32_t stream_generation;
 static atomic_bool output_reserved;
 
-void bt_control_dac_set_reserved(bool reserved) { atomic_store(&output_reserved, reserved); }
+void bt_control_dac_set_reserved(bool reserved) {
+    pthread_mutex_lock(&bt_dac_monitor_mutex);
+    atomic_store(&output_reserved, reserved);
+    pthread_cond_broadcast(&bt_dac_monitor_cond);
+    pthread_mutex_unlock(&bt_dac_monitor_mutex);
+}
 
 void bt_control_get_dac_stream_info(bt_dac_stream_info_t * out) {
     if (!out) return;
@@ -213,13 +219,10 @@ static void * bt_dac_info_thread_func(void * arg) {
     (void) arg;
     for (;;) {
         bt_dac_info_monitor_run_once();
-        while (atomic_load(&output_reserved)) {
-            pthread_mutex_lock(&bt_dac_monitor_mutex);
-            bool active = bt_dac_info_active;
-            pthread_mutex_unlock(&bt_dac_monitor_mutex);
-            if (!active) break;
-            usleep(20000);
-        }
+        pthread_mutex_lock(&bt_dac_monitor_mutex);
+        while (bt_dac_info_active && atomic_load(&output_reserved))
+            pthread_cond_wait(&bt_dac_monitor_cond, &bt_dac_monitor_mutex);
+        pthread_mutex_unlock(&bt_dac_monitor_mutex);
         bluealsa_clear_soft_volume_path(NULL);
         bool active = true;
         for (int waited_ms = 0; active && waited_ms < 1000; waited_ms += 50) {
@@ -241,6 +244,7 @@ void bt_dac_info_monitor_stop(void) {
         bt_dac_info_reset(); return;
     }
     bt_dac_info_active = false;
+    pthread_cond_broadcast(&bt_dac_monitor_cond);
     pid_t pid = bt_dac_info_monitor_pid;
     pthread_mutex_unlock(&bt_dac_monitor_mutex);
     if (pid > 0) {
