@@ -33,6 +33,7 @@ lv_obj_t * quick_drawer_volume_container = NULL;
 #if defined(BOARD_TEMPOTEC_V1)
 lv_obj_t * quick_drawer_brightness_container = NULL;
 #endif
+bool quick_drawer_many_tiles = false;
 lv_obj_t * quick_drawer_volume_icon = NULL;
 lv_obj_t * quick_drawer_eq_button = NULL;
 lv_obj_t * quick_drawer_volume_track = NULL;
@@ -641,20 +642,33 @@ void gui_shell_refresh_quick_drawer_volume_visibility(void) {
         if (!brightness_row[i]) continue;
         lv_obj_set_flag(brightness_row[i], LV_OBJ_FLAG_HIDDEN, !collapsed);
     }
+#else
+    {
+        lv_obj_t * brightness_row[] = { quick_drawer_brightness_track, quick_drawer_brightness_icon,
+                                        quick_drawer_brightness_label };
+        bool hide = quick_drawer_many_tiles && quick_drawer_expansion_y > 0;
+        for (size_t i = 0; i < sizeof(brightness_row) / sizeof(brightness_row[0]); i++)
+            if (brightness_row[i]) lv_obj_set_flag(brightness_row[i], LV_OBJ_FLAG_HIDDEN, hide);
+    }
 #endif
     lv_obj_t * row[] = { quick_drawer_volume_container, quick_drawer_volume_icon, quick_drawer_volume_track,
                          quick_drawer_volume_label };
     for (size_t i = 0; i < sizeof(row) / sizeof(row[0]); i++) {
         if (!row[i]) continue;
+        if (ui_customization_drawer_volume_visible() &&
+            (!quick_drawer_many_tiles || quick_drawer_expansion_y == 0)
 #if defined(BOARD_TEMPOTEC_V1)
-        if (ui_customization_drawer_volume_visible() && quick_drawer_expansion_y == 0)
-#else
-        if (ui_customization_drawer_volume_visible())
+            && quick_drawer_expansion_y == 0
 #endif
+            )
             lv_obj_remove_flag(row[i], LV_OBJ_FLAG_HIDDEN);
         else
             lv_obj_add_flag(row[i], LV_OBJ_FLAG_HIDDEN);
     }
+    if (quick_drawer_eq_button)
+        lv_obj_set_flag(quick_drawer_eq_button, LV_OBJ_FLAG_HIDDEN,
+            !ui_customization_effective().drawer_eq_visible ||
+            (quick_drawer_many_tiles && quick_drawer_expansion_y > 0));
     quick_drawer_mark_snapshot_dirty();
 }
 static void brightness_hw_apply_pending(void) {
@@ -707,9 +721,6 @@ void quick_drawer_make_toggle_labels(int slot, int32_t x, int32_t row_y,
                                             const char * name_text) {
     int32_t label_w = QUICK_DRAWER_TOGGLE_CELL_W;
 #if BOARD_COMPACT_UI && !defined(BOARD_TEMPOTEC_V1)
-    /* Initial plugin rows can have five columns before customization reflow. */
-    if (slot >= QD_TOGGLE_CAR_MODE && 1 + quick_drawer_plugin_toggle_count > 4)
-        label_w = BOARD_SCALE_PX(90);
     x -= (label_w - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
 #endif
     lv_obj_t * name = lv_label_create(quick_drawer_expansion_box);
@@ -760,8 +771,7 @@ static void quick_drawer_place_widget(lv_obj_t * obj, lv_obj_t * parent,
     lv_obj_set_flag(obj, LV_OBJ_FLAG_HIDDEN, !visible);
 }
 
-/* Repositions existing objects in semantic order. The first row remains
- * visible when the drawer is collapsed; two revealed rows hold four more each. */
+/* Keep the first four tiles visible and reveal additional four-column rows. */
 _Static_assert(UI_DRAWER_COUNT + PLUGIN_QUICK_TOGGLE_CAPACITY <= UI_ORDER_MAX,
                "Quick Drawer order cannot hold every plugin toggle");
 void quick_drawer_reflow_customization(void) {
@@ -797,17 +807,21 @@ void quick_drawer_reflow_customization(void) {
         }
     }
 
-#if defined(BOARD_TEMPOTEC_V1)
+    quick_drawer_many_tiles = count > 12;
+#if !defined(BOARD_TEMPOTEC_V1)
+    lv_obj_remove_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
+#endif
     int expansion_rows = count > 4 ? (count - 4 + 3) / 4 : 0;
+    int32_t row_pitch = QUICK_DRAWER_TOGGLE_ROW_PITCH;
+#if defined(BOARD_TEMPOTEC_V1)
+    row_pitch -= BOARD_SCALE_PY(60);
     quick_drawer_expansion_full = quick_drawer_expansion_visible_height(
         QUICK_DRAWER_TOGGLE_ROW_PITCH * expansion_rows);
 #else
-    int expansion_rows = count <= 4 ? 0 : count <= 8 ? 1 : 2;
-    quick_drawer_expansion_full = QUICK_DRAWER_TOGGLE_ROW_PITCH * expansion_rows;
+    quick_drawer_expansion_full = row_pitch * expansion_rows;
 #endif
-    if (quick_drawer_expansion_handle) {
+    if (quick_drawer_expansion_handle)
         lv_obj_set_flag(quick_drawer_expansion_handle, LV_OBJ_FLAG_HIDDEN, !expansion_rows);
-    }
 
     for (int i = 0; i < count; ++i) {
 #if defined(BOARD_TEMPOTEC_V1)
@@ -819,13 +833,12 @@ void quick_drawer_reflow_customization(void) {
         int32_t x = quick_drawer_toggle_column_x(column, row_count);
         /* Expanded captions are single-line, so later rows can sit closer. */
         int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP
-                             : (row - 1) * (QUICK_DRAWER_TOGGLE_ROW_PITCH - BOARD_SCALE_PY(60));
+                             : (row - 1) * row_pitch;
 #else
         int row = i / 4, column = i % 4;
-        int row_count = count - row * 4 < 4 ? count - row * 4 : 4;
-        int32_t x = quick_drawer_toggle_column_x(column, row_count);
+        int32_t x = quick_drawer_toggle_column_x(column, 4);
         int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP :
-                    row == 1 ? 0 : QUICK_DRAWER_TOGGLE_ROW_PITCH;
+                    (row - 1) * row_pitch;
 #endif
         lv_obj_t * parent = row == 0 ? quick_drawer : quick_drawer_expansion_box;
         int32_t caption_y = y + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP;
@@ -872,6 +885,44 @@ void quick_drawer_reflow_customization(void) {
         quick_drawer_place_widget(items[i].state, parent, x, state_y, true);
 #endif
     }
+    if (quick_drawer_many_tiles) {
+        lv_obj_update_layout(quick_drawer);
+        int32_t row_content_height = 0;
+        for (int i = 4; i < count; ++i) {
+            int32_t bottom = LV_MAX(lv_obj_get_y(items[i].name) + lv_obj_get_height(items[i].name),
+                                    lv_obj_get_y(items[i].state) + lv_obj_get_height(items[i].state));
+            row_content_height = LV_MAX(row_content_height, bottom - lv_obj_get_y(items[i].icon));
+        }
+#if defined(BOARD_TEMPOTEC_V1)
+        /* Four full-size rows cannot fit this panel. Keep its scroll viewport
+         * and enough pitch for the actual font, without shrinking the icons. */
+        int32_t fitted_pitch = LV_MAX(row_pitch, row_content_height + BOARD_SCALE_PY(5));
+        quick_drawer_expansion_full = LV_MIN(fitted_pitch * expansion_rows,
+            BOARD_SCALE_PY(59) + BOARD_SCALE_PY(726) - BOARD_SCALE_PY(272) -
+            lv_obj_get_height(quick_drawer_expansion_handle));
+#else
+        /* Spend trailing padding first. Only shorten the pitch when the
+         * last caption and the handle cannot fit inside this board's panel. */
+        int32_t available = BOARD_SCALE_PY(59) + BOARD_SCALE_PY(726) -
+                            BOARD_SCALE_PY(219) - lv_obj_get_height(quick_drawer_expansion_handle);
+        int32_t fitted_pitch = row_pitch;
+        if (expansion_rows > 1)
+            fitted_pitch = LV_MIN(row_pitch, (available - row_content_height) / (expansion_rows - 1));
+        if (fitted_pitch < row_content_height) {
+            /* A shorter pitch would overlap captions with the next icon.
+             * Reuse the compact drawer's scroll fallback for this font/board. */
+            fitted_pitch = LV_MAX(row_pitch, row_content_height + BOARD_SCALE_PY(5));
+            lv_obj_add_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
+        }
+        quick_drawer_expansion_full = LV_MIN(row_pitch * expansion_rows, available);
+#endif
+        for (int i = 4; i < count; ++i) {
+            int32_t shift = ((i - 4) / 4) * (row_pitch - fitted_pitch);
+            lv_obj_set_y(items[i].icon, lv_obj_get_y(items[i].icon) - shift);
+            lv_obj_set_y(items[i].name, lv_obj_get_y(items[i].name) - shift);
+            lv_obj_set_y(items[i].state, lv_obj_get_y(items[i].state) - shift);
+        }
+    }
     /* Keep omitted toggles hidden even if a timer or a state refresh updates
      * their image or caption later. */
     for (int i = 0; i < QD_TOGGLE_COUNT + quick_drawer_plugin_toggle_count; ++i) {
@@ -894,9 +945,7 @@ void quick_drawer_reflow_customization(void) {
 #endif
 
     lv_obj_set_height(quick_drawer_expansion_box, 0);
-#if defined(BOARD_TEMPOTEC_V1)
     lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
-#endif
     quick_drawer_toggle_force_src = true;
     gui_shell_refresh_quick_drawer_expansion_toggles();
     quick_drawer_toggle_force_src = false;

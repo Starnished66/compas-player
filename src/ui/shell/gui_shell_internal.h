@@ -95,8 +95,9 @@
 #define QUICK_DRAWER_TOGGLE_SLOTS (QD_TOGGLE_COUNT + PLUGIN_QUICK_TOGGLE_CAPACITY)
 
 /* ---- Expanded area ----------------------------------------------------
- * The handle under the first toggle row drags down to reveal two more rows.
- * Both slider rails shift down by exactly the revealed height, and the
+ * The handle under the first toggle row reveals the remaining tiles.
+ * Above twelve tiles, the slider space holds additional four-column rows.
+ * Otherwise both slider rails shift down by the revealed height, and the
  * now-playing card hides for the duration -- there is no room for both.
  *
  * The rows live inside quick_drawer_expansion_box, whose HEIGHT is the
@@ -121,8 +122,7 @@
 #if defined(BOARD_TEMPOTEC_V1)
 #else
 #define quick_drawer_toggle_column_x(column, columns) \
-    ((columns) > 4 ? BOARD_SCALE_PX(18 + 90 * (column)) \
-                   : BOARD_SCALE_PX(quick_drawer_column_label_x[column]))
+    BOARD_SCALE_PX(quick_drawer_column_label_x[column])
 #define quick_drawer_toggle_state_y(row_y) \
     ((row_y) + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_STATE_GAP)
 #endif
@@ -300,6 +300,7 @@ extern lv_obj_t * quick_drawer_plugin_icon[PLUGIN_QUICK_TOGGLE_CAPACITY];
 extern int quick_drawer_plugin_toggle_count;
 extern int32_t quick_drawer_expansion_full;
 extern int32_t quick_drawer_expansion_y;
+extern bool quick_drawer_many_tiles;
 extern bool quick_drawer_expanded;
 extern bool quick_drawer_expansion_motion;
 extern lv_timer_t * quick_drawer_expansion_start_timer;
@@ -397,9 +398,7 @@ int32_t quick_drawer_motion_y(void);
 void quick_drawer_rebuild_snapshot(void);
 bool quick_drawer_begin_bitmap_motion(void);
 void quick_drawer_finish_bitmap_motion(void);
-#if defined(BOARD_TEMPOTEC_V1)
 void quick_drawer_expansion_scroll_event_cb(lv_event_t * e);
-#endif
 void quick_drawer_wifi_long_press_cb(lv_event_t * e);
 void quick_drawer_bt_long_press_cb(lv_event_t * e);
 void quick_drawer_wifi_pressed_cb(lv_event_t * e);

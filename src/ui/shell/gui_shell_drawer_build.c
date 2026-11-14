@@ -363,6 +363,9 @@ static void quick_drawer_build_expansion_box(void) {
     lv_obj_set_height(quick_drawer_expansion_box, 0);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_add_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
+#else
+    lv_obj_remove_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
+#endif
     lv_obj_set_scroll_dir(quick_drawer_expansion_box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(quick_drawer_expansion_box, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_event_cb(quick_drawer_expansion_box, quick_drawer_expansion_scroll_event_cb,
@@ -371,9 +374,6 @@ static void quick_drawer_build_expansion_box(void) {
                         LV_EVENT_SCROLL, NULL);
     lv_obj_add_event_cb(quick_drawer_expansion_box, quick_drawer_expansion_scroll_event_cb,
                         LV_EVENT_SCROLL_END, NULL);
-#else
-    lv_obj_remove_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
-#endif
     lv_obj_set_style_bg_opa(quick_drawer_expansion_box, 0, 0);
 
     quick_drawer_plugin_toggle_count = plugin_manager_get_quick_toggle_count();
@@ -431,19 +431,8 @@ static void quick_drawer_build_expansion_row2(void) {
 
 /* Row 3 cell i (0 = Car Mode, then plugin toggles): column X and row Y. */
 static void quick_drawer_row3_cell(int i, int32_t * x, int32_t * row_y) {
-#if defined(BOARD_TEMPOTEC_V1)
     *row_y = QUICK_DRAWER_TOGGLE_ROW_PITCH * (i / 4 + 1);
     *x = quick_drawer_toggle_column_x(i % 4, 4);
-#else
-    if (1 + quick_drawer_plugin_toggle_count <= 4) {
-        *x = quick_drawer_toggle_column_x(i, 4);
-    } else {
-        /* Five tiles need the full panel width: five 84px icons at
-         * 90px spacing, with 18px side margins. */
-        *x = BOARD_SCALE_PX(18 + 90 * i);
-    }
-    *row_y = QUICK_DRAWER_TOGGLE_ROW_PITCH;
-#endif
 }
 
 static void quick_drawer_build_car_mode_toggle(int32_t x, int32_t row_y) {

@@ -365,27 +365,24 @@ static bool quick_drawer_expansion_region_hit_test(lv_point_t point) {
     if (quick_drawer_volume_hit_test(point)) return false;
     lv_area_t handle;
     lv_obj_get_coords(quick_drawer_expansion_handle, &handle);
-#if defined(BOARD_TEMPOTEC_V1)
+#if !defined(BOARD_TEMPOTEC_V1)
+    if (!lv_obj_has_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE) ||
+        quick_drawer_expansion_y == 0)
+        return point.y <= handle.y2;
+#endif
     int32_t pad_x = BOARD_SCALE_PX(40);
     int32_t pad_y = BOARD_SCALE_PY(4);
     return point.x >= handle.x1 - pad_x && point.x <= handle.x2 + pad_x &&
            point.y >= handle.y1 - pad_y && point.y <= handle.y2 + pad_y;
-#else
-    return point.y <= handle.y2;
-#endif
 }
 static bool quick_drawer_expansion_scroll_hit_test(lv_point_t point) {
-#if defined(BOARD_TEMPOTEC_V1)
-    if (!quick_drawer_open || !quick_drawer_expansion_box || quick_drawer_expansion_y <= 0)
+    if (!quick_drawer_open || !quick_drawer_expansion_box || quick_drawer_expansion_y <= 0 ||
+        !lv_obj_has_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE))
         return false;
     lv_area_t viewport;
     lv_obj_get_coords(quick_drawer_expansion_box, &viewport);
     return point.x >= viewport.x1 && point.x <= viewport.x2 &&
            point.y >= viewport.y1 && point.y <= viewport.y2;
-#else
-    (void) point;
-    return false;
-#endif
 }
 static bool quick_drawer_expansion_moved = false;
 static int32_t quick_drawer_expansion_drag_start_y = 0;
@@ -407,9 +404,7 @@ static void quick_drawer_poll_press_ownership(lv_point_t p) {
         /* Same read-on-the-way-open as the animated path, for a drag
          * that reveals the rows without going through it. */
         if (quick_drawer_expansion_y == 0) {
-#if defined(BOARD_TEMPOTEC_V1)
             lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
-#endif
             gui_shell_refresh_quick_drawer_expansion_toggles();
         }
     }
@@ -483,7 +478,8 @@ static void quick_drawer_poll_expansion_tracking(lv_indev_t * indev, lv_point_t 
         if (quick_drawer_expansion_moved) {
             int32_t adjusted = raw_delta > 0 ? raw_delta - QUICK_DRAWER_DRAG_DEADZONE
                                              : raw_delta + QUICK_DRAWER_DRAG_DEADZONE;
-            quick_drawer_apply_expansion(quick_drawer_expansion_drag_start_value + adjusted);
+            int32_t target = quick_drawer_expansion_drag_start_value + adjusted;
+            quick_drawer_apply_expansion(target);
         }
     }
 }
@@ -493,16 +489,26 @@ static void quick_drawer_poll_expansion_release(lv_point_t p, bool pressed) {
     if (!pressed && quick_drawer_was_pressed && quick_drawer_expansion_dragging) {
         quick_drawer_expansion_dragging = false;
         if (quick_drawer_expansion_moved) {
+            if (quick_drawer_many_tiles) {
+                /* Include the release sample even when the polling timer
+                 * missed the final pressed sample of a quick drag. */
+                int32_t raw_delta = p.y - quick_drawer_expansion_drag_start_y;
+                int32_t adjusted = raw_delta > 0 ? raw_delta - QUICK_DRAWER_DRAG_DEADZONE
+                                                 : raw_delta + QUICK_DRAWER_DRAG_DEADZONE;
+                quick_drawer_apply_expansion(quick_drawer_expansion_drag_start_value + adjusted);
+            }
             if (quick_drawer_expansion_drag_start_value == 0 &&
                 p.y < quick_drawer_expansion_drag_start_y) {
                 /* Nothing was expanded to collapse, so an upward drag here is
                  * the drawer's own close gesture rather than a row drag. */
                 close_quick_drawer();
             } else {
-                /* Snap to whichever end the drag ended nearer. A tap that never
-                 * left the deadzone falls through to the handle's own CLICKED
-                 * handler instead. */
-                quick_drawer_animate_expansion(quick_drawer_expansion_y * 2 >= quick_drawer_expansion_full);
+                /* Extra rows must not demand a longer opening pull. Keep
+                 * the normal halfway snap for layouts of twelve or fewer. */
+                int32_t snap_height = quick_drawer_expansion_full;
+                if (quick_drawer_many_tiles)
+                    snap_height = LV_MIN(snap_height, QUICK_DRAWER_TOGGLE_ROW_PITCH * 2);
+                quick_drawer_animate_expansion(quick_drawer_expansion_y * 2 >= snap_height);
             }
             quick_drawer_expansion_moved = false;
         } else {

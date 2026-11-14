@@ -6,6 +6,8 @@
 #include <string.h>
 
 static ui_customization_override_t active_override;
+/* Legacy drawer saves omitted hidden natives; new saves distinguish them. */
+#define DRAWER_ORDER_VERSION "@drawer2"
 
 static const char * const music_keys[UI_MUSIC_COUNT] = {
     "files", "artists", "albums", "album_artist", "genres", "all_songs", "playlists", "cover_flow"
@@ -93,11 +95,6 @@ bool ui_order_available(ui_order_kind_t kind, int id) {
     return kind != UI_ORDER_MUSIC || id != UI_MUSIC_COVER_FLOW || cover_flow_open_albums;
 }
 
-/* Plugin entries are hidden by a "!key" and shown when new; natives are hidden by being omitted. */
-static bool order_id_hides_by_key(ui_order_kind_t kind, int id) {
-    return id >= order_desc_for(kind)->count;
-}
-
 int ui_order_find_key(ui_order_kind_t kind, const char *key) {
     const ui_order_desc_t * desc = order_desc_for(kind);
     if (!key || !desc) return -1;
@@ -155,12 +152,14 @@ static bool order_next_key(const char **p, char *key, size_t cap, bool *hidden) 
 
 static void default_text(ui_order_kind_t kind, char *out, size_t cap) {
     size_t used = 0;
+    if (kind == UI_ORDER_DRAWER)
+        used = (size_t)snprintf(out, cap, "%s", DRAWER_ORDER_VERSION);
     for (int i = 0; i < order_desc_for(kind)->count; ++i) {
         if (kind == UI_ORDER_MUSIC && i == UI_MUSIC_COVER_FLOW) continue; /* hidden until switched on */
         if (kind == UI_ORDER_DRAWER && !strcmp(ui_order_key(kind, i), "dlna")) continue;
         used += (size_t)snprintf(out + used, cap - used, "%s%s", used ? "," : "", ui_order_key(kind, i));
     }
-    /* DLNA goes last so it is the tile dropped when plugins fill the drawer. */
+    /* Keep DLNA last, after the plugin shortcuts. */
     if (kind == UI_ORDER_DRAWER) snprintf(out + used, cap - used, ",dlna");
 }
 
@@ -184,20 +183,34 @@ static void order_insert_extras(ui_order_kind_t kind, ui_item_order_t *order, co
 
 void ui_order_resolve(ui_order_kind_t kind, const char *text, ui_item_order_t *out) {
     bool seen[UI_ORDER_MAX] = { false };
+    bool explicit_native_hides = false;
     const char *p = text ? text : "";
     char key[UI_ORDER_KEY_MAX];
     bool hidden;
     out->count = 0;
     while (order_next_key(&p, key, sizeof(key), &hidden)) {
+        if (kind == UI_ORDER_DRAWER && strcmp(key, DRAWER_ORDER_VERSION) == 0) {
+            explicit_native_hides = true;
+            continue;
+        }
         int id = order_find_id(kind, key);
         if (id < 0 || seen[id]) continue;
         seen[id] = true;
+        if (kind == UI_ORDER_DRAWER && hidden && id < order_desc_for(kind)->count)
+            explicit_native_hides = true;
         if (!hidden) out->ids[out->count++] = (uint8_t)id;
     }
-    /* Plugin entries the text never mentions (new installs) still show. */
+    /* Old drawer strings hid native entries by omission. Preserve those
+     * choices; bt_dac is the known native tile added after those strings.
+     * Once native hides are explicitly marked, omission means a new tile. */
     ui_item_order_t extra = { 0 };
-    for (int id = 0; id < ui_order_size(kind); ++id)
-        if (!seen[id] && order_id_hides_by_key(kind, id)) extra.ids[extra.count++] = (uint8_t)id;
+    int bt_dac_id = ui_order_find_key(UI_ORDER_DRAWER, "bt_dac");
+    for (int id = 0; kind == UI_ORDER_DRAWER && id < order_desc_for(kind)->count; ++id)
+        if (!seen[id] && ui_order_available(kind, id) && (explicit_native_hides || id == bt_dac_id))
+            out->ids[out->count++] = (uint8_t)id;
+    /* Unmentioned plugin entries also show, after the native "plugins" anchor. */
+    for (int id = order_desc_for(kind)->count; id < ui_order_size(kind); ++id)
+        if (!seen[id]) extra.ids[extra.count++] = (uint8_t)id;
     order_insert_extras(kind, out, &extra);
 }
 
@@ -209,6 +222,7 @@ static bool order_text_add(char *out, size_t cap, size_t *used, bool hidden, con
 }
 
 static bool order_key_unloaded(ui_order_kind_t kind, const char *key) {
+    if (kind == UI_ORDER_DRAWER && strcmp(key, DRAWER_ORDER_VERSION) == 0) return false;
     return key[0] && order_find_id(kind, key) < 0;
 }
 
@@ -234,15 +248,20 @@ bool ui_order_to_text(ui_order_kind_t kind, const ui_item_order_t *visible, cons
     size_t used = 0;
     if (!visible || !out || !cap || !order_desc_for(kind)) return false;
     out[0] = '\0';
+    if (kind == UI_ORDER_DRAWER &&
+        !order_text_add(out, cap, &used, false, DRAWER_ORDER_VERSION)) return false;
     for (unsigned i = 0; i < visible->count && visible->ids[i] < UI_ORDER_MAX; ++i) {
         shown[visible->ids[i]] = true;
         if (order_id_key(kind, visible->ids[i], key, sizeof(key)) &&
             !order_text_add(out, cap, &used, false, key)) return false;
     }
-    /* Hidden plugin entries get a "!" key; hidden natives are just omitted. */
-    for (int id = 0; id < ui_order_size(kind); ++id)
-        if (!shown[id] && order_id_hides_by_key(kind, id) && order_id_key(kind, id, key, sizeof(key)) &&
+    /* Drawer native hides use a marker so future omissions can be new tiles.
+     * Music keeps its established omission format. */
+    for (int id = 0; id < ui_order_size(kind); ++id) {
+        if (kind != UI_ORDER_DRAWER && id < order_desc_for(kind)->count) continue;
+        if (!shown[id] && order_id_key(kind, id, key, sizeof(key)) &&
             !order_text_add(out, cap, &used, true, key)) return false;
+    }
     /* Keys of plugins that are not loaded now keep their place for later.
      * Only the newest UI_ORDER_UNLOADED_MAX are kept, so UI_ORDER_TEXT_MAX
      * always holds them and no key is ever cut. */

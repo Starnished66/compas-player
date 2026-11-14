@@ -60,16 +60,16 @@ void quick_drawer_apply_expansion(int32_t y) {
     if (y < 0) y = 0;
     if (y > quick_drawer_expansion_full) y = quick_drawer_expansion_full;
     if (y == quick_drawer_expansion_y) return;
-#if defined(BOARD_TEMPOTEC_V1)
     bool was_expanded = quick_drawer_expansion_y > 0;
-#endif
     quick_drawer_expansion_y = y;
     if (quick_drawer_expansion_box) lv_obj_set_height(quick_drawer_expansion_box, y);
     for (int i = 0; i < quick_drawer_shift_count; i++) {
         lv_obj_set_y(quick_drawer_shift_objs[i].obj, quick_drawer_shift_objs[i].base_y + y);
     }
-    if (quick_drawer_controls_image)
+    if (quick_drawer_controls_image) {
         lv_obj_set_y(quick_drawer_controls_image, quick_drawer_controls_base_y + y);
+        lv_obj_set_flag(quick_drawer_controls_image, LV_OBJ_FLAG_HIDDEN, quick_drawer_many_tiles && y == 0);
+    }
     quick_drawer_sync_cached_eq();
     /* Hidden the moment the expansion is off zero -- even a partly-shifted
      * volume rail already overlaps the card's top edge. */
@@ -78,9 +78,16 @@ void quick_drawer_apply_expansion(int32_t y) {
         if (y > 0 && !hidden) lv_obj_add_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
         else if (y == 0 && hidden) lv_obj_remove_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
     }
-#if defined(BOARD_TEMPOTEC_V1)
-    if (was_expanded != (y > 0)) gui_shell_refresh_quick_drawer_volume_visibility();
+    if (was_expanded != (y > 0)
+#if !defined(BOARD_TEMPOTEC_V1)
+        && quick_drawer_many_tiles
 #endif
+    ) {
+        /* Visibility follows geometry; the settled snapshot art is still valid. */
+        bool art_dirty = quick_drawer_expansion_art_dirty;
+        gui_shell_refresh_quick_drawer_volume_visibility();
+        quick_drawer_expansion_art_dirty = art_dirty;
+    }
     if (quick_drawer_expansion_direct) {
         if (y == 0) {
             transition_compositor_end();
@@ -140,24 +147,21 @@ static void quick_drawer_cache_object(lv_obj_t * obj) {
 static void quick_drawer_sync_cached_eq(void) {
     if (!quick_drawer_eq_button || !quick_drawer_motion_cache_prepared) return;
     for (unsigned i = 0; i < quick_drawer_cached_object_count; ++i) {
-        if (quick_drawer_cached_objects[i].obj != quick_drawer_eq_button) continue;
+        lv_obj_t * obj = quick_drawer_cached_objects[i].obj;
+        if (obj != quick_drawer_eq_button &&
+            !(quick_drawer_many_tiles && obj == quick_drawer_expansion_handle)) continue;
         /* At zero reveal the card covers the moving strip. Its shortcut
          * must retain the native layer above the card at that endpoint. */
-        lv_obj_set_style_opa(quick_drawer_eq_button, quick_drawer_expansion_y == 0
+        lv_obj_set_style_opa(obj, quick_drawer_expansion_y == 0
                             ? quick_drawer_cached_objects[i].opa : LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_move_foreground(quick_drawer_eq_button);
-        break;
+        lv_obj_move_foreground(obj);
     }
 }
 void quick_drawer_prepare_motion_cache(void) {
     if (quick_drawer_motion_cache_prepared || !quick_drawer || !quick_drawer_expansion_box ||
         quick_drawer_expansion_full <= 0 || quick_drawer_shift_count <= 0) return;
-#if defined(BOARD_TEMPOTEC_V1)
-    /* The expanded rows are a genuinely scrollable V1 viewport. Leave this
-     * subtree live so LVGL can move its children; the drawer's separate
-     * open/close compositor remains unchanged. */
-    return;
-#endif
+    /* Scrollable rows stay live; the drawer's open/close bitmap is unchanged. */
+    if (lv_obj_has_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE)) return;
     int32_t saved_y = quick_drawer_expansion_y;
     bool card_hidden = quick_drawer_card && lv_obj_has_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
     if (quick_drawer_expansion_frame && !quick_drawer_expansion_art_dirty)
@@ -230,8 +234,12 @@ install_images:
         lv_obj_t * child = lv_obj_get_child(quick_drawer_expansion_box, i);
         if (child != quick_drawer_rows_image) quick_drawer_cache_object(child);
     }
-    for (int i = 0; i < quick_drawer_shift_count; ++i)
+    for (int i = 0; i < quick_drawer_shift_count; ++i) {
+        if (quick_drawer_many_tiles &&
+            (quick_drawer_shift_objs[i].obj == quick_drawer_brightness_track ||
+             quick_drawer_shift_objs[i].obj == quick_drawer_volume_container)) continue;
         quick_drawer_cache_object(quick_drawer_shift_objs[i].obj);
+    }
     quick_drawer_motion_cache_prepared = true;
     if (transition_compositor_available() && !quick_drawer_expansion_base) {
         /* Static frame for direct row copies. Keep the existing open/close
@@ -239,11 +247,27 @@ install_images:
         lv_obj_add_flag(quick_drawer_rows_image, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(quick_drawer_controls_image, LV_OBJ_FLAG_HIDDEN);
         if (quick_drawer_card) lv_obj_add_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
+        bool eq_hidden = quick_drawer_eq_button && lv_obj_has_flag(quick_drawer_eq_button, LV_OBJ_FLAG_HIDDEN);
+        bool brightness_hidden = lv_obj_has_flag(quick_drawer_brightness_track, LV_OBJ_FLAG_HIDDEN);
+        bool volume_hidden = lv_obj_has_flag(quick_drawer_volume_container, LV_OBJ_FLAG_HIDDEN);
+        if (quick_drawer_many_tiles) {
+            if (quick_drawer_eq_button) lv_obj_add_flag(quick_drawer_eq_button, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(quick_drawer_brightness_track, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(quick_drawer_volume_container, LV_OBJ_FLAG_HIDDEN);
+        }
         quick_drawer_expansion_base = lv_snapshot_take(quick_drawer, LV_COLOR_FORMAT_RGB565);
+        if (quick_drawer_many_tiles) {
+            if (quick_drawer_eq_button) lv_obj_set_flag(quick_drawer_eq_button, LV_OBJ_FLAG_HIDDEN, eq_hidden);
+            lv_obj_set_flag(quick_drawer_brightness_track, LV_OBJ_FLAG_HIDDEN, brightness_hidden);
+            lv_obj_set_flag(quick_drawer_volume_container, LV_OBJ_FLAG_HIDDEN, volume_hidden);
+        }
         lv_obj_remove_flag(quick_drawer_rows_image, LV_OBJ_FLAG_HIDDEN);
         lv_obj_remove_flag(quick_drawer_controls_image, LV_OBJ_FLAG_HIDDEN);
         if (quick_drawer_card && !card_hidden) lv_obj_remove_flag(quick_drawer_card, LV_OBJ_FLAG_HIDDEN);
     }
+    if (quick_drawer_controls_image)
+        lv_obj_set_flag(quick_drawer_controls_image, LV_OBJ_FLAG_HIDDEN,
+                        quick_drawer_many_tiles && saved_y == 0);
     quick_drawer_sync_cached_eq();
 }
 void quick_drawer_begin_expansion_composition(void) {
@@ -346,10 +370,8 @@ void quick_drawer_animate_expansion(bool expand) {
     if (expand) gui_shell_refresh_quick_drawer_expansion_toggles();
     quick_drawer_expanded = expand;
     int32_t target = expand ? quick_drawer_expansion_full : 0;
-#if defined(BOARD_TEMPOTEC_V1)
     if (expand && quick_drawer_expansion_y == 0)
         lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
-#endif
     lv_anim_delete(quick_drawer_expansion_box, quick_drawer_expansion_anim_cb);
     if (quick_drawer_expansion_y == target) {
         quick_drawer_expansion_motion = false;
@@ -389,12 +411,10 @@ void quick_drawer_reset_expansion(void) {
     quick_drawer_expansion_motion = false;
     quick_drawer_release_motion_cache();
     quick_drawer_discard_expansion_art();
-#if defined(BOARD_TEMPOTEC_V1)
     if (quick_drawer_expansion_box) {
         lv_obj_stop_scroll_anim(quick_drawer_expansion_box);
         lv_obj_scroll_to_y(quick_drawer_expansion_box, 0, LV_ANIM_OFF);
     }
-#endif
     quick_drawer_apply_expansion(0);
 }
 
@@ -767,7 +787,6 @@ void close_quick_drawer(void) {
     lv_anim_set_completed_cb(&a, quick_drawer_anim_done_cb);
     lv_anim_start(&a);
 }
-#if defined(BOARD_TEMPOTEC_V1)
 void quick_drawer_expansion_scroll_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_SCROLL_BEGIN || code == LV_EVENT_SCROLL) {
@@ -779,7 +798,6 @@ void quick_drawer_expansion_scroll_event_cb(lv_event_t * e) {
         quick_drawer_mark_snapshot_dirty();
     }
 }
-#endif
 void quick_drawer_motion_teardown_cancel(void) {
     quick_drawer_cancel_expansion_start();
     lv_async_call_cancel(quick_drawer_snapshot_async_cb, NULL);
