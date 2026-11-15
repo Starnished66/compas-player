@@ -172,6 +172,7 @@ static void player_ui_timer_cb(lv_timer_t * timer) {
     consume_playback_events();
 
     gui_player_poll_track_metadata();
+    gui_player_poll_stream_metadata();
     poll_cover_decode();
     gui_lyrics_poll_load();
     gui_lyrics_poll_backdrop();

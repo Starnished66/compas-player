@@ -27,6 +27,7 @@ typedef struct {
     bool range_valid;
     uint64_t range_start, range_end, range_total;
     int status;
+    uint32_t icy_interval;
     char content_type[128];
     char etag[128], last_modified[64];
     char final_url[2048];
@@ -42,6 +43,12 @@ struct http_stream {
     char etag[128], last_modified[64];
     char final_url[2048];
     bool verify_tls;
+    uint32_t icy_interval, icy_audio_left;
+    size_t icy_used, icy_left;
+    char icy_block[4081];
+    icy_metadata_t metadata;
+    char source_url[2048];
+    struct http_stream * metadata_next;
     pthread_t thread;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
@@ -56,6 +63,26 @@ struct http_stream {
     bool at_virtual_end;
     bool stop_requested, ended, thread_started;
 };
+
+static pthread_mutex_t metadata_mutex = PTHREAD_MUTEX_INITIALIZER;
+static http_stream_t * metadata_streams;
+static uint64_t next_stream_id;
+
+bool http_stream_metadata_for_url(const char * url, icy_metadata_t * out) {
+    if (!url || !out || pthread_mutex_trylock(&metadata_mutex) != 0) return false;
+    bool found = false;
+    for (http_stream_t * s = metadata_streams; s; s = s->metadata_next) {
+        if (strcmp(url, s->source_url)) continue;
+        if (pthread_mutex_trylock(&s->mutex) == 0) {
+            *out = s->metadata;
+            found = out->revision != 0;
+            pthread_mutex_unlock(&s->mutex);
+        }
+        break;
+    }
+    pthread_mutex_unlock(&metadata_mutex);
+    return found;
+}
 
 typedef struct {
     pthread_mutex_t mutex;
@@ -136,7 +163,13 @@ static bool write_request(http_conn_t * c, const char * request, size_t len) {
 
 static bool read_stream_header(void * ctx, const char * name, char * value) {
     response_t * r = ctx;
-    if (!strcasecmp(name, "Content-Range")) {
+    if (!strcasecmp(name, "icy-metaint")) {
+        char * end;
+        errno = 0;
+        unsigned long interval = strtoul(value, &end, 10);
+        if (errno || end == value || *end || value[0] == '-' || interval > UINT32_MAX) return false;
+        r->icy_interval = (uint32_t)interval;
+    } else if (!strcasecmp(name, "Content-Range")) {
         if (!parse_content_range(value, &r->range_start, &r->range_end,
                                  &r->range_total) || r->range_valid)
             return false;
@@ -155,7 +188,7 @@ static bool read_stream_header(void * ctx, const char * name, char * value) {
 }
 
 static bool open_response(const char * url, bool verify_tls, int redirects_left,
-                          bool range, uint64_t offset, const char * if_range,
+                          bool range, uint64_t offset, const char * if_range, bool request_icy,
                           response_t * r) {
     memset(r, 0, sizeof(*r));
     bool https;
@@ -176,16 +209,16 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
     char request[2800];
     int n = range ? snprintf(request, sizeof(request),
                              "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: "
-                             "Compas/compas_player\r\nIcy-MetaData: 0\r\nRange: "
+                             "Compas/compas_player\r\nIcy-MetaData: %d\r\nRange: "
                              "bytes=%llu-\r\n%s%s%sConnection: close\r\n\r\n",
-                             path, host, (unsigned long long)offset,
+                             path, host, request_icy ? 1 : 0, (unsigned long long)offset,
                              if_range ? "If-Range: " : "",
                              if_range ? if_range : "", if_range ? "\r\n" : "")
                   : snprintf(request, sizeof(request),
                              "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: "
                              "Compas/compas_player\r\nIcy-MetaData: "
-                             "0\r\nConnection: close\r\n\r\n",
-                             path, host);
+                             "%d\r\nConnection: close\r\n\r\n",
+                             path, host, request_icy ? 1 : 0);
     if (n < 0 || (size_t)n >= sizeof(request) ||
         !write_request(r->conn, request, (size_t)n))
         goto fail;
@@ -208,7 +241,7 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
         /* An entity validator applies only to the original origin and must
      * not be forwarded if a redirect changes the selected resource. */
         return open_response(location, verify_tls, redirects_left - 1, range,
-                             offset, NULL, r);
+                             offset, NULL, request_icy, r);
     }
     if (range) {
         /* A server may ignore the initial capability probe and return the
@@ -260,6 +293,37 @@ static bool push_ring(http_stream_t * s, const uint8_t * data, size_t len) {
     return true;
 }
 
+/* HTTP chunks and socket reads may split any ICY field. Only audio reaches the ring. */
+static bool push_stream_body(http_stream_t * s, const uint8_t * data, size_t len) {
+    if (!s->icy_interval) return push_ring(s, data, len);
+    while (len) {
+        if (s->icy_audio_left) {
+            size_t n = len < s->icy_audio_left ? len : s->icy_audio_left;
+            if (!push_ring(s, data, n)) return false;
+            s->icy_audio_left -= (uint32_t)n;
+            data += n; len -= n;
+        } else if (s->icy_left) {
+            size_t n = len < s->icy_left ? len : s->icy_left;
+            memcpy(s->icy_block + s->icy_used, data, n);
+            s->icy_used += n; s->icy_left -= n;
+            data += n; len -= n;
+            if (!s->icy_left) {
+                s->icy_block[s->icy_used] = '\0';
+                pthread_mutex_lock(&s->mutex);
+                icy_metadata_parse(s->icy_block, &s->metadata);
+                pthread_mutex_unlock(&s->mutex);
+                s->icy_audio_left = s->icy_interval;
+            }
+        } else {
+            s->icy_left = (size_t)*data++ * 16;
+            --len;
+            s->icy_used = 0;
+            if (!s->icy_left) s->icy_audio_left = s->icy_interval;
+        }
+    }
+    return true;
+}
+
 static void * pump(void * arg) {
     http_stream_t * s = arg;
     uint8_t buf[HTTP_CONN_READ_CHUNK];
@@ -290,7 +354,7 @@ static void * pump(void * arg) {
             while (left) {
                 size_t take = left < sizeof(buf) ? (size_t)left : sizeof(buf);
                 if (!http_conn_reader_read_exact(&s->reader, buf, take) ||
-                    !push_ring(s, buf, take)) {
+                    !push_stream_body(s, buf, take)) {
                     ok = false;
                     break;
                 }
@@ -308,7 +372,7 @@ static void * pump(void * arg) {
             int n = http_conn_reader_read_some(&s->reader, buf, want);
             if (n <= 0)
                 break;
-            if (!push_ring(s, buf, (size_t)n))
+            if (!push_stream_body(s, buf, (size_t)n))
                 break;
             pthread_mutex_lock(&s->mutex);
             if (s->has_content_length)
@@ -391,14 +455,14 @@ static void release_gated_pump(pump_gate_t * gate) {
     pthread_mutex_unlock(&gate->mutex);
 }
 
-http_stream_t * http_stream_open(const char * url, bool verify_tls) {
+http_stream_t * http_stream_open(const char * url, bool verify_tls, bool request_icy) {
     response_t r;
     /* First negotiate Range: 0-. Live servers commonly ignore it and still
    * return 200/chunked, preserving the established radio behavior. */
     bool negotiated =
-        open_response(url, verify_tls, STREAM_MAX_REDIRECTS, true, 0, NULL, &r);
+        open_response(url, verify_tls, STREAM_MAX_REDIRECTS, true, 0, NULL, request_icy, &r);
     if (!negotiated) {
-        if (!open_response(url, verify_tls, STREAM_MAX_REDIRECTS, false, 0, NULL,
+        if (!open_response(url, verify_tls, STREAM_MAX_REDIRECTS, false, 0, NULL, request_icy,
                            &r))
             return NULL;
     }
@@ -425,7 +489,8 @@ http_stream_t * http_stream_open(const char * url, bool verify_tls) {
     s->has_content_length = r.has_length && !r.chunked;
     s->content_length = r.content_length;
     s->remaining = r.content_length;
-    s->seekable = negotiated && r.status == 206 && r.range_valid &&
+    s->icy_audio_left = s->icy_interval = r.icy_interval;
+    s->seekable = !r.icy_interval && negotiated && r.status == 206 && r.range_valid &&
                   r.range_start == 0 && r.range_end + 1 == r.range_total &&
                   r.range_total <= INT64_MAX &&
                   (!r.has_length || r.content_length == r.range_total);
@@ -433,7 +498,7 @@ http_stream_t * http_stream_open(const char * url, bool verify_tls) {
         s->has_content_length = true;
         s->remaining = r.range_total;
     }
-    s->length = s->seekable ? r.range_total
+    s->length = r.icy_interval ? UINT64_MAX : s->seekable ? r.range_total
                             : (r.has_length ? r.content_length : UINT64_MAX);
     s->verify_tls = verify_tls;
     snprintf(s->content_type, sizeof(s->content_type), "%s", r.content_type);
@@ -449,6 +514,14 @@ http_stream_t * http_stream_open(const char * url, bool verify_tls) {
         free(s);
         return NULL;
     }
+    snprintf(s->source_url, sizeof(s->source_url), "%s", url);
+    pthread_mutex_lock(&metadata_mutex);
+    pthread_mutex_lock(&s->mutex);
+    s->metadata.stream_id = ++next_stream_id;
+    pthread_mutex_unlock(&s->mutex);
+    s->metadata_next = metadata_streams;
+    metadata_streams = s;
+    pthread_mutex_unlock(&metadata_mutex);
     return s;
 }
 
@@ -581,11 +654,11 @@ bool http_stream_seek(http_stream_t * s, int64_t offset, int origin) {
     bool if_range_is_etag = if_range && s->etag[0] && if_range == s->etag;
     if (have_body &&
         !open_response(s->final_url, s->verify_tls, STREAM_MAX_REDIRECTS, true,
-                       dest, if_range, &candidate))
+                       dest, if_range, false, &candidate))
         return false;
     if (have_body &&
         (candidate.status != 206 || candidate.range_total != s->length ||
-         !candidate.range_valid || candidate.range_start != dest ||
+         candidate.icy_interval || !candidate.range_valid || candidate.range_start != dest ||
          candidate.range_end + 1 != candidate.range_total)) {
         http_conn_close(candidate.conn);
         free(candidate.conn);
@@ -658,6 +731,11 @@ bool http_stream_seek(http_stream_t * s, int64_t offset, int origin) {
 void http_stream_close(http_stream_t * s) {
     if (!s)
         return;
+    pthread_mutex_lock(&metadata_mutex);
+    http_stream_t ** link = &metadata_streams;
+    while (*link && *link != s) link = &(*link)->metadata_next;
+    if (*link) *link = s->metadata_next;
+    pthread_mutex_unlock(&metadata_mutex);
     pthread_mutex_lock(&s->mutex);
     s->stop_requested = true;
     pthread_cond_broadcast(&s->cond);

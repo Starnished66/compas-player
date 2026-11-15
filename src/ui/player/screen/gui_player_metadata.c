@@ -2,6 +2,7 @@
 #include "gui_player_internal.h"
 #include "gui_lyrics.h"
 #include "gui_track_info.h"
+#include "../../../network/http/stream/http_stream.h"
 #include "../queue/player_queue_model.h"
 #include "../artwork/player_artwork_cache.h"
 #include "../artwork/player_artwork_jobs.h"
@@ -35,6 +36,24 @@ static char now_playing_genre[128];
 static int now_playing_track_number;
 extern bool plugin_now_playing_loaded;
 static uint64_t metadata_ui_token, metadata_next_token, metadata_next_queue_revision;
+static uint64_t station_metadata_token;
+static int station_index = -1;
+static char station_title[256], station_artist[128], station_album[128];
+
+/* Keep the track's own text separate from transient ICY song titles. */
+static void remember_track_display_text(int index, const char * title, const char * artist, const char * album) {
+    station_metadata_token = metadata_ui_token;
+    station_index = index;
+    snprintf(station_title, sizeof(station_title), "%s", title);
+    snprintf(station_artist, sizeof(station_artist), "%s", artist);
+    snprintf(station_album, sizeof(station_album), "%s", album);
+}
+
+static void apply_track_display_text(int index, const char * title, const char * artist, const char * album) {
+    remember_track_display_text(index, title, artist, album);
+    player_set_track_display_text(title, artist, album);
+}
+
 static uint64_t artwork_dispatched_metadata_token;
 static uint64_t metadata_scalar_applied_token;
 static char artwork_dispatched_artist[128], artwork_dispatched_album[128], artwork_dispatched_album_artist[128];
@@ -404,7 +423,7 @@ static void apply_loaded_track_metadata(int index, track_metadata_t * out_meta, 
     if (src.is_subsonic && src.subsonic->track > 0)
         now_playing_track_number = src.subsonic->track;
 
-    player_set_track_display_text(title_text, folder_text, album_text);
+    apply_track_display_text(index, title_text, folder_text, album_text);
     refresh_format_badge();
     dispatch_track_artwork(index, path, out_meta, metadata_ui_token);
 
@@ -477,7 +496,7 @@ void prepare_track_metadata(int index, bool notify, bool probe, bool audio_tags,
     refresh_now_playing_indicators();
     char title[128], folder[128];
     get_display_names(path, title, sizeof(title), folder, sizeof(folder));
-    player_set_track_display_text(request.metadata.has_title ? request.metadata.title : title,
+    apply_track_display_text(index, request.metadata.has_title ? request.metadata.title : title,
                                   request.metadata.has_artist ? request.metadata.artist : folder,
                                   request.metadata.has_album ? request.metadata.album : "");
     player_reset_now_playing_extras();
@@ -687,7 +706,7 @@ void gui_player_poll_track_metadata(void) {
         char title[128], folder[128];
         get_display_names(result.request.path, title, sizeof(title), folder, sizeof(folder));
         track_metadata_t * hint = &result.request.metadata;
-        player_set_track_display_text(hint->has_title ? hint->title : title,
+        apply_track_display_text(player_queue_model_current(), hint->has_title ? hint->title : title,
                                       hint->has_artist ? hint->artist : folder,
                                       hint->has_album ? hint->album : "");
         dispatch_track_artwork(player_queue_model_current(), result.request.path, hint, result.request.token);
@@ -783,4 +802,41 @@ void player_metadata_invalidate_queue(void) {
 void player_metadata_invalidate_ui(void) {
     ++metadata_ui_token;
     ++favorite_ui_revision;
+}
+
+void gui_player_poll_stream_metadata(void) {
+    static uint64_t artwork_stream_id;
+    static char artwork_url[1536];
+    if (!gui_player_has_active_track()) return;
+    const char * path = gui_player_get_current_track_path();
+    track_source_t source;
+    track_source_resolve(player_queue_model_current(), path, &source);
+    if (source.is_subsonic || source.is_remote || !is_http_url(path)) return;
+    if (station_metadata_token != metadata_ui_token || station_index != player_queue_model_current() ||
+        strcmp(metadata_ui_path, path)) return;
+    icy_metadata_t metadata;
+    if (!http_stream_metadata_for_url(path, &metadata)) return;
+    const char * title = metadata.title[0] ? metadata.title : station_title;
+    const char * artist = metadata.title[0] ? metadata.artist : station_artist;
+    if (strcmp(gui_player_get_now_playing_title(), title) ||
+        strcmp(gui_player_get_now_playing_folder(), artist) ||
+        strcmp(gui_player_get_now_playing_album(), metadata.title[0] ? "" : station_album)) {
+        player_set_track_display_text(title, artist, metadata.title[0] ? "" : station_album);
+        player_transition_mark_dirty();
+    }
+    if (!metadata.artwork_url[0]) {
+        if (artwork_stream_id == metadata.stream_id && artwork_url[0]) {
+            cover_decode_request_t no_art = { .for_index = player_queue_model_current() };
+            cover_decode_request_snapshot_frost(&no_art);
+            launch_cover_decode_req(no_art);
+            artwork_url[0] = '\0';
+        }
+        return;
+    }
+    if ((artwork_stream_id == metadata.stream_id && !strcmp(artwork_url, metadata.artwork_url))) return;
+    launch_cover_decode_from_url(player_queue_model_current(), metadata.artwork_url, true);
+    if (player_artwork_jobs_active() || player_artwork_jobs_pending()) {
+        artwork_stream_id = metadata.stream_id;
+        snprintf(artwork_url, sizeof(artwork_url), "%s", metadata.artwork_url);
+    }
 }

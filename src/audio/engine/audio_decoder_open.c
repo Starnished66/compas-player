@@ -498,7 +498,10 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
          * prescans. Other formats still require a finite file/container.
          * Absent a recognized hint, path extension, or audio Content-Type,
          * MP3 remains the default for ordinary internet-radio URLs. */
-        dec->net_stream = http_stream_open(remote ? remote_meta.stream_url : path, remote ? remote_meta.verify_tls : true);
+        /* Subsonic's generated endpoint and provider tracks are finite songs. */
+        bool radio = !remote && strstr(path, "/rest/stream.view?") == NULL;
+        dec->net_stream = http_stream_open(remote ? remote_meta.stream_url : path,
+                                           remote ? remote_meta.verify_tls : true, radio);
         if (!dec->net_stream) return false;
 
         net_format_t format;

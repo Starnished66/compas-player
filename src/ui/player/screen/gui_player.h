@@ -38,6 +38,7 @@ lv_style_t * gui_player_backdrop_icon_style(void);
 void gui_player_update_backdrop_contrast(void);
 void sync_player_topbar_visibility(lv_obj_t * screen);
 void gui_player_poll_track_metadata(void);
+void gui_player_poll_stream_metadata(void);
 /* Supplies the exact visible list row for the next matching manual track
  * selection. The player copies display fields only; audio tags stay fresh. */
 void gui_player_seed_selection_song(const char * path, const track_metadata_t * metadata);

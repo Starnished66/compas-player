@@ -743,6 +743,7 @@ APP_SRCS += src/plugins/bindings/audio/plugin_soundstage_bindings.c
 APP_SRCS += src/plugins/bindings/io/plugin_file_bindings.c
 APP_SRCS += src/plugins/bindings/io/plugin_system_bindings.c
 APP_SRCS += src/plugins/manager/plugin_scan.c
+APP_SRCS += src/network/http/stream/icy_metadata.c
 APP_SRCS += src/plugins/manager/plugin_call.c
 APP_SRCS += src/ui/settings/setup/gui_setup.c src/ui/settings/setup/gui_setup_plugins.c src/ui/appearance/brand_marks.c src/core/time/timezone_location.c
 APP_SRCS += src/ui/settings/gui_about_info.c

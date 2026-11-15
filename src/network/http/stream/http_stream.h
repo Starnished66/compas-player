@@ -4,14 +4,17 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "icy_metadata.h"
 
 typedef struct http_stream http_stream_t;
 
 /* Opens an HTTP(S) stream. A byte-range probe is used to identify finite,
  * seekable responses; live and ordinary non-range responses remain readable. */
-http_stream_t * http_stream_open(const char * url, bool verify_tls);
+http_stream_t * http_stream_open(const char * url, bool verify_tls, bool request_icy);
 size_t http_stream_read(http_stream_t * s, void * buf, size_t n);
 const char * http_stream_content_type(http_stream_t * s);
+/* Nonblocking snapshot; false if unavailable or a worker currently owns it. */
+bool http_stream_metadata_for_url(const char * url, icy_metadata_t * out);
 
 /* Finite HTTP byte-range streams support stdio SEEK_SET/CUR/END. Length and
  * position are byte offsets; length returns -1 when the entity is not known
