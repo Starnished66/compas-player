@@ -588,15 +588,6 @@ static void song_context_menu_information_cb(lv_event_t * e) {
     if (is_http_url(song_context_menu_target_path) || remote_track_path_is_remote(song_context_menu_target_path)) return;
     gui_track_info_context_t context = { .source = GUI_TRACK_SOURCE_LOCAL };
     snprintf(context.path, sizeof(context.path), "%s", song_context_menu_target_path);
-    const char * suffix = strrchr(context.path, '.');
-    if (suffix) snprintf(context.container, sizeof(context.container), "%s", suffix + 1);
-    song_row_t song;
-    if (metadata_db_try_get_cached_song_by_path(context.path, &song)) {
-        context.track_number = song.tags.track_number;
-        context.disc_number = song.tags.disc_number;
-        context.has_track_number = context.track_number > 0;
-        context.has_disc_number = context.disc_number > 0;
-    }
     gui_track_info_open_for_context(&context);
 }
 
