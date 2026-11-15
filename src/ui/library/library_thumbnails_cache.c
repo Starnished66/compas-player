@@ -262,13 +262,13 @@ void album_thumbnail_cache_commit(thumbnail_key_kind_t key_kind, uint64_t key,
          * full pass for the match has to run before the unused/LRU pass
          * below, which stops at the first unused slot -- a duplicate further
          * down the array would otherwise never be seen. */
-        int victim = album_thumbnail_cache_slot(key_kind, key);
-        /* A TEMPORARY failure must not blank a previously valid entry for
-         * this song. pixels is NULL whenever commit_known is false. */
-        if (victim >= 0 && !commit_known) {
+        /* Temporary failures neither replace a matching entry nor evict an
+         * unrelated one. Completion bookkeeping above still advances. */
+        if (!commit_known) {
             free(pixels);
             return;
         }
+        int victim = album_thumbnail_cache_slot(key_kind, key);
         if (victim < 0) {
             /* First-screen entries are pinned (at most 24) and skipped unless nothing else is left. */
             int pin_epoch_ok = first_screen_pin_epoch == atomic_load(&album_thumbnail_cache_epoch);
