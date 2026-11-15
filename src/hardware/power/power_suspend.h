@@ -13,6 +13,15 @@
  * power_suspend_take_wifi_restore(). */
 void power_suspend_now(void);
 
+/* True when the last power_suspend_now() reached the mem write and the
+ * wake is a charger. That requires axp2101_wake loaded and armed
+ * (/sys/module/axp2101_wake/parameters/armed is 1). Then the R1 reads
+ * AXP2101 REG00h bit 5, and a failed read falls back to the sysfs online
+ * sample. Only CONNECTED counts; UNKNOWN is a button wake. No armed
+ * module is a button wake, including every board that does not load it.
+ * False when suspend was skipped or the wake was a button. */
+bool power_suspend_woke_on_external_power(void);
+
 /* True once, when a resumed Wi-Fi radio is waiting to be turned back on. */
 bool power_suspend_take_wifi_restore(void);
 

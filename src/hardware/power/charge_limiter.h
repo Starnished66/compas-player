@@ -44,6 +44,12 @@ bool charge_limiter_dac_session_resume(bool originally_enabled);
 bool charge_limiter_dac_session_release(bool originally_enabled);
 bool charge_limiter_dac_session_end(void);
 
+/* R1 only: REG00h bit 5 (VBUS good) read now, over the same I2C helper
+ * as the limiter. Returns false when the read fails or this is not the
+ * R1; *present is set only on success. One transfer, no wait. The caller
+ * then uses its other sample, which is how the other boards stay put. */
+bool charge_limiter_vbus_present(bool *present);
+
 /* True while the limiter intends the 4.2V voltage cap to be in effect,
  * regardless of whether the last register write actually succeeded.
  * Note this is NOT tied to any specific battery percentage -- it becomes

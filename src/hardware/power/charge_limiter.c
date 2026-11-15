@@ -28,6 +28,8 @@
 #define AXP_ADDR 0x34
 #define AXP_REG_MODULE_EN 0x18
 #define AXP_CHG_EN (1u << 1)
+#define AXP_REG_STATUS0 0x00
+#define AXP_STATUS0_VBUS_GOOD (1u << 5)
 #define AXP_REG_STATUS 0x01
 #define AXP_REG_VOLTAGE 0x64
 #define AXP_REG_CURRENT 0x62
@@ -473,6 +475,18 @@ static bool set_mp_current_exact(uint8_t target) {
 }
 #endif
 #endif
+
+bool charge_limiter_vbus_present(bool *present) {
+#if !CHARGE_LIMITER_ACTIVE || !BOARD_R1_HARDWARE
+    (void)present;
+    return false;
+#else
+    uint8_t status;
+    if (!present || !axp_read(AXP_REG_STATUS0, &status)) return false;
+    *present = (status & AXP_STATUS0_VBUS_GOOD) != 0;
+    return true;
+#endif
+}
 
 void charge_limiter_poll(bool enabled, bool force) {
 #if !CHARGE_LIMITER_ACTIVE

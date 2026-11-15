@@ -1,5 +1,6 @@
 #include "power_suspend.h"
 #include "battery.h"
+#include "charge_limiter.h"
 #include "../../network/bluetooth/control/bluetooth_control.h"
 #include "../../core/system/logging/db_log.h"
 #include "../../core/process/subprocess.h"
@@ -104,9 +105,31 @@ static void log_suspend_diagnostics(uint32_t slept_ms, bool suspend_write_ok, in
 /* Wi-Fi comes back through the shell's toggle worker (gui_shell_poll picks
  * this up), so a tap during the restore cannot start a second wifi_on.sh. */
 static atomic_bool wifi_restore_pending;
+static bool woke_on_external_power;
+
+#ifndef AXP_WAKE_ARMED_FILE
+#define AXP_WAKE_ARMED_FILE "/sys/module/axp2101_wake/parameters/armed"
+#endif
+
+/* True only while VBUS-insert wake is armed. The module sets the parameter
+ * after arming and clears it when it stops the wake (storm, I2C give-up,
+ * exit). A missing file means the module is not loaded. Directory presence
+ * is not enough: a resident module can be disarmed. One open, no wait. */
+static bool axp2101_wake_is_armed(void) {
+    FILE *f = fopen(AXP_WAKE_ARMED_FILE, "r");
+    if (!f) return false;
+    int value = 0;
+    int got = fscanf(f, "%d", &value);
+    fclose(f);
+    return got == 1 && value == 1;
+}
 
 bool power_suspend_take_wifi_restore(void) {
     return atomic_exchange(&wifi_restore_pending, false);
+}
+
+bool power_suspend_woke_on_external_power(void) {
+    return woke_on_external_power;
 }
 
 static void radio_restore_perform(bool wifi_was_on, bool bt_was_on) {
@@ -176,6 +199,7 @@ static void queue_radio_recovery(bool wifi_was_on, bool bt_was_on, bool end_only
 }
 
 void power_suspend_now(void) {
+    woke_on_external_power = false;
     /* Recheck at the suspend boundary, independently of the UI idle gate.
      * An uncertain sample must never authorize sleeping on external power. */
     if (battery_get_external_power_state() != BATTERY_EXTERNAL_POWER_DISCONNECTED) {
@@ -242,9 +266,23 @@ void power_suspend_now(void) {
         uint32_t sleep_start_ms = diagnostics_enabled ? suspend_duration_ms_now() : 0;
         int suspend_write_errno = 0;
         bool suspend_write_ok = write_sysfs_checked("/sys/power/state", "mem", &suspend_write_errno);
+        bool vbus_present = false;
+        /* Charger wake only if the module is armed. Otherwise a button
+         * press with the cable in would leave the screen off. Armed: one
+         * REG00h read. The 1 Hz sysfs online flag is the fallback when
+         * that read fails, and only CONNECTED counts. No wait. */
+        if (!axp2101_wake_is_armed()) {
+            woke_on_external_power = false;
+        } else if (charge_limiter_vbus_present(&vbus_present)) {
+            woke_on_external_power = vbus_present;
+        } else {
+            battery_external_power_state_t wake_power = battery_get_external_power_state();
+            woke_on_external_power = (wake_power == BATTERY_EXTERNAL_POWER_CONNECTED);
+        }
         if (diagnostics_enabled) {
             log_suspend_diagnostics(suspend_duration_ms_now() - sleep_start_ms, suspend_write_ok, suspend_write_errno);
         }
+        SUSPEND_LOG("woke_on_external_power=%d", woke_on_external_power);
     } else {
         SUSPEND_LOG("cancelled: external power connected or unknown after preparation");
     }

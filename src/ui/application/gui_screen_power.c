@@ -16,6 +16,7 @@
 #include "../../hardware/indicators/led_control.h"
 #include "../../core/system/lifecycle/idle_shutdown.h"
 #include "../../hardware/power/power_suspend.h"
+#include "../../hardware/power/charge_limiter.h"
 #include "../../library/playlists/playlist_files.h"
 #include "../../core/system/lifecycle/screenshot.h"
 #include <string.h>
@@ -82,6 +83,10 @@ static bool screen_off_playback_active = false;
  * USB DAC blocks it only while a host streams or the gadget is switching; an
  * armed but idle one is paused first (gui_network_usb_dac_shutdown()). */
 static bool idle_shutdown_attempted = false;
+/* Last idle tick's external-power gate, so an unplug while the screen is
+ * off restarts the idle countdown instead of treating time spent charging
+ * as already-expired idle. */
+static bool idle_blocked_by_external_power = false;
 
 /* Receiver modes that need their radio or gadget up to keep receiving. */
 static bool dac_receive_mode_active(void) {
@@ -941,9 +946,18 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
             power_suspend_now();
             led_control_resume(current_settings.led_indicator_enabled);
 
-            /* Restore UI state and reset inactivity timers on resume so the
-             * display does not immediately time out again. */
-            resume_from_suspend_fixups();
+            if (power_suspend_woke_on_external_power()) {
+                /* Charger plug woke the SoC. Keep the panel off, skip the
+                 * power-button echo window, and re-apply charge limits now. */
+                last_presented_screen = NULL;
+                screen_off_since_tick = lv_tick_get();
+                charge_limiter_poll(current_settings.charge_limiter_enabled, true);
+                safe_charging_poll(current_settings.safe_charging_enabled, true);
+            } else {
+                /* Restore UI state and reset inactivity timers on resume so the
+                 * display does not immediately time out again. */
+                resume_from_suspend_fixups();
+            }
             gui_network_usb_dac_resume();
             plugin_manager_notify_system_resumed();
 
@@ -977,6 +991,9 @@ static void poll_screen_off_idle(bool screen_just_slept) {
     battery_external_power_state_t external_power_state = battery_get_external_power_state();
     bool external_power_blocks_idle =
         external_power_state != BATTERY_EXTERNAL_POWER_DISCONNECTED;
+    if (idle_blocked_by_external_power && !external_power_blocks_idle)
+        screen_off_since_tick = lv_tick_get();
+    idle_blocked_by_external_power = external_power_blocks_idle;
     poll_radio_suspend(playing_now_for_idle, external_power_blocks_idle);
 #ifdef TEST_BUILD_TAG
     log_idle_blockers(external_power_blocks_idle);
@@ -1071,6 +1088,7 @@ void gui_screen_power_reset_idle_state(void) {
     backlight_set_dimmed(false);
     inactivity_dimmed = false;
     idle_shutdown_attempted = false;
+    idle_blocked_by_external_power = false;
 }
 
 void gui_buttons_init(void) {
