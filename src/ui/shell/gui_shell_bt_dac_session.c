@@ -89,7 +89,8 @@ void poll_bt_dac_session(void) {
         session_error = worker_failed || !worker_closed;
         if (worker_closed) { owns_output = false; bt_control_dac_set_reserved(false); }
     }
-    if (owns_output || session_job.active || !gui_shell_bt_dac_profile_ready()) return;
+    if (owns_output || session_job.active || !gui_shell_bt_dac_profile_ready() ||
+        gui_network_usb_dac_pending() || gui_shell_usb_dac_owns_output()) return;
 #ifndef HOST_BUILD
     bt_media_player_set_phone_target(info.mac);
 #endif

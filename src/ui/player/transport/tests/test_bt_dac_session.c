@@ -15,7 +15,7 @@ static bool bt_is_powered_cached, idle, start_ok, stop_ok;
 static bt_dac_stream_info_t snapshot;
 static int starts, stops, checkpoints, waits;
 static int enables;
-static bool allow_unowned_stop;
+static bool allow_unowned_stop, usb_owned, usb_pending;
 static bool cancel_wait, cancel_spawn, stop_timeout;
 static void *(*pending)(void *);
 static void *pending_arg;
@@ -38,7 +38,8 @@ static void gui_shell_bt_dac_finish_profiles(void) { }
 static bool bt_workers_active(void) { return false; }
 static void enable_bt_dac_mode(void) { enables++; current_settings.bt_dac_mode_enabled = true; }
 static bool gui_network_airplay_enable_pending(void) { return false; }
-static bool gui_network_usb_dac_pending(void) { return false; }
+static bool gui_network_usb_dac_pending(void) { return usb_pending; }
+static bool gui_shell_usb_dac_owns_output(void) { return usb_owned; }
 static void gui_player_stop_for_external_session(void) { checkpoints++; }
 void bt_control_dac_set_reserved(bool reserved) { (void)reserved; }
 static void fake_sleep(unsigned int delay);
@@ -66,11 +67,19 @@ static void reset(void) {
     current_settings.bt_dac_mode_enabled=true; current_settings.wifi_dac_mode_enabled=false;
     current_settings.usb_mode=0; bt_is_powered_cached=true;
     idle=false; start_ok=stop_ok=true; cancel_wait=cancel_spawn=stop_timeout=false; starts=stops=checkpoints=waits=0;
+    usb_owned=usb_pending=false;
     enables=0; allow_unowned_stop=false; restore_on_power=false; restore_saw_off=false;
     snapshot=(bt_dac_stream_info_t){.available=true,.running=true,.generation=1,
         .mac="AA:BB:CC:DD:EE:FF",.pcm_path="/owner"};
 }
 int main(void) {
+    reset(); usb_pending=true; poll_bt_dac_session();
+    assert(!owns_output && checkpoints==0);
+    usb_pending=false; usb_owned=true; poll_bt_dac_session();
+    assert(!owns_output && checkpoints==0);
+    usb_owned=false; poll_bt_dac_session();
+    assert(owns_output && checkpoints==1);
+    pending(pending_arg); poll_bt_dac_session();
     reset(); poll_bt_dac_session(); assert(owns_output && checkpoints==1 && starts==0);
     pending(pending_arg); assert(waits && starts==1 && stops==1 && owns_output);
     poll_bt_dac_session(); assert(!owns_output); /* Only reaping releases reservation. */

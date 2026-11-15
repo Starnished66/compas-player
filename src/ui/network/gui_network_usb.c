@@ -152,6 +152,8 @@ bool start_usb_mode_switch(usb_mode_t target) {
         show_error_toast(TR("An update is already in progress"));
         return false;
     }
+    if (usb_mode_switch_queued && usb_mode_switch_target == USB_MODE_DAC && target != USB_MODE_DAC)
+        gui_network_usb_dac_pause();
     if (usb_mode_switch_active) return false;
     if (target == USB_MODE_ADB) {
         usb_dac_paused = true;
@@ -569,6 +571,14 @@ void enable_usb_dac_mode(void) { usb_dac_enable(false); }
 void gui_network_usb_dac_pause(void) {
     usb_dac_paused = true;
     usb_dac_restore_pending = false;
+    if (usb_mode_switch_queued && usb_mode_switch_target == USB_MODE_DAC) {
+        /* No worker owns this request yet. Normal prompt polling resumes once
+         * the switch blocker is gone; suspend only requeued the prompt. */
+        usb_mode_switch_queued = false;
+        usb_mode_switch_active = false;
+        usb_mode_t actual;
+        if (usb_mode_control_detect_current(&actual)) current_settings.usb_mode = actual;
+    }
     usb_dac_pause_pending = !usb_dac_teardown_failed && (current_settings.usb_mode == USB_MODE_DAC ||
         (usb_mode_switch_active && usb_mode_switch_target == USB_MODE_DAC) || usb_bridge_restart_active);
     gui_shell_usb_dac_release();
