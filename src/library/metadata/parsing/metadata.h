@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "../../parsers/cue/cue_parser.h"
 #include "../../artwork/coordinator/artwork_coordinator.h"
 
 typedef struct {
@@ -116,6 +117,9 @@ void metadata_ape_text_items(const char * path, metadata_text_item_fn item, void
  * embedded cover artwork. Embedded lyrics are also omitted; callers that
  * need lyrics should use the separate lyrics loader. */
 void metadata_read_without_artwork(const char * path, track_metadata_t * out);
+/* Read an already-resolved CUE track, including its text overrides. */
+void metadata_read_cue_track_without_artwork(const cue_sheet_t * sheet, unsigned ordinal,
+                                             track_metadata_t * out);
 
 /* Makes each text tag a single display line (control characters become
  * spaces) and clears has_* for tags with no visible characters. Every

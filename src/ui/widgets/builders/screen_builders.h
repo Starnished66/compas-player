@@ -227,7 +227,6 @@ void fill_slider_set_greyed(lv_obj_t * slider, bool greyed);
 void fill_slider_set_value(fill_slider_t * ui, int32_t value);
 /* Re-place the number after its font changes (horizontal icon rows). */
 void fill_slider_place_value(fill_slider_t * ui);
-void fill_slider_set_enabled(fill_slider_t * ui, bool enabled);
 
 typedef struct {
     const char * icon_asset;          /* e.g. "launcher/music.png" */

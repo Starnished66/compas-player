@@ -116,5 +116,3 @@ void gui_network_usb_dac_teardown(void) {
     network_delete_screen(&usb_dac_screen);
     usb_dac_content = usb_dac_stream_label = usb_dac_stream_chip = NULL;
 }
-
-lv_obj_t * gui_network_get_usb_dac_screen(void) { return usb_dac_screen; }

@@ -1,5 +1,6 @@
 #include "src/ui/application/gui.h"
 #include "src/ui/player/screen/gui_lyrics.h"
+#include "src/library/text/lyrics/lyrics.h"
 #include "src/ui/text/fonts/ui_fonts.h"
 #include <assert.h>
 #include <pthread.h>
@@ -27,7 +28,16 @@ bool __wrap_subsonic_get_lyrics(const subsonic_server_t * server, const char * i
     }
     atomic_store(&exited, true);
     if (atomic_load(&fail)) { *text = NULL; return false; }
-    *text = strdup(id); *synced = atomic_load(&synced_result); return true;
+    if (!strcmp(id, "Oversized lyric")) {
+        *text = malloc(LYRICS_MAX_FILE_BYTES + 2U);
+        assert(*text);
+        memset(*text, 'x', LYRICS_MAX_FILE_BYTES + 1U);
+        (*text)[LYRICS_MAX_FILE_BYTES + 1U] = 0;
+    } else {
+        *text = strdup(id);
+    }
+    *synced = atomic_load(&synced_result);
+    return true;
 }
 static bool has_text(lv_obj_t * obj, const char * text) {
     if (lv_obj_check_type(obj, &lv_label_class) && !strcmp(lv_label_get_text(obj), text)) return true;
@@ -74,6 +84,15 @@ int main(void) {
     gui_lyrics_open_screen();
     wait_text("Retry lyric"); /* Invalid synced text falls back to plain. */
     assert(atomic_load(&calls) == before + 1);
+    for (int i = 0; i < 2; ++i) {
+        before = atomic_load(&calls);
+        gui_lyrics_load_subsonic(0, &server, "Oversized lyric", "Artist", "Title");
+        for (int n = 0; n < 2000 && atomic_load(&calls) == before; ++n) tick();
+        for (int n = 0; n < 2000 && gui_lyrics_has_background_work(); ++n) tick();
+        assert(!gui_lyrics_has_background_work());
+        assert(atomic_load(&calls) == before + 1);
+        assert(has_text(gui_lyrics_get_screen(), "No lyrics for this song"));
+    }
     atomic_store(&hold, true); atomic_store(&entered, false);
     gui_lyrics_load_subsonic(0, &server, "Cancelled at exit", "Artist", "Title");
     for (int i = 0; i < 2000 && !atomic_load(&entered); ++i) tick();

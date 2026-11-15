@@ -260,7 +260,7 @@ static void global_add_heading(const char * label) {
     library_global_result_t * row = &global_job_results[global_job_result_count++];
     memset(row, 0, sizeof(*row));
     row->kind = LIBRARY_GLOBAL_HEADING;
-    snprintf(row->label, sizeof(row->label), "%s", label);
+    utf8_truncate_safe(row->label, label, sizeof(row->label));
 }
 
 static void global_add_result(library_global_result_kind_t kind, int offset, int64_t identity,
@@ -275,8 +275,8 @@ static void global_add_result(library_global_result_kind_t kind, int offset, int
     row->identity = identity;
     row->artwork_key = artwork_key;
     snprintf(row->artwork_name, sizeof(row->artwork_name), "%s", artwork_name ? artwork_name : "");
-    snprintf(row->label, sizeof(row->label), "%s", label ? label : "");
-    snprintf(row->subtitle, sizeof(row->subtitle), "%s", subtitle ? subtitle : "");
+    utf8_truncate_safe(row->label, label ? label : "", sizeof(row->label));
+    utf8_truncate_safe(row->subtitle, subtitle ? subtitle : "", sizeof(row->subtitle));
     snprintf(row->target, sizeof(row->target), "%s", target ? target : "");
     snprintf(row->secondary, sizeof(row->secondary), "%s", secondary ? secondary : "");
 }
@@ -563,14 +563,17 @@ static void search_apply_results_to_list(search_binding_t * b, const metadata_db
                                          int matched) {
     compact_list_item_t * items = malloc(sizeof(compact_list_item_t) * (size_t) (matched > 0 ? matched : 1));
     int * indices = malloc(sizeof(int) * (size_t) (matched > 0 ? matched : 1));
-    char(*labels)[COMPACT_LIST_LABEL_MAX] = malloc(sizeof(*labels) * (size_t) (matched > 0 ? matched : 1));
-    char(*owned_subtitles)[256] = malloc(sizeof(*owned_subtitles) * (size_t) (matched > 0 ? matched : 1));
+    char(*labels)[COMPACT_LIST_LABEL_MAX] = b->id == SEARCH_BINDING_GLOBAL ? NULL :
+        malloc(sizeof(*labels) * (size_t) (matched > 0 ? matched : 1));
+    char(*owned_subtitles)[256] = b->id == SEARCH_BINDING_GLOBAL ? NULL :
+        malloc(sizeof(*owned_subtitles) * (size_t) (matched > 0 ? matched : 1));
     library_global_result_t * global_results = NULL;
     if (b->id == SEARCH_BINDING_GLOBAL) {
         global_results = global_job_results;
         global_job_results = NULL;
     }
-    if (!items || !indices || !labels || !owned_subtitles ||
+    if (!items || !indices ||
+        (b->id != SEARCH_BINDING_GLOBAL && (!labels || !owned_subtitles)) ||
         (b->id == SEARCH_BINDING_GLOBAL && !global_results)) {
         free(items);
         free(indices);
@@ -582,14 +585,12 @@ static void search_apply_results_to_list(search_binding_t * b, const metadata_db
     for (int i = 0; i < matched; i++) {
         if (global_results) {
             library_global_result_t * result = &global_results[i];
-            utf8_truncate_safe(labels[i], result->kind == LIBRARY_GLOBAL_HEADING ? TR(result->label) : result->label,
-                               sizeof(labels[i]));
-            memcpy(owned_subtitles[i], result->subtitle, sizeof(owned_subtitles[i]));
             items[i] = (compact_list_item_t){
-                .label = labels[i], .subtitle = owned_subtitles[i][0] ? owned_subtitles[i] : NULL,
+                .label = result->kind == LIBRARY_GLOBAL_HEADING ? TR(result->label) : result->label,
+                .subtitle = result->subtitle[0] ? result->subtitle : NULL,
                 .is_section_header = result->kind == LIBRARY_GLOBAL_HEADING,
                 .identity = result->identity, .artwork_key = result->artwork_key,
-                .artwork_name = result->artwork_name[0] ? labels[i] : NULL
+                .artwork_name = result->artwork_name[0] ? result->label : NULL
             };
             indices[i] = i;
             continue;

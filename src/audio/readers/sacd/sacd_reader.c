@@ -4,6 +4,7 @@
 #define _FILE_OFFSET_BITS 64
 #define _POSIX_C_SOURCE 200809L
 #include "sacd_reader.h"
+#include "../../engine/audio_helpers.h"
 #include "../../decoders/dst/dst_decoder.h"
 #include "../../../library/sacd/sacd_iso.h"
 #include <stdlib.h>
@@ -48,13 +49,6 @@ static bool read_sector(sacd_reader_t *r, uint32_t sector) {
     return (bool)(header & 1) == r->dst;
 }
 
-static uint32_t dff_be32(const uint8_t *p) {
-    return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
-}
-static uint64_t dff_be64(const uint8_t *p) {
-    return (uint64_t)dff_be32(p) << 32 | dff_be32(p + 4);
-}
-
 /* Leave a new frame's first packet pending when finishing its predecessor. */
 static bool next_frame(sacd_reader_t *r, uint32_t decode_from) {
     if (r->dff) {
@@ -65,7 +59,7 @@ static bool next_frame(sacd_reader_t *r, uint32_t decode_from) {
         uint8_t header[12];
         if (fread(header, 1, sizeof(header), r->f) != sizeof(header) ||
             memcmp(header, "DSTF", 4) != 0) return false;
-        uint64_t size = dff_be64(header + 4);
+        uint64_t size = audio_read_u64be(header + 4);
         if (size > r->dff_end - offset - 12 || size > PACKED_MAX ||
             fread(r->packed, 1, (size_t)size, r->f) != size) return false;
         if (r->frame_time >= decode_from &&
@@ -230,14 +224,14 @@ static bool dff_load_index(FILE *f, uint64_t start, uint64_t end, uint64_t index
         uint8_t entry[12], header[12];
         if (fseeko(f, (off_t)(index + (uint64_t)i * 12), SEEK_SET) != 0 ||
             fread(entry, 1, 12, f) != 12) return false;
-        uint64_t sound = dff_be64(entry);
-        uint32_t length = dff_be32(entry + 8);
+        uint64_t sound = audio_read_u64be(entry);
+        uint32_t length = audio_read_u32be(entry + 8);
         if (sound < 12 || sound - 12 < previous_end || sound > end ||
             !length || length > PACKED_MAX || length > end - sound ||
             (length & 1u) > end - sound - length ||
             fseeko(f, (off_t)(sound - 12), SEEK_SET) != 0 ||
             fread(header, 1, 12, f) != 12 || memcmp(header, "DSTF", 4) ||
-            dff_be64(header + 4) != length) return false;
+            audio_read_u64be(header + 4) != length) return false;
         frames[i] = sound - 12;
         previous_end = sound + length + (length & 1u);
     }
@@ -262,7 +256,7 @@ sacd_reader_t *sacd_reader_open_dff(FILE *f, uint64_t start, uint64_t size,
         uint8_t header[12];
         if (end - offset < sizeof(header) || fseeko(f, (off_t)offset, SEEK_SET) != 0 ||
             fread(header, 1, sizeof(header), f) != sizeof(header)) goto fail;
-        uint64_t chunk_size = dff_be64(header + 4);
+        uint64_t chunk_size = audio_read_u64be(header + 4);
         uint64_t payload = offset + sizeof(header);
         if (chunk_size > end - payload || chunk_size > UINT64_MAX - payload) goto fail;
         if (memcmp(header, "FRTE", 4) == 0) {
@@ -270,7 +264,7 @@ sacd_reader_t *sacd_reader_open_dff(FILE *f, uint64_t start, uint64_t size,
             if (chunk_size < sizeof(frte) || frame_count ||
                 fseeko(f, (off_t)payload, SEEK_SET) != 0 ||
                 fread(frte, 1, sizeof(frte), f) != sizeof(frte)) goto fail;
-            frame_count = dff_be32(frte);
+            frame_count = audio_read_u32be(frte);
             frame_rate = (unsigned)((frte[4] << 8) | frte[5]);
             if (!frame_count || frame_rate != 75 || frame_count > DFF_MAX_FRAMES ||
                 frame_count > size / (sizeof(header) + 1)) goto fail;

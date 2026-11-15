@@ -30,7 +30,9 @@ int main(void) {
     /* Rebuilding one screen leaves the other's dot-mode labels reading "..." until
      * it is shown, so each is rebuilt and read on its own, usb first. */
     lv_obj_t *bt = gui_network_get_bt_dac_screen();
-    lv_obj_t *usb = gui_network_get_usb_dac_screen();
+    gui_network_open_usb_dac();
+    lv_obj_t *usb = lv_screen_active();
+    nav_pop_immediate();
     assert(bt && usb);
     unsigned counts[2][2];
     for (int on = 0; on < 2; ++on) {
@@ -59,6 +61,6 @@ int main(void) {
     gui_network_teardown();
     gui_network_init();
     gui_network_open_usb_dac();
-    assert(has_text(gui_network_get_usb_dac_screen(), "Stop USB DAC"));
+    assert(has_text(lv_screen_active(), "Stop USB DAC"));
     puts("Shared Bluetooth/USB DAC screen and navigation tests passed");
 }

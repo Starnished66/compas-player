@@ -176,6 +176,7 @@ static void * load_local_facts(void * arg) {
     gui_track_info_context_t * ctx = &job->context;
     char path[sizeof(ctx->path)];
     snprintf(path, sizeof(path), "%s", ctx->path);
+    track_metadata_t meta;
     double cue_start = 0.0, cue_end = -1.0;
     if (cue_reference_is(path)) {
         cue_sheet_t sheet;
@@ -185,7 +186,10 @@ static void * load_local_facts(void * arg) {
         snprintf(path, sizeof(path), "%s", track->audio_path);
         cue_start = track->start_seconds;
         cue_end = track->end_seconds;
+        metadata_read_cue_track_without_artwork(&sheet, ordinal, &meta);
         cue_sheet_free(&sheet);
+    } else {
+        metadata_read_without_artwork(ctx->path, &meta);
     }
     const char * suffix = strrchr(path, '.');
     if (suffix) snprintf(ctx->container, sizeof(ctx->container), "%s", suffix + 1);
@@ -204,8 +208,6 @@ static void * load_local_facts(void * arg) {
         job->file_duration = format.duration_seconds;
         ctx->declared_duration_seconds = (cue_end >= 0 ? cue_end : format.duration_seconds) - cue_start;
     }
-    track_metadata_t meta;
-    metadata_read_without_artwork(ctx->path, &meta);
     ctx->track_number = meta.track_number;
     ctx->disc_number = meta.disc_number;
     ctx->has_track_number = meta.has_track_number;

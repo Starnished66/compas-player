@@ -439,6 +439,22 @@ static void metadata_read_dispatch(const char * path, track_metadata_t * out, bo
 /* CUE virtual tracks keep the physical source as their storage identity.
  * Read its tags and artwork once, then replace only the fields supplied by
  * the selected CUE entry/sheet. */
+static void read_resolved_cue_metadata(const cue_sheet_t * sheet, unsigned ordinal,
+                                       track_metadata_t * out, bool include_blobs) {
+    const cue_track_t * track = &sheet->tracks[ordinal - 1];
+    metadata_read_dispatch(track->audio_path, out, include_blobs);
+    if (track->title[0]) {
+        SET_TAG_TEXT(out, title, track->title, strlen(track->title));
+    } else {
+        snprintf(out->title, sizeof(out->title), "Track %d", track->number);
+        out->has_title = true;
+    }
+    const char * performer = track->performer[0] ? track->performer : sheet->performer;
+    if (performer[0]) SET_TAG_TEXT(out, artist, performer, strlen(performer));
+    if (sheet->title[0]) SET_TAG_TEXT(out, album, sheet->title, strlen(sheet->title));
+    if (track->number > 0) set_sequence(out, false, track->number);
+}
+
 static void read_cue_track_metadata(const char * path, track_metadata_t * out, bool include_blobs) {
     unsigned ordinal = 0;
     cue_sheet_t sheet = {0};
@@ -447,19 +463,16 @@ static void read_cue_track_metadata(const char * path, track_metadata_t * out, b
         cue_sheet_free(&sheet);
         return;
     }
-    const cue_track_t * track = &sheet.tracks[ordinal - 1];
-    metadata_read_dispatch(track->audio_path, out, include_blobs);
-    if (track->title[0]) {
-        SET_TAG_TEXT(out, title, track->title, strlen(track->title));
-    } else {
-        snprintf(out->title, sizeof(out->title), "Track %d", track->number);
-        out->has_title = true;
-    }
-    const char * performer = track->performer[0] ? track->performer : sheet.performer;
-    if (performer[0]) SET_TAG_TEXT(out, artist, performer, strlen(performer));
-    if (sheet.title[0]) SET_TAG_TEXT(out, album, sheet.title, strlen(sheet.title));
-    if (track->number > 0) set_sequence(out, false, track->number);
+    read_resolved_cue_metadata(&sheet, ordinal, out, include_blobs);
     cue_sheet_free(&sheet);
+}
+
+void metadata_read_cue_track_without_artwork(const cue_sheet_t * sheet, unsigned ordinal,
+                                             track_metadata_t * out) {
+    memset(out, 0, sizeof(*out));
+    if (!sheet || ordinal == 0 || ordinal > (unsigned) sheet->track_count) return;
+    read_resolved_cue_metadata(sheet, ordinal, out, false);
+    metadata_normalize_text_tags(out);
 }
 
 /* The extension names the codec; CAF carries a distinct signature. */

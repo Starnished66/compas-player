@@ -15,7 +15,6 @@
 
 typedef enum { GROUP_COMPACT_SONG, GROUP_COMPACT_PREV, GROUP_COMPACT_NEXT, GROUP_COMPACT_DISC } group_compact_kind_t;
 typedef struct {
-    compact_list_item_t item;
     char * title;
     char * subtitle;
     size_t subtitle_capacity;
@@ -23,7 +22,6 @@ typedef struct {
     group_compact_kind_t kind;
 } group_compact_row_t;
 static group_compact_row_t * group_compact_rows;
-static compact_list_item_t * group_compact_items;
 static int group_compact_count;
 static lv_obj_t * group_compact_header;
 int group_songs_compact_row_count(void) { return group_compact_count; }
@@ -55,7 +53,6 @@ static void group_compact_release(void) {
             free(group_compact_rows[i].subtitle);
         }
     free(group_compact_rows); group_compact_rows = NULL;
-    free(group_compact_items); group_compact_items = NULL;
     group_compact_count = 0;
 }
 
@@ -86,7 +83,8 @@ static void group_compact_long_press(int index) {
     if (row->kind == GROUP_COMPACT_SONG) group_songs_compact_context(row->source_index);
 }
 
-static void group_compact_add(group_compact_kind_t kind, const char * title, const char * subtitle, int source) {
+static void group_compact_add(compact_list_item_t * items, group_compact_kind_t kind,
+                              const char * title, const char * subtitle, int source) {
     group_compact_row_t * row = &group_compact_rows[group_compact_count];
     row->title = strdup(title ? title : "");
     size_t subtitle_len = subtitle ? strlen(subtitle) : 0;
@@ -96,15 +94,15 @@ static void group_compact_add(group_compact_kind_t kind, const char * title, con
     if (row->subtitle && subtitle) snprintf(row->subtitle, row->subtitle_capacity, "%s", subtitle);
     row->source_index = source;
     row->kind = kind;
-    row->item.label = row->title ? row->title : "";
-    row->item.subtitle = row->subtitle ? row->subtitle : "";
-    row->item.identity = kind == GROUP_COMPACT_SONG ? group_songs_entries[source].song_id : 0;
-    row->item.artwork_key = kind == GROUP_COMPACT_SONG ? group_songs_entries[source].artwork_key : 0;
-    row->item.trailing_asset = kind == GROUP_COMPACT_SONG
+    compact_list_item_t * item = &items[group_compact_count];
+    item->label = row->title ? row->title : "";
+    item->subtitle = row->subtitle ? row->subtitle : "";
+    item->identity = kind == GROUP_COMPACT_SONG ? group_songs_entries[source].song_id : 0;
+    item->artwork_key = kind == GROUP_COMPACT_SONG ? group_songs_entries[source].artwork_key : 0;
+    item->trailing_asset = kind == GROUP_COMPACT_SONG
         ? song_quality_asset_for_path(group_songs_entries[source].path) : NULL;
-    row->item.is_action = kind == GROUP_COMPACT_PREV || kind == GROUP_COMPACT_NEXT;
-    row->item.is_section_header = kind == GROUP_COMPACT_DISC;
-    group_compact_items[group_compact_count] = row->item;
+    item->is_action = kind == GROUP_COMPACT_PREV || kind == GROUP_COMPACT_NEXT;
+    item->is_section_header = kind == GROUP_COMPACT_DISC;
     group_compact_count++;
 }
 
@@ -115,18 +113,19 @@ static void group_compact_populate(int page_end, bool album_layout, bool restore
     int capacity = count * 2 + 2;
     group_compact_release();
     group_compact_rows = calloc((size_t)capacity, sizeof(*group_compact_rows));
-    group_compact_items = calloc((size_t)capacity, sizeof(*group_compact_items));
-    if (!group_compact_rows || !group_compact_items) {
+    compact_list_item_t * items = calloc((size_t)capacity, sizeof(*items));
+    if (!group_compact_rows || !items) {
+        free(items);
         group_compact_release(); return;
     }
     if (start > 0) {
         char nav[96]; snprintf(nav, sizeof(nav), TR("Previous  •  %d–%d of %d"), start + 1, page_end, group_songs_count);
-        group_compact_add(GROUP_COMPACT_PREV, nav, NULL, -1);
+        group_compact_add(items, GROUP_COMPACT_PREV, nav, NULL, -1);
     }
     for (int i = start; i < page_end; ++i) {
         if (group_songs_entries[i].show_disc_header) {
             char disc[32]; snprintf(disc, sizeof(disc), TR("Disc %d"), group_songs_entries[i].disc_number);
-            group_compact_add(GROUP_COMPACT_DISC, disc, NULL, -1);
+            group_compact_add(items, GROUP_COMPACT_DISC, disc, NULL, -1);
         }
         const char * full = group_songs_entries[i].title ? group_songs_entries[i].title : "";
         const char * detail = strchr(full, '\n');
@@ -136,14 +135,15 @@ static void group_compact_populate(int page_end, bool album_layout, bool restore
         memcpy(title, full, n); title[n] = 0;
         if (detail) detail++;
         /* Compact-list item strings outlive this temporary split of the source title. */
-        group_compact_add(GROUP_COMPACT_SONG, title, album_layout ? NULL : detail, i);
+        group_compact_add(items, GROUP_COMPACT_SONG, title, album_layout ? NULL : detail, i);
         free(title);
     }
     if (page_end < group_songs_count) {
         char nav[96]; snprintf(nav, sizeof(nav), TR("Next  •  %d–%d of %d"), start + 1, page_end, group_songs_count);
-        group_compact_add(GROUP_COMPACT_NEXT, nav, NULL, -1);
+        group_compact_add(items, GROUP_COMPACT_NEXT, nav, NULL, -1);
     }
-    compact_list_set_items(group_songs_list, group_compact_items, group_compact_count);
+    compact_list_set_items(group_songs_list, items, group_compact_count);
+    free(items);
     compact_list_set_row_height(group_songs_list, album_layout ? BOARD_SCALE_PX(76) : ui_music_row_height());
     compact_list_set_now_playing(group_songs_list, -1);
     if (group_songs_anchor_pending) {

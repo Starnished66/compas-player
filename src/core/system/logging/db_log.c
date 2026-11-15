@@ -1,4 +1,5 @@
 #include "db_log.h"
+#include "../../time/monotonic.h"
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -94,9 +95,7 @@ bool db_log_enabled(void) {
 }
 
 uint64_t db_log_now_ms(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t) ts.tv_sec * 1000ULL + (uint64_t) ts.tv_nsec / 1000000ULL;
+    return monotonic_ms();
 }
 
 long db_log_rss_kb(void) {

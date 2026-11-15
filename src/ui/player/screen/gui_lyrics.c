@@ -257,6 +257,10 @@ static char * load_remote_lyrics(const lyrics_load_request_t * req, bool * synce
         return NULL;
     }
     if (http_cancel_token_is_cancelled(&lyrics_cancel)) { free(text); return NULL; }
+    if (text && strnlen(text, LYRICS_MAX_FILE_BYTES + 1U) > LYRICS_MAX_FILE_BYTES) {
+        free(text);
+        return NULL;
+    }
     unsigned slot = remote_lyrics_cache_next++ % 2;
     free(remote_lyrics_cache[slot].text);
     remote_lyrics_cache[slot].text = text ? strdup(text) : NULL;

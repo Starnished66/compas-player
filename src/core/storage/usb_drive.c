@@ -1,4 +1,5 @@
 #include "usb_drive.h"
+#include "../time/monotonic.h"
 
 #include "../process/subprocess.h"
 #include "../text/utf8_util.h"
@@ -412,12 +413,6 @@ static void start_worker_if_needed(void) {
         return;
     }
     pthread_detach(thread);
-}
-
-static uint64_t monotonic_ms(void) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (uint64_t) now.tv_sec * 1000u + (uint64_t) now.tv_nsec / 1000000u;
 }
 
 void usb_drive_poll(usb_drive_events_t * events) {

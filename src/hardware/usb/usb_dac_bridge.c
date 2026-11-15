@@ -785,6 +785,20 @@ static void writer_finish(uint8_t * in, int16_t * out16, int32_t * out24, bool c
     update_bridge_running_state();
 }
 
+static void writer_fail(uint8_t * in, int16_t * out16, int32_t * out24, bool started_output) {
+    pthread_mutex_lock(&bridge_mutex);
+    output_failed = true;
+    if (started_output) output_releasing = true;
+    else {
+        bridge_owns_output = false;
+        output_releasing = false;
+    }
+    pthread_mutex_unlock(&bridge_mutex);
+    stop_requested = true;
+    ring_buffer_signal_finished(&g_rb);
+    writer_finish(in, out16, out24, started_output);
+}
+
 /* 2. WRITER THREAD:
  * Only thread calling audio_output.h. Takes host frames from the ring buffer,
  * follows the host format the reader publishes, converts, and plays them. */
@@ -913,17 +927,7 @@ static void * bridge_writer_thread_func(void * arg) {
                 pthread_mutex_unlock(&bridge_mutex);
                 if (!may_open) break;
                 if (monotonic_ns() - idle_wait_started_ns >= 2000000000ULL) {
-                    pthread_mutex_lock(&bridge_mutex);
-                    output_failed = true;
-                    if (started_output) output_releasing = true;
-                    else {
-                        bridge_owns_output = false;
-                        output_releasing = false;
-                    }
-                    pthread_mutex_unlock(&bridge_mutex);
-                    stop_requested = true;
-                    ring_buffer_signal_finished(&g_rb);
-                    writer_finish(in, out16, out24, started_output);
+                    writer_fail(in, out16, out24, started_output);
                     return NULL;
                 }
                 usleep(20000);
@@ -945,17 +949,7 @@ static void * bridge_writer_thread_func(void * arg) {
             }
             if (!audio_output_ensure(BRIDGE_CHANNELS, rate, true, true)) {
                 BRIDGE_LOG("usb_dac_bridge: audio_output_ensure failed (rate=%u)\n", rate);
-                pthread_mutex_lock(&bridge_mutex);
-                output_failed = true;
-                if (started_output) output_releasing = true;
-                else {
-                    bridge_owns_output = false;
-                    output_releasing = false;
-                }
-                pthread_mutex_unlock(&bridge_mutex);
-                stop_requested = true;
-                ring_buffer_signal_finished(&g_rb);
-                writer_finish(in, out16, out24, started_output);
+                writer_fail(in, out16, out24, started_output);
                 return NULL;
             }
             started_output = true;

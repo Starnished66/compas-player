@@ -46,6 +46,16 @@ static void * airplay_control_worker(void * arg) {
     return NULL;
 }
 
+static bool launch_airplay_worker(bool start) {
+    airplay_worker_start = start;
+    atomic_store_explicit(&airplay_worker_done, false, memory_order_relaxed);
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, airplay_control_worker, NULL) != 0) return false;
+    airplay_worker_active = true;
+    pthread_detach(thread);
+    return true;
+}
+
 bool gui_network_airplay_stop_pending(void) {
     if (airplay_worker_active && atomic_load_explicit(&airplay_worker_done, memory_order_acquire)) {
         airplay_worker_active = false;
@@ -60,13 +70,7 @@ bool gui_network_airplay_stop_pending(void) {
         } else airplay_stop_pending = !airplay_bridge_is_stopped();
     }
     if (airplay_stop_pending && !airplay_worker_active) {
-        pthread_t thread;
-        airplay_worker_start = false;
-        atomic_store_explicit(&airplay_worker_done, false, memory_order_relaxed);
-        if (pthread_create(&thread, NULL, airplay_control_worker, NULL) == 0) {
-            airplay_worker_active = true;
-            pthread_detach(thread);
-        }
+        (void)launch_airplay_worker(false);
     }
     return airplay_stop_pending || airplay_worker_active;
 }
@@ -167,13 +171,7 @@ static void refresh_airplay_screen_if_built(void) {
 }
 
 static void start_airplay(void) {
-    airplay_worker_start = true;
-    atomic_store_explicit(&airplay_worker_done, false, memory_order_relaxed);
-    pthread_t thread;
-    if (pthread_create(&thread, NULL, airplay_control_worker, NULL) == 0) {
-        airplay_worker_active = true;
-        pthread_detach(thread);
-    } else {
+    if (!launch_airplay_worker(true)) {
         current_settings.wifi_dac_mode_enabled = false;
         settings_save_async(&current_settings);
         show_error_toast(TR("Failed to enable AirPlay"));

@@ -10,7 +10,6 @@ lv_obj_t * gui_network_get_wifi_screen(void);
 lv_obj_t * gui_network_get_bt_screen(void);
 lv_obj_t * gui_network_get_wireless_screen(void);
 lv_obj_t * gui_network_get_bt_dac_screen(void);
-lv_obj_t * gui_network_get_usb_dac_screen(void);
 
 bool gui_network_usb_dac_active(void);
 bool gui_network_toggle_usb_dac(void);

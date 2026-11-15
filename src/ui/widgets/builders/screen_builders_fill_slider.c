@@ -47,10 +47,6 @@ void fill_slider_set_greyed(lv_obj_t * slider, bool greyed) {
         lv_obj_set_style_opa(lv_obj_get_child(slider, i), greyed ? LV_OPA_40 : LV_OPA_COVER, 0);
 }
 
-void fill_slider_set_enabled(fill_slider_t * ui, bool enabled) {
-    fill_slider_set_greyed(ui->slider, !enabled);
-}
-
 /* A row's number sits as far from the right edge as from the top and bottom,
  * measured on the drawn digits rather than the font's line box. */
 void fill_slider_place_value(fill_slider_t * ui) {

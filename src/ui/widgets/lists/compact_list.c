@@ -1035,10 +1035,9 @@ void compact_list_set_empty_heading(lv_obj_t * list, const char * heading) {
  * live search filter -- without the lv_obj_delete()+rebuild this project
  * otherwise always used for that (see poll_library_rescan()'s own
  * rebuild-from-scratch precedent in gui.c). Copies `items` the same way
- * build_compact_list_screen() itself does (caller doesn't need to keep the
- * array or its strings alive afterward, though the strings themselves
- * still need to outlive this call the same way the original construction-
- * time ones do -- see build_compact_list_screen()'s own doc comment). */
+ * build_compact_list_screen() itself does. The caller may free the input
+ * array after this call; borrowed strings must remain alive until the items
+ * are replaced or the list is destroyed. */
 void compact_list_set_items(lv_obj_t * list, const compact_list_item_t * items, int item_count) {
     COMPACT_LIST_DATA_OR_RETURN("set_items");
 
