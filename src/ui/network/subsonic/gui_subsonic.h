@@ -7,6 +7,7 @@
 
 typedef struct {
     char song_id[64];
+    char artist_id[64], album_id[64];
     char url[1536]; /* the exact playlist[i] this entry describes */
     char title[128];
     char artist[128];
@@ -31,6 +32,10 @@ void gui_subsonic_init(void);
 /* Deletes every screen this module owns so gui_reload.c's in-process UI
  * reload can call gui_subsonic_init() again from a clean slate. */
 void gui_subsonic_teardown(void);
+/* UI-only lookup and source-aware navigation for player and song menus. */
+const subsonic_stream_song_meta_t * gui_subsonic_song_for_path(const char * path);
+bool gui_subsonic_open_song_group(const char * path, bool album);
+
 extern subsonic_stream_song_meta_t * subsonic_stream_meta;
 extern int subsonic_stream_meta_count;
 extern void subsonic_tile_cb(lv_event_t * e);

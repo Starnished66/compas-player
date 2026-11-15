@@ -70,6 +70,7 @@ typedef struct {
 
 typedef struct {
     char id[64];
+    char artist_id[64], album_id[64];
     char title[128];
     char artist[128];
     char album[128];
@@ -129,6 +130,10 @@ bool subsonic_get_artists(const subsonic_server_t * server, subsonic_artist_t **
 /* Fetches albums for an artist via getArtist.view. Caller owns *out_albums. */
 bool subsonic_get_artist_albums(const subsonic_server_t * server, const char * artist_id,
                                  subsonic_album_t ** out_albums, int * out_count, http_cancel_token_t * cancel);
+
+/* Resolves server group IDs for a song from an older cache entry. */
+bool subsonic_get_song(const subsonic_server_t * server, const char * song_id,
+                       subsonic_song_t * song, http_cancel_token_t * cancel);
 
 /* Fetches songs for an album via getAlbum.view. Caller owns *out_songs. */
 bool subsonic_get_album_songs(const subsonic_server_t * server, const char * album_id,

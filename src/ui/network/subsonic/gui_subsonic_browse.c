@@ -26,6 +26,8 @@ typedef struct {
 static gui_busy_handle_t subsonic_browse_token = 0;
 static pthread_t subsonic_browse_thread;
 static http_cancel_token_t subsonic_browse_cancel;
+static subsonic_song_t resolved_song;
+static char resolved_server_key[SUBSONIC_CACHE_KEY_SIZE];
 
 bool subsonic_browse_active = false;
 /* Set when the user cancelled or the request timed out: the worker is still
@@ -131,6 +133,8 @@ static void subsonic_browse_free_request(subsonic_browse_request_t * req) {
 
 static bool subsonic_browse_fetch(const subsonic_browse_request_t * req, int * count) {
     switch (req->kind) {
+        case SUBSONIC_BROWSE_SONG_ARTIST:
+        case SUBSONIC_BROWSE_SONG_ALBUM: return false; /* resolved before fetching */
         case SUBSONIC_BROWSE_ARTIST_SONGS:
             return subsonic_browse_artist_songs(req, count);
         case SUBSONIC_BROWSE_ARTISTS:
@@ -174,11 +178,28 @@ static void subsonic_browse_publish(const subsonic_browse_request_t * req, int c
     atomic_store_explicit(&subsonic_browse_done_flag, true, memory_order_release);
 }
 
+static bool subsonic_browse_resolve_song_group(subsonic_browse_request_t * req) {
+    if (req->kind != SUBSONIC_BROWSE_SONG_ARTIST && req->kind != SUBSONIC_BROWSE_SONG_ALBUM) return true;
+    bool album = req->kind == SUBSONIC_BROWSE_SONG_ALBUM;
+    subsonic_song_t song;
+    if (!subsonic_get_song(&req->server, req->id, &song, &subsonic_browse_cancel)) return false;
+    const char * id = album ? song.album_id : song.artist_id;
+    const char * title = album ? song.album : song.artist;
+    if (!id[0] || !title[0]) return false;
+    resolved_song = song;
+    snprintf(resolved_song.id, sizeof(resolved_song.id), "%s", req->id);
+    subsonic_cache_server_key(&req->server, resolved_server_key);
+    req->kind = album ? SUBSONIC_BROWSE_ALBUM_SONGS : SUBSONIC_BROWSE_ARTIST_ALBUMS;
+    snprintf(req->id, sizeof(req->id), "%s", id);
+    snprintf(req->title, sizeof(req->title), "%s", title);
+    return !http_cancel_token_is_cancelled(&subsonic_browse_cancel);
+}
+
 static void * subsonic_browse_thread_func(void * arg) {
     subsonic_browse_request_t * req = (subsonic_browse_request_t *) arg;
     int count = 0;
 
-    bool ok = subsonic_browse_fetch(req, &count);
+    bool ok = subsonic_browse_resolve_song_group(req) && subsonic_browse_fetch(req, &count);
 
     if (ok) {
         subsonic_browse_save_cache(req, count);
@@ -223,13 +244,14 @@ static subsonic_browse_request_t * subsonic_browse_new_request(subsonic_browse_k
     req->server = subsonic_server_from_settings();
     if (id) snprintf(req->id, sizeof(req->id), "%s", id);
     if (title) snprintf(req->title, sizeof(req->title), "%s", title);
-    if (kind == SUBSONIC_BROWSE_ALBUM_SONGS) subsonic_songs_stamp(SUBSONIC_LIST_ALBUM_SONGS, req->id, &req->stamp);
+    if (kind == SUBSONIC_BROWSE_ALBUM_SONGS || kind == SUBSONIC_BROWSE_SONG_ALBUM) subsonic_songs_stamp(SUBSONIC_LIST_ALBUM_SONGS, req->id, &req->stamp);
     if (kind == SUBSONIC_BROWSE_PLAYLIST_SONGS) subsonic_songs_stamp(SUBSONIC_LIST_PLAYLIST_SONGS, req->id, &req->stamp);
     return req;
 }
 
 /* Clears the previous result and marks a request as under way. */
 static void subsonic_browse_begin(subsonic_browse_kind_t kind) {
+    memset(&resolved_song, 0, sizeof(resolved_song));
     subsonic_browse_result_not_found = false;
     subsonic_browse_result_artists = NULL;
     subsonic_browse_result_error[0] = '\0';
@@ -378,6 +400,8 @@ static bool subsonic_commit_playlists_result(void) {
 static bool subsonic_commit_browse_result(void) {
     bool ok = true;
     switch (subsonic_browse_result_kind) {
+        case SUBSONIC_BROWSE_SONG_ARTIST:
+        case SUBSONIC_BROWSE_SONG_ALBUM: return false;
         case SUBSONIC_BROWSE_ARTIST_SONGS: {
             subsonic_song_t * songs = subsonic_browse_result_songs;
             subsonic_browse_result_songs = NULL;
@@ -473,6 +497,8 @@ void poll_subsonic_browse(void) {
     if (gui_navigation_transition_in_progress()) return;
     if (subsonic_browse_poll_waiting()) return;
     subsonic_browse_collect();
+    if (!subsonic_browse_abandoned && resolved_song.id[0])
+        gui_subsonic_update_song_groups(resolved_server_key, &resolved_song);
     bool success = subsonic_browse_success_flag && !subsonic_browse_abandoned;
     int depth_before = gui_navigation_get_depth();
     if (success) {

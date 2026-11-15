@@ -5,6 +5,7 @@
 #include "gui_album_header.h"
 #include "gui_album_view.h"
 #include "gui_library.h"
+#include "../../network/subsonic/gui_subsonic.h"
 #include "../../widgets/builders/gui_play_bar.h"
 #include "gui_artist_data.h"
 #include "../../../core/process/worker_thread.h"
@@ -20,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static void cancel_genre_load(void);
 
@@ -710,6 +712,8 @@ static void collapse_now_playing_library_return(lv_obj_t * target) {
 }
 
 bool gui_library_open_now_playing_group(const char * path, bool album) {
+    if (path && (!strncasecmp(path, "http://", 7) || !strncasecmp(path, "https://", 8)))
+        return gui_subsonic_open_song_group(path, album);
     if (!path || !path[0] || library_rescan_active || gui_library_navigation_blocked()) return false;
 
     /* A local tagcache path is the membership guard. This keeps provider,

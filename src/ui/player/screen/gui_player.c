@@ -1209,9 +1209,7 @@ static void player_now_playing_group_click_cb(lv_event_t * e) {
     }
     if (player_queue_model_count() <= 0 || !gui_player_has_active_track() ||
         !now_playing_path[0]) return;
-    /* Resolve against the current path at tap time. The library helper first
-     * confirms that path is a local indexed song, so remote display metadata
-     * cannot accidentally match a similarly named local group. */
+    /* Resolve the current source by identity, never by a matching display name. */
     (void) gui_library_open_now_playing_group(now_playing_path, album);
 }
 

@@ -413,6 +413,10 @@ static bool pack_albums(cJSON * array, subsonic_album_t ** out, int * out_count)
 
 static void parse_song(cJSON * item, const char * container_album_artist, subsonic_song_t * song) {
     snprintf(song->id, sizeof(song->id), "%s", json_str(item, "id", ""));
+    const char * artist_id = json_str(item, "artistId", "");
+    const char * album_id = json_str(item, "albumId", "");
+    snprintf(song->artist_id, sizeof(song->artist_id), "%s", strlen(artist_id) < sizeof(song->artist_id) ? artist_id : "");
+    snprintf(song->album_id, sizeof(song->album_id), "%s", strlen(album_id) < sizeof(song->album_id) ? album_id : "");
     utf8_truncate_safe(song->title, json_str(item, "title", "(unknown)"), sizeof(song->title));
     utf8_sanitize(song->title);
     utf8_truncate_safe(song->artist, json_str(item, "artist", ""), sizeof(song->artist));
@@ -435,6 +439,19 @@ static void parse_song(cJSON * item, const char * container_album_artist, subson
     song->bit_depth = json_positive_uint(item, "bitDepth");
     song->channels = json_positive_uint(item, "channelCount");
     song->bitrate_kbps = json_positive_uint(item, "bitRate");
+}
+
+bool subsonic_get_song(const subsonic_server_t * server, const char * song_id,
+                       subsonic_song_t * song, http_cancel_token_t * cancel) {
+    char params[272];
+    if (!song || !id_params(song_id, params, sizeof(params))) return false;
+    cJSON * root = NULL;
+    cJSON * resp = api_request(server, "getSong.view", params, &root, cancel);
+    cJSON * item = cJSON_GetObjectItemCaseSensitive(resp, "song");
+    bool ok = cJSON_IsObject(item);
+    if (ok) { memset(song, 0, sizeof(*song)); parse_song(item, NULL, song); }
+    cJSON_Delete(root);
+    return ok;
 }
 
 /* A member that may be missing but, when present, must be an array. */

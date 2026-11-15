@@ -61,6 +61,8 @@ typedef enum {
     SUBSONIC_BROWSE_RANDOM_SONGS,
     SUBSONIC_BROWSE_STARRED,
     SUBSONIC_BROWSE_ARTIST_SONGS,
+    SUBSONIC_BROWSE_SONG_ARTIST,
+    SUBSONIC_BROWSE_SONG_ALBUM,
 } subsonic_browse_kind_t;
 
 void gui_subsonic_browse_cancel(void);
@@ -129,3 +131,6 @@ void subsonic_delete_browse_screens(void);
 bool subsonic_list_loaded(subsonic_list_kind_t kind);
 void subsonic_open_cover_flow(void);
 void subsonic_songs_album_info(const subsonic_server_t * server, gui_subsonic_album_info_t * info);
+
+/* Apply worker-resolved group identity on the UI thread. */
+void gui_subsonic_update_song_groups(const char * server_key, const subsonic_song_t * song);

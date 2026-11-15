@@ -37,7 +37,7 @@ typedef struct {
 static const song_col_t song_cols[] = {
     TEXT_COL(id), TEXT_COL(title), TEXT_COL(artist), TEXT_COL(album), TEXT_COL(album_artist), TEXT_COL(suffix),
     TEXT_COL(cover_art), NUM_COL(track), NUM_COL(disc), NUM_COL(duration_seconds), NUM_COL(sample_rate),
-    NUM_COL(bit_depth), NUM_COL(channels), NUM_COL(bitrate_kbps),
+    NUM_COL(bit_depth), NUM_COL(channels), NUM_COL(bitrate_kbps), TEXT_COL(artist_id), TEXT_COL(album_id),
 };
 #define SONG_COLS ((int) (sizeof(song_cols) / sizeof(song_cols[0])))
 _Static_assert(sizeof(unsigned int) == sizeof(int), "song numbers are stored as int");
@@ -154,7 +154,10 @@ static const int * row_ints(const list_desc_t * d, const void * row) {
 
 static size_t format_song_row(const void * row, char * line, size_t cap) {
     size_t n = 0;
-    for (int i = 0; i < SONG_COLS; i++) {
+    const subsonic_song_t * song = row;
+    /* Missing IDs retain the original row bytes and therefore its trusted hash. */
+    int columns = song->artist_id[0] || song->album_id[0] ? SONG_COLS : SONG_COLS - 2;
+    for (int i = 0; i < columns; i++) {
         const char * field = (const char *) row + song_cols[i].offset;
         if (song_cols[i].size) {
             n = put_text(line, cap, n, field);
@@ -276,9 +279,11 @@ static bool parse_int(const char * s, long long * out) {
 
 static bool parse_song_row(char * line, subsonic_song_t * song) {
     char * cols[CACHE_COLUMNS_MAX + 1];
-    if (split_columns(line, cols, CACHE_COLUMNS_MAX + 1) != SONG_COLS || !cols[0][0]) return false;
+    int count = split_columns(line, cols, CACHE_COLUMNS_MAX + 1);
+    /* Older song caches have no navigation IDs; getSong resolves them on demand. */
+    if ((count != SONG_COLS && count != SONG_COLS - 2) || !cols[0][0]) return false;
     memset(song, 0, sizeof(*song));
-    for (int i = 0; i < SONG_COLS; i++) {
+    for (int i = 0; i < count; i++) {
         char * field = (char *) song + song_cols[i].offset;
         long long v;
         if (song_cols[i].size) {

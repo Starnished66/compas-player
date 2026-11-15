@@ -41,6 +41,8 @@ static void subsonic_fill_stream_queue_entry(const subsonic_server_t * server, c
 
     subsonic_stream_song_meta_t * m = &new_meta[slot];
     snprintf(m->song_id, sizeof(m->song_id), "%s", song->id);
+    snprintf(m->artist_id, sizeof(m->artist_id), "%s", song->artist_id);
+    snprintf(m->album_id, sizeof(m->album_id), "%s", song->album_id);
     snprintf(m->url, sizeof(m->url), "%s", url);
     snprintf(m->title, sizeof(m->title), "%s", song->title);
     snprintf(m->artist, sizeof(m->artist), "%s", song->artist);
@@ -292,4 +294,43 @@ void gui_subsonic_download_confirm_build(void) {
 
 void gui_subsonic_download_confirm_teardown(void) {
     gui_popup_teardown(&subsonic_download_confirm_popup);
+}
+
+const subsonic_stream_song_meta_t * gui_subsonic_song_for_path(const char * path) {
+    if (!path || !path[0]) return NULL;
+    if (context_song.url[0] && !strcmp(path, context_song.url)) return &context_song;
+    for (int i = 0; i < subsonic_stream_meta_count; ++i)
+        if (!strcmp(path, subsonic_stream_meta[i].url)) return &subsonic_stream_meta[i];
+    return NULL;
+}
+
+bool gui_subsonic_open_song_group(const char * path, bool album) {
+    const subsonic_stream_song_meta_t * song = gui_subsonic_song_for_path(path);
+    if (!song) return false;
+    subsonic_server_t server = subsonic_server_from_settings();
+    char key[SUBSONIC_CACHE_KEY_SIZE];
+    subsonic_cache_server_key(&server, key);
+    if (strcmp(key, song->server_key)) {
+        show_error_toast(TR(album ? "Album unavailable" : "Artist unavailable"));
+        return true;
+    }
+    const char * id = album ? song->album_id : song->artist_id;
+    const char * name = album ? song->album : song->artist;
+    if (!id[0] || !name[0]) {
+        start_subsonic_browse(album ? SUBSONIC_BROWSE_SONG_ALBUM : SUBSONIC_BROWSE_SONG_ARTIST,
+                              song->song_id, name);
+    } else if (album) gui_subsonic_global_open_album(id, name);
+    else gui_subsonic_global_open_artist(id, name);
+    return true;
+}
+
+void gui_subsonic_update_song_groups(const char * server_key, const subsonic_song_t * song) {
+    for (int i = -1; i < subsonic_stream_meta_count; ++i) {
+        subsonic_stream_song_meta_t * meta = i < 0 ? &context_song : &subsonic_stream_meta[i];
+        if (strcmp(meta->server_key, server_key) || strcmp(meta->song_id, song->id)) continue;
+        if (song->artist_id[0]) snprintf(meta->artist_id, sizeof(meta->artist_id), "%s", song->artist_id);
+        if (song->album_id[0]) snprintf(meta->album_id, sizeof(meta->album_id), "%s", song->album_id);
+        if (song->artist[0]) snprintf(meta->artist, sizeof(meta->artist), "%s", song->artist);
+        if (song->album[0]) snprintf(meta->album, sizeof(meta->album), "%s", song->album);
+    }
 }

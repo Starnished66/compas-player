@@ -605,15 +605,16 @@ void open_song_context_menu_for(const char * path, unsigned int capabilities) {
 }
 
 void open_song_context_menu_stream(const char * path, void (*queue_cb)(bool next)) {
-    open_song_context_menu_for(path, SONG_MENU_PLAYBACK);
+    open_song_context_menu_for(path, SONG_MENU_PLAYBACK | SONG_MENU_NAVIGATION);
     song_context_queue_cb = queue_cb;
 }
 
 static unsigned int song_menu_supported_capabilities(const char * path) {
     if (!path || is_http_url(path) || remote_track_path_is_remote(path)) {
         const char * current = gui_player_has_active_track() ? gui_player_get_current_track_path() : NULL;
-        return current && strcmp(current, path ? path : "") == 0
-            ? SONG_MENU_PLAYBACK | SONG_MENU_INFORMATION : SONG_MENU_PLAYBACK;
+        unsigned navigation = gui_subsonic_song_for_path(path) ? SONG_MENU_NAVIGATION : 0;
+        return navigation | (current && strcmp(current, path ? path : "") == 0
+            ? SONG_MENU_PLAYBACK | SONG_MENU_INFORMATION : SONG_MENU_PLAYBACK);
     }
     char cue_source[600];
     unsigned cue_ordinal;
