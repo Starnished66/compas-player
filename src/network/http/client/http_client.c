@@ -37,16 +37,25 @@ typedef struct {
      * redirect page never lands in the destination file. */
     char * out_location;
     size_t out_location_size;
+    /* Set when the body passed max_buffer_size, so a chunked body without a
+     * Content-Length still reports too large rather than an I/O error. */
+    bool over_limit;
 } body_sink_t;
 
 static bool sink_write(body_sink_t * sink, const uint8_t * data, size_t len, uint64_t total_written, uint64_t total_expected) {
     if (sink->out_file) {
         /* Enforce max_buffer_size limit when nonzero. */
-        if (sink->max_buffer_size > 0 && total_written > sink->max_buffer_size) return false;
+        if (sink->max_buffer_size > 0 && total_written > sink->max_buffer_size) {
+            sink->over_limit = true;
+            return false;
+        }
         if (len > 0 && fwrite(data, 1, len, sink->out_file) != len) return false;
     } else {
         size_t old_size = *sink->out_buffer_size;
-        if (len > sink->max_buffer_size || old_size > sink->max_buffer_size - len) return false;
+        if (len > sink->max_buffer_size || old_size > sink->max_buffer_size - len) {
+            sink->over_limit = true;
+            return false;
+        }
         size_t needed = old_size + len;
         if (needed > sink->buffer_capacity) {
             size_t capacity = sink->buffer_capacity ? sink->buffer_capacity : 4096;
@@ -690,8 +699,8 @@ static bool read_response_ex(http_conn_t * conn, http_response_t * resp, body_si
     }
 
     if (!read_body(&reader, is_chunked, content_length, sink)) {
-        /* Report timeout if read timed out; otherwise report I/O error. */
-        resp->error = conn->last_read_timed_out ? HTTP_ERR_TIMEOUT : HTTP_ERR_IO;
+        if (sink->over_limit) resp->error = HTTP_ERR_RESPONSE_TOO_LARGE;
+        else resp->error = conn->last_read_timed_out ? HTTP_ERR_TIMEOUT : HTTP_ERR_IO;
         return false;
     }
     return true;
