@@ -116,6 +116,10 @@ void gui_network_handle_wifi_disabled(void);
  * the caller should draw. Safe to call before the corresponding settings
  * screen has ever been built. */
 bool gui_network_toggle_airplay(void);
+bool gui_network_airplay_active(void);
+/* Defer local playback until release, with a two-second handoff limit. */
+bool gui_network_airplay_disconnect_for_playback(void);
+bool gui_network_airplay_playback_ready(void);
 bool gui_network_toggle_bt_dac(void);
 bool gui_network_bt_dac_active(void);
 void gui_network_open_bt_dac(void);

@@ -323,55 +323,7 @@ void airplay_bridge_stop(void) {
 
     stop_requested = true;
 
-    /* Deliberately does NOT block waiting for the thread to actually exit,
-     * unlike usb_dac_bridge_stop()'s own bounded poll loop -- that one is
-     * safe to block on because its only caller (usb_mode_control_apply())
-     * already runs on a background thread. Every airplay_control_stop()
-     * call site (gui_network.c) runs directly on the UI/LVGL thread as an
-     * lv_event_t callback, and none of them need the audio device back
-     * synchronously before their own next line -- they just flip a
-     * setting and refresh a screen. Blocking here up to 3s (as a first
-     * cut of this code did) would freeze the whole UI for that long every
-     * time AirPlay is turned off. The thread still cleans up (closes the
-     * FIFO fd, audio_output_close(), clears bridge_state) on its own
-     * shortly after this returns -- just not synchronously guaranteed by
-     * the time the caller's next line runs.
-     *
-     * Known residual risk, not fully closed by this design: audio_output.c
-     * itself has no lock at all -- it relies on "only one consumer active
-     * at a time" as a convention, not an enforced invariant, and this
-     * non-blocking stop means the dying thread can still be mid audio_
-     * output_ensure()/_write() for up to roughly POLL_INTERVAL_MS after
-     * this call returns, IF it was actually streaming when stopped. USB
-     * DAC mode has its own ~2s wait before it first touches audio_output
-     * (usb_dac_bridge.c), which in practice dwarfs that window.
-     *
-     * The specific most-exposed path -- local playback resuming immediately
-     * after this -- is narrowed at the caller level, not here: airplay_
-     * control_disconnect_active_stream() (airplay_control.h), the only
-     * caller that hands the device straight to local playback right after
-     * stopping this bridge, polls airplay_bridge_is_stopped() with a
-     * bounded (2s) wait before proceeding. In the ordinary case that wait
-     * succeeds well within its bound (bridge_state normally reaches BRIDGE_
-     * STOPPED within roughly one POLL_INTERVAL_MS, and only reaches it after
-     * run_session() has already closed the device itself, see bridge_
-     * thread_func()'s own comment), so by the time that caller returns, this
-     * thread has, in practice, already released the device. That is a
-     * bounded wait, NOT a guarantee: if the bridge thread is somehow still
-     * not reporting stopped after the full 2s (would require it to be
-     * genuinely wedged, not just slow), that caller proceeds to resume local
-     * playback anyway rather than hang indefinitely -- logging the
-     * exceptional case rather than eliminating the resulting race, so this
-     * is narrowed to a near-impossible-in-practice window, not closed to
-     * zero. A plain settings-screen toggle-off (airplay_toggle_cb()) still
-     * doesn't wait at all -- nothing there needs the device back
-     * synchronously, and blocking it would freeze the UI for no benefit; a
-     * user manually toggling AirPlay off and then tapping Play within
-     * roughly one POLL_INTERVAL_MS of each other (sub-50ms, not achievable
-     * by human reaction time) is a second, separate, un-narrowed residual
-     * through that path. Closing either residual fully would need a shared
-     * ownership-arbitration mechanism across audio.c/usb_dac_bridge.c/this
-     * file -- a larger, separate change than this bridge's own files can
-     * safely make alone. */
+    /* The bridge releases the FIFO and output on its own thread. Local
+     * playback waits asynchronously, with a two-second fallback. */
 #endif
 }

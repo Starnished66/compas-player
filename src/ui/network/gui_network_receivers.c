@@ -11,6 +11,9 @@
 #include "../../network/airplay/airplay_metadata.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <unistd.h>
 #include "gui_network_internal.h"
 
 static lv_obj_t * airplay_screen;
@@ -19,8 +22,86 @@ static lv_obj_t * airplay_overlay_cover_img;
 static lv_obj_t * airplay_overlay_title_label;
 static bool airplay_overlay_showing = false;
 static bool airplay_enable_pending;
+static bool airplay_stop_pending;
+static bool airplay_local_pending;
+static uint32_t airplay_local_started;
+static bool airplay_worker_active;
+static atomic_bool airplay_worker_done;
+static bool airplay_worker_start, airplay_worker_ok;
+static char airplay_worker_name[64];
+
+static void refresh_airplay_screen_if_built(void);
+
+static void * airplay_control_worker(void * arg) {
+    (void)arg;
+    if (airplay_worker_start) {
+        hostname_device_name(airplay_worker_name, sizeof(airplay_worker_name));
+        airplay_worker_ok = airplay_control_start(airplay_worker_name);
+    } else {
+        airplay_control_stop();
+        /* Bounded: a bridge that will not stop is retried by the next poll. */
+        for (int i = 0; i < 200 && !airplay_bridge_is_stopped(); ++i) usleep(10000);
+    }
+    atomic_store_explicit(&airplay_worker_done, true, memory_order_release);
+    return NULL;
+}
+
+bool gui_network_airplay_stop_pending(void) {
+    if (airplay_worker_active && atomic_load_explicit(&airplay_worker_done, memory_order_acquire)) {
+        airplay_worker_active = false;
+        if (airplay_worker_start) {
+            if (!airplay_worker_ok) airplay_stop_pending = true;
+            if (!airplay_worker_ok && current_settings.wifi_dac_mode_enabled) {
+                current_settings.wifi_dac_mode_enabled = false;
+                settings_save_async(&current_settings);
+                show_error_toast(TR("Failed to enable AirPlay"));
+                refresh_airplay_screen_if_built();
+            }
+        } else airplay_stop_pending = !airplay_bridge_is_stopped();
+    }
+    if (airplay_stop_pending && !airplay_worker_active) {
+        pthread_t thread;
+        airplay_worker_start = false;
+        atomic_store_explicit(&airplay_worker_done, false, memory_order_relaxed);
+        if (pthread_create(&thread, NULL, airplay_control_worker, NULL) == 0) {
+            airplay_worker_active = true;
+            pthread_detach(thread);
+        }
+    }
+    return airplay_stop_pending || airplay_worker_active;
+}
+
+/* The UI requests release; only the control worker touches the daemon. */
+bool gui_network_airplay_disconnect_for_playback(void) {
+    if (!airplay_local_pending && !airplay_stop_pending && !airplay_bridge_has_active_stream()) return false;
+    if (!airplay_local_pending) {
+        airplay_local_pending = true;
+        airplay_local_started = lv_tick_get();
+        airplay_stop_pending = true;
+    }
+    (void)gui_network_airplay_stop_pending();
+    return true;
+}
+
+bool gui_network_airplay_playback_ready(void) {
+    bool stopping = gui_network_airplay_stop_pending();
+    if (stopping) {
+        if (!airplay_local_pending || lv_tick_elaps(airplay_local_started) < 2000) return false;
+        fprintf(stderr, "AirPlay: stop timed out; proceeding with local playback\n");
+    }
+    if (airplay_local_pending) {
+        airplay_local_pending = false;
+        /* Restart on the next UI poll, after local playback has taken over. */
+        if (current_settings.wifi_dac_mode_enabled) airplay_enable_pending = true;
+    }
+    return true;
+}
 
 bool gui_network_airplay_enable_pending(void) { return airplay_enable_pending; }
+
+bool gui_network_airplay_active(void) {
+    return current_settings.wifi_dac_mode_enabled || airplay_enable_pending;
+}
 static lv_image_dsc_t airplay_overlay_cover_dsc;
 static uint8_t * airplay_overlay_cover_bytes = NULL;
 
@@ -38,7 +119,9 @@ void disable_airplay_mode(void) {
     airplay_enable_pending = false;
     current_settings.wifi_dac_mode_enabled = false;
     settings_save_async(&current_settings);
-    airplay_control_stop();
+    airplay_stop_pending = true;
+    (void)gui_network_airplay_stop_pending();
+    refresh_airplay_screen_if_built();
 }
 
 /* USB DAC stream state is refreshed by its ordinary navigable screen. */
@@ -67,7 +150,7 @@ static void airplay_toggle_cb(lv_event_t * e);
 
 void populate_airplay_screen(void) {
     lv_obj_clean(airplay_list);
-    add_pill_toggle_row(airplay_list, TR("AirPlay"), current_settings.wifi_dac_mode_enabled, airplay_toggle_cb);
+    add_pill_toggle_row(airplay_list, TR("AirPlay"), gui_network_airplay_active(), airplay_toggle_cb);
 
     add_network_explanation(airplay_list,
                       TR("When on, this device is visible to AirPlay senders on your Wi-Fi network. Stream "
@@ -80,6 +163,21 @@ void populate_airplay_screen(void) {
  * list is not survivable. */
 static void refresh_airplay_screen_if_built(void) {
     if (airplay_list) populate_airplay_screen();
+    gui_shell_refresh_quick_drawer_expansion_toggles();
+}
+
+static void start_airplay(void) {
+    airplay_worker_start = true;
+    atomic_store_explicit(&airplay_worker_done, false, memory_order_relaxed);
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, airplay_control_worker, NULL) == 0) {
+        airplay_worker_active = true;
+        pthread_detach(thread);
+    } else {
+        current_settings.wifi_dac_mode_enabled = false;
+        settings_save_async(&current_settings);
+        show_error_toast(TR("Failed to enable AirPlay"));
+    }
 }
 
 /* Shared by the AirPlay settings screen's toggle row and the quick drawer's
@@ -88,7 +186,7 @@ static void refresh_airplay_screen_if_built(void) {
  * resulting enabled state, which is NOT always the requested one (a rejected
  * enable returns false). */
 bool gui_network_toggle_airplay(void) {
-    bool turning_on = !current_settings.wifi_dac_mode_enabled && !airplay_enable_pending;
+    bool turning_on = !gui_network_airplay_active();
     /* Guard the enable path even though the tile itself is already guarded
      * (airplay_tile_cb() below) -- this screen can already be open when
      * Wi-Fi goes away, so a stale toggle tap must still be rejected here.
@@ -105,8 +203,11 @@ bool gui_network_toggle_airplay(void) {
     if (turning_on && (current_settings.usb_dac_mode_enabled || current_settings.usb_mode == USB_MODE_DAC ||
                        gui_network_usb_dac_pending()))
         disable_usb_dac_mode();
-    if (turning_on && (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())) {
+    if (turning_on && (gui_network_bt_dac_active() || gui_shell_bt_dac_busy())) {
         disable_bt_dac_mode();
+    }
+    if (turning_on && (gui_shell_bt_dac_busy() || gui_shell_usb_dac_owns_output() ||
+                       gui_network_usb_dac_pending() || airplay_local_pending || gui_network_airplay_stop_pending())) {
         airplay_enable_pending = true;
         refresh_airplay_screen_if_built();
         return true;
@@ -115,25 +216,12 @@ bool gui_network_toggle_airplay(void) {
     settings_save_async(&current_settings);
 
     if (current_settings.wifi_dac_mode_enabled) {
-        char name[64];
-        hostname_device_name(name, sizeof(name)); /* the same name DHCP advertises */
-        if (!airplay_control_start(name)) {
-            /* Startup is transactional (see airplay_control_start()'s own
-             * comment) -- a false return means nothing was actually left
-             * running, so just undo the toggle rather than reporting the
-             * device as "on" when it can't produce sound or be discovered. */
-            current_settings.wifi_dac_mode_enabled = false;
-            settings_save_async(&current_settings);
-            show_error_toast(TR("Failed to enable AirPlay"));
-            refresh_airplay_screen_if_built();
-            return current_settings.wifi_dac_mode_enabled;
-        }
-
+        start_airplay();
     } else {
         /* Turning off must actually stop shairport and the bridge, not just
          * clear the setting -- otherwise the device stays discoverable and
          * an incoming stream still raises the overlay. */
-        airplay_control_stop();
+        disable_airplay_mode();
     }
 
     refresh_airplay_screen_if_built();
@@ -232,25 +320,26 @@ static lv_obj_t * build_airplay_overlay_screen(void) {
  * be the currently active screen, so metadata keeps updating even if the
  * user navigated away from it. */
 void gui_network_poll_airplay_overlay(void) {
-    if (airplay_enable_pending && !gui_shell_bt_dac_busy()) {
+    bool stopping = gui_network_airplay_stop_pending();
+    gui_network_bt_dac_poll_enable();
+    if (airplay_enable_pending && !airplay_local_pending && !stopping && !gui_shell_bt_dac_busy() &&
+        !gui_shell_usb_dac_owns_output() && !gui_network_usb_dac_pending()) {
         airplay_enable_pending = false;
-        gui_network_toggle_airplay();
+        current_settings.wifi_dac_mode_enabled = wifi_feature_guard();
+        settings_save_async(&current_settings);
+        if (current_settings.wifi_dac_mode_enabled) start_airplay();
+        refresh_airplay_screen_if_built();
     }
     /* Between gui_network_teardown() and the next init the widgets below do
      * not exist; the state catches up on the first tick after the rebuild. */
     if (!airplay_overlay_screen) return;
-    /* Self-heals a respawn failure from airplay_control_disconnect_active_
-     * stream()'s kill-and-respawn (gui_player.c, triggered by local playback
-     * resuming while AirPlay was streaming) -- that path deliberately
-     * ignores airplay_control_start()'s return value (see its own comment),
-     * so this is the only place such a failure ever gets noticed and the
-     * persisted setting corrected, same as airplay_toggle_cb()'s own
-     * synchronous failure handling a few hundred lines up in this file. */
-    if (current_settings.wifi_dac_mode_enabled && !airplay_control_is_active()) {
+    /* Ignore the intentional gap while handing output to local playback. */
+    if (!airplay_worker_active && !airplay_stop_pending && !airplay_local_pending &&
+        !airplay_enable_pending && current_settings.wifi_dac_mode_enabled && !airplay_control_is_active()) {
         current_settings.wifi_dac_mode_enabled = false;
         settings_save_async(&current_settings);
         show_error_toast(TR("AirPlay stopped unexpectedly"));
-        populate_airplay_screen();
+        refresh_airplay_screen_if_built();
     }
 
     bool streaming = airplay_bridge_is_streaming();

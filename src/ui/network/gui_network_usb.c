@@ -166,18 +166,19 @@ bool start_usb_mode_switch(usb_mode_t target) {
     if (target == USB_MODE_DAC) {
         if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending())
             disable_airplay_mode();
-        if (current_settings.bt_dac_mode_enabled || gui_shell_bt_dac_busy())
+        if (gui_network_bt_dac_active() || gui_shell_bt_dac_busy())
             disable_bt_dac_mode();
     }
     usb_mode_switch_queued = usb_bridge_restart_active ||
-        (target == USB_MODE_DAC && gui_shell_bt_dac_busy());
+        (target == USB_MODE_DAC && (gui_shell_bt_dac_busy() || gui_network_airplay_stop_pending()));
     if (!usb_mode_switch_queued) return launch_usb_mode_switch();
     return true;
 }
 
 bool gui_network_usb_dac_pending(void) {
     return (usb_mode_switch_active && usb_mode_switch_target == USB_MODE_DAC) ||
-           usb_bridge_restart_active;
+           usb_bridge_restart_active || usb_dac_pause_pending ||
+           (usb_mode_switch_active && current_settings.usb_mode == USB_MODE_DAC);
 }
 
 /* The state the ADB control should show: the target while a switch is in
@@ -209,7 +210,8 @@ void poll_usb_mode_switch(void) {
         usb_bridge_restart_active = false;
     }
     if (usb_mode_switch_queued && !usb_bridge_restart_active &&
-        (usb_mode_switch_target != USB_MODE_DAC || !gui_shell_bt_dac_busy())) {
+        (usb_mode_switch_target != USB_MODE_DAC ||
+         (!gui_shell_bt_dac_busy() && !gui_network_airplay_stop_pending()))) {
         /* Deferred launch: same failure consequence as the immediate one, but
          * the original caller has long since returned, so the control it
          * flipped has to be corrected from here. */
@@ -225,8 +227,8 @@ void poll_usb_mode_switch(void) {
         if (!info.bridge_running && !info.output_failed) {
             if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending())
                 disable_airplay_mode();
-            if (current_settings.bt_dac_mode_enabled) disable_bt_dac_mode();
-            if (gui_shell_bt_dac_busy()) return;
+            if (gui_network_bt_dac_active()) disable_bt_dac_mode();
+            if (gui_shell_bt_dac_busy() || gui_network_airplay_stop_pending()) return;
             pthread_attr_t attr;
             if (pthread_attr_init(&attr) == 0) {
                 if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) == 0) {

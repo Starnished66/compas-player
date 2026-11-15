@@ -21,6 +21,7 @@ static lv_obj_t * phone_label;
 static lv_obj_t * play_button;
 static lv_obj_t * transport_row;
 static gui_popup_t stop_popup;
+static bool bt_enable_pending;
 static bool showing_enabled;
 static bool showing_receiving;
 static int showing_stream_state;
@@ -28,6 +29,7 @@ static int showing_controls;
 static char showing_phone[sizeof(((bt_dac_stream_info_t *) 0)->device_name)];
 
 void disable_bt_dac_mode(void) {
+    bt_enable_pending = false;
 #ifndef HOST_BUILD
     bt_media_player_set_phone_control_enabled(false);
 #endif
@@ -42,6 +44,7 @@ void disable_bt_dac_mode(void) {
 void enable_bt_dac_mode(void) {
     gui_shell_bt_dac_remember(false);
     if (!bt_is_powered_cached) {
+        bt_enable_pending = false;
         show_error_toast(TR("Enable Bluetooth in Wireless or the Quick Drawer to use BT DAC mode"));
         return;
     }
@@ -51,6 +54,11 @@ void enable_bt_dac_mode(void) {
     if (current_settings.usb_dac_mode_enabled || current_settings.usb_mode == USB_MODE_DAC ||
         gui_network_usb_dac_pending())
         disable_usb_dac_mode();
+    if (gui_network_airplay_stop_pending()) {
+        bt_enable_pending = true;
+        return;
+    }
+    bt_enable_pending = false;
     gui_shell_cancel_bt_reconnect();
     if (gui_shell_is_bt_audio_connected()) gui_player_stop_for_external_session();
     current_settings.bt_dac_mode_enabled = true;
@@ -60,9 +68,13 @@ void enable_bt_dac_mode(void) {
     gui_network_extend_bt_pairing_window();
 }
 
+void gui_network_bt_dac_poll_enable(void) {
+    if (bt_enable_pending && !gui_network_airplay_stop_pending()) enable_bt_dac_mode();
+}
+
 /* On and not paused by a Bluetooth power-off or the sleep timer. */
 bool gui_network_bt_dac_active(void) {
-    return current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended();
+    return bt_enable_pending || (current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended());
 }
 
 bool gui_network_toggle_bt_dac(void) {
@@ -195,6 +207,7 @@ void populate_bt_dac_screen(void) {
 void bt_dac_settings_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (!bt_is_powered_cached) {
+        bt_enable_pending = false;
         show_error_toast(TR("Enable Bluetooth in Wireless or the Quick Drawer to use BT DAC mode"));
         return;
     }

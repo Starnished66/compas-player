@@ -14,15 +14,11 @@
  * started and false is returned. Returns false on spawn failure. */
 bool airplay_control_start(const char * device_name);
 
-/* Kills shairport, stops the bridge thread, and removes the FIFO node. */
+/* Start/stop are serialized by the asynchronous receiver owner.
+ * Kills shairport, stops the bridge thread, and removes the FIFO node. */
 void airplay_control_stop(void);
 
 /* Returns true if shairport and the bridge are currently running. */
 bool airplay_control_is_active(void);
-
-/* If an AirPlay stream is actively playing, disconnects it by stopping and
- * restarting shairport, yielding the audio output back to local playback while
- * remaining discoverable. Returns true if a stream was active and interrupted. */
-bool airplay_control_disconnect_active_stream(void);
 
 #endif /* AIRPLAY_CONTROL_H */

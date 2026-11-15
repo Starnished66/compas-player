@@ -295,7 +295,7 @@ void airplay_metadata_stop(void) {
      * recognized as stale once it does finish and gets discarded there
      * instead of published -- see meta_generation's own comment. Together
      * these mean a quick AirPlay off-then-on, or a kill-and-respawn via
-     * airplay_control_disconnect_active_stream(), can never surface the
+     * the receiver worker, can never surface the
      * previous session's leftover title/art on the new one, whether it was
      * already sitting in `pending` or still being decoded when this ran. */
     free_pending_locked();
@@ -303,9 +303,7 @@ void airplay_metadata_stop(void) {
     pthread_mutex_unlock(&meta_mutex);
 
     stop_requested = true;
-    /* Fire-and-forget, same reasoning as airplay_bridge_stop() -- every
-     * caller of airplay_control_stop() runs on the UI thread and none need
-     * a synchronous exit guarantee. */
+    /* The reader exits asynchronously; generation checks discard stale work. */
 #endif
 }
 

@@ -16,7 +16,8 @@
 #include "../../../library/playlists/playback_order.h"
 #include "../../../library/remote/remote_track.h"
 #include "../../../library/workers/track_metadata_worker.h"
-#include "../../../network/airplay/airplay_control.h"
+#include "../../network/gui_network.h"
+#include "../../../network/airplay/airplay_bridge.h"
 #include "../../../plugins/manager/plugin_manager.h"
 #ifndef HOST_BUILD
 #include "../../../network/bluetooth/media/bt_media_player.h"
@@ -29,6 +30,18 @@
 /* Set by on_file_selected_stay(): the next explicit start plays without
  * opening the player screen (a plugin starting audio from its own screen). */
 static bool stay_on_screen_once;
+static struct {
+    bool pending, push_nav, stay_on_screen;
+    int index;
+    double position;
+    uint64_t revision, intent;
+} airplay_resume;
+static lv_timer_t * airplay_resume_timer;
+static void poll_airplay_resume(void);
+static void airplay_resume_timer_cb(lv_timer_t * timer) {
+    (void)timer;
+    poll_airplay_resume();
+}
 static char transport_skip_directory[PATH_MAX];
 static int transport_skip_seconds;
 static bool transport_skip_manual(int direction);
@@ -113,31 +126,17 @@ static void play_track_at_from_internal(int index, double start_seconds, bool pu
         return;
     }
 
-    /* Symmetric with airplay_bridge.c's own side of this: an actual
-     * incoming AirPlay stream starting stops local playback (airplay_
-     * bridge_is_streaming() transitioning, see gui_network.c's gui_network_
-     * poll_airplay_overlay()); starting local playback here while a stream
-     * is already active should equally win and disconnect it, rather than
-     * the two silently fighting over the shared output device or this call
-     * failing/behaving oddly underneath a session it doesn't know about.
-     * No-op when nothing is actively streaming. Must run before the block-
-     * reason check below: that check no longer even considers AirPlay
-     * (see external_dac_block_reason()'s own comment), but this call is
-     * also what actually frees the output device before ensure_device()
-     * further down tries to claim it.
-     *
-     * skip_airplay_disconnect exists solely for toggle_play_pause()'s own
-     * resume-after-takeover path: it already called airplay_control_
-     * disconnect_active_stream() itself to decide whether to resume at all,
-     * and airplay_bridge_stop()/airplay_control_stop() are fire-and-forget
-     * (see their own comments) -- is_streaming() can still read true for a
-     * short window afterward. Calling disconnect a second time here could
-     * see that stale true, and kill+respawn shairport a second time right
-     * on top of the first respawn still settling. Every OTHER caller has
-     * not already disconnected anything, so they must still run this call
-     * normally. */
-    if (!skip_airplay_disconnect) {
-        airplay_control_disconnect_active_stream();
+    if (!skip_airplay_disconnect && gui_network_airplay_disconnect_for_playback()) {
+        airplay_resume.pending = true;
+        airplay_resume.index = index;
+        airplay_resume.position = start_seconds;
+        airplay_resume.push_nav = push_nav;
+        airplay_resume.stay_on_screen = stay_on_screen_once;
+        airplay_resume.revision = player_queue_model_revision();
+        airplay_resume.intent = playback_intent_epoch;
+        if (!airplay_resume_timer)
+            airplay_resume_timer = lv_timer_create(airplay_resume_timer_cb, 20, NULL);
+        return;
     }
 
     const char * block_reason = external_dac_block_reason();
@@ -244,31 +243,9 @@ void toggle_play_pause(void) {
     if (!gui_player_local_playback_allowed()) return;
     reset_decoder_failure_tracking();
     if (player_queue_model_current() < 0) return; /* nothing loaded yet */
-    /* Same reasoning as play_track_at_from_internal()'s own call -- local
-     * playback (resuming here) should win over an active AirPlay stream,
-     * not silently fight it or no-op underneath a session it doesn't know
-     * about. No-op when nothing is actively streaming. */
-    if (airplay_control_disconnect_active_stream()) {
-        /* AirPlay's own audio_stop() already tore down have_current back
-         * when the stream first took over the output device (see airplay_
-         * bridge.c's run_session()) -- audio_toggle_pause() further below
-         * checks !have_current and would be a guaranteed no-op here, doing
-         * nothing while set_play_button_state(false) claims it did.
-         * Resume directly from the pending-aware checkpoint rather than
-         * falling through to a no-op pause toggle.
-         *
-         * Calls play_track_at_from_internal() directly (skip_airplay_
-         * disconnect=true) rather than the public play_track_at_from() --
-         * that would call airplay_control_disconnect_active_stream() a
-         * SECOND time. airplay_control_stop()/airplay_bridge_stop() are
-         * fire-and-forget (see their own comments), so is_streaming() can
-         * still read true for a short window after the call just above
-         * returned; a second disconnect seeing that stale true would kill
-         * and respawn shairport again right on top of the first respawn
-         * still settling. reset_decoder_failure_tracking() was already
-         * called at the top of this function, so skip play_track_at_from()'s
-         * own redundant call to it too. */
-        play_track_at_from_internal(player_queue_model_current(), audio_get_resume_position_seconds(), true, true);
+    /* AirPlay stopped the local decoder; resume its checkpoint after release. */
+    if (airplay_bridge_has_active_stream() && gui_network_airplay_disconnect_for_playback()) {
+        play_track_at_from_internal(player_queue_model_current(), audio_get_resume_position_seconds(), true, false);
         return;
     }
     if (deferred_resume_pending) {
@@ -407,7 +384,27 @@ void gapless_switch_event_cb(lv_event_t * e) {
     gui_player_set_gapless_enabled(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
 }
 
+/* Starts the playback deferred while AirPlay released the output. */
+static void poll_airplay_resume(void) {
+    if (airplay_resume.pending && gui_network_airplay_playback_ready()) {
+        airplay_resume.pending = false;
+        if (airplay_resume_timer) {
+            lv_timer_delete(airplay_resume_timer);
+            airplay_resume_timer = NULL;
+        }
+        /* A replaced or edited queue must not play a stale physical index. */
+        if (airplay_resume.revision == player_queue_model_revision() &&
+            airplay_resume.intent == playback_intent_epoch) {
+            stay_on_screen_once = airplay_resume.stay_on_screen;
+            play_track_at_from_internal(airplay_resume.index, airplay_resume.position,
+                                        airplay_resume.push_nav, true);
+            stay_on_screen_once = false;
+        }
+    }
+}
+
 void gui_player_poll_confirmed_playback(void) {
+    poll_airplay_resume();
     if (consecutive_decoder_failure_skips > 0 && audio_is_playing()) {
         if (audio_get_position_seconds() >= 3.0) {
             reset_decoder_failure_tracking();

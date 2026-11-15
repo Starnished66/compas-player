@@ -837,9 +837,8 @@ void gui_network_handle_wifi_disabled(void) {
      * veto idle suspend after the radio is already off. */
     gui_subsonic_handle_wifi_disabled();
 
-    if (current_settings.wifi_dac_mode_enabled) {
-        airplay_control_stop();
-        current_settings.wifi_dac_mode_enabled = false;
+    if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending()) {
+        disable_airplay_mode();
         settings_changed = true;
         populate_airplay_screen();
     }

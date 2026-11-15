@@ -5,6 +5,7 @@
 player_settings_t current_settings;
 static battery_external_power_state_t power_state;
 static bool host_present, bt_active, output_owned, scan_active, apply_ok = true;
+static bool airplay_stopping;
 static int saves, releases;
 static uint32_t tick;
 const char *i18n_tr(const char *s) { return s; }
@@ -18,7 +19,8 @@ bool gui_shell_usb_dac_owns_output(void) { return output_owned; }
 bool gui_network_bt_dac_active(void) { return bt_active; }
 bool gui_shell_bt_dac_busy(void) { return false; }
 bool gui_network_airplay_enable_pending(void) { return false; }
-void disable_airplay_mode(void) { current_settings.wifi_dac_mode_enabled = false; }
+bool gui_network_airplay_stop_pending(void) { return airplay_stopping; }
+void disable_airplay_mode(void) { current_settings.wifi_dac_mode_enabled = false; airplay_stopping = true; }
 void disable_bt_dac_mode(void) { bt_active = false; }
 bool gui_library_scan_active(void) { return scan_active; }
 bool firmware_update_busy(void) { return false; }
@@ -69,6 +71,17 @@ static void reset(void) {
     apply_ok = true;
 }
 int main(void) {
+    reset();
+    host_present = true;
+    current_settings.wifi_dac_mode_enabled = true;
+    enable_usb_dac_mode();
+    assert(airplay_stopping && usb_mode_switch_queued);
+    poll_usb_mode_switch();
+    assert(usb_mode_switch_queued);
+    airplay_stopping = false;
+    poll_usb_mode_switch();
+    finish_switch();
+    assert(current_settings.usb_mode == USB_MODE_DAC);
     reset();
     current_settings.usb_dac_mode_enabled = true;
     gui_network_usb_dac_boot_reconcile();
