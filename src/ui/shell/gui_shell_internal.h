@@ -180,6 +180,7 @@ typedef enum {
     QD_TOGGLE_GAPLESS,
     QD_TOGGLE_RC,
     QD_TOGGLE_CAR_MODE,
+    QD_TOGGLE_POWER_OFF,
     QD_TOGGLE_COUNT
 } qd_toggle_t;
 

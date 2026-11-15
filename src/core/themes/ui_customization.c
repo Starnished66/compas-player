@@ -24,11 +24,11 @@ static const char * const toolbar_labels[UI_MUSIC_TOOLBAR_COUNT] = {
 };
 static const char * const drawer_keys[UI_DRAWER_COUNT] = {
     "wifi", "bluetooth", "sleep", "crossfade", "airplay", "bt_dac", "usb_dac", "dlna", "gapless",
-    "remote_control", "car_mode", "plugins"
+    "remote_control", "car_mode", "power_off", "plugins"
 };
 static const char * const drawer_labels[UI_DRAWER_COUNT] = {
     N_("Wi-Fi"), N_("Bluetooth"), N_("Sleep timer"), N_("Crossfade"), N_("AirPlay"), N_("Bluetooth DAC"), N_("USB DAC"), N_("DLNA"),
-    N_("Gapless"), N_("Remote control"), N_("Car mode"), N_("Plugins")
+    N_("Gapless"), N_("Remote control"), N_("Car mode"), N_("Power off"), N_("Plugins")
 };
 
 typedef struct {
@@ -206,9 +206,10 @@ void ui_order_resolve(ui_order_kind_t kind, const char *text, ui_item_order_t *o
     ui_item_order_t extra = { 0 };
     int bt_dac_id = ui_order_find_key(UI_ORDER_DRAWER, "bt_dac");
     int usb_dac_id = ui_order_find_key(UI_ORDER_DRAWER, "usb_dac");
+    int power_off_id = ui_order_find_key(UI_ORDER_DRAWER, "power_off");
     for (int id = 0; kind == UI_ORDER_DRAWER && id < order_desc_for(kind)->count; ++id)
         if (!seen[id] && ui_order_available(kind, id) &&
-            (explicit_native_hides || id == bt_dac_id || id == usb_dac_id))
+            (explicit_native_hides || id == bt_dac_id || id == usb_dac_id || id == power_off_id))
             out->ids[out->count++] = (uint8_t)id;
     /* Unmentioned plugin entries also show, after the native "plugins" anchor. */
     for (int id = order_desc_for(kind)->count; id < ui_order_size(kind); ++id)

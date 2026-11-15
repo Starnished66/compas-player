@@ -28,6 +28,8 @@ static const char *plugin_label(int id) { (void)id; return "Plugin"; }
 int main(void) {
     const int bt_dac = ui_order_find_key(UI_ORDER_DRAWER, "bt_dac");
     const int usb_dac = ui_order_find_key(UI_ORDER_DRAWER, "usb_dac");
+    const int power = ui_order_find_key(UI_ORDER_DRAWER, "power_off");
+    assert(power >= 0);
     const int remote = ui_order_find_key(UI_ORDER_DRAWER, "remote_control");
     assert(bt_dac >= 0 && usb_dac == bt_dac + 1);
 
@@ -36,6 +38,7 @@ int main(void) {
     assert(contains(&order, (unsigned)bt_dac));
     assert(contains(&order, (unsigned)usb_dac));
     assert(!contains(&order, (unsigned)remote));
+    assert(contains(&order, (unsigned)power));
 
     ui_order_set_extras(UI_ORDER_DRAWER, plugin_count, plugin_key, plugin_label);
     ui_order_resolve(UI_ORDER_DRAWER, "@drawer2", &order);
@@ -50,6 +53,8 @@ int main(void) {
     ui_order_resolve(UI_ORDER_DRAWER, "@drawer2,wifi,bluetooth,bt_dac,usb_dac,!remote_control", &order);
     assert(position(&order, (unsigned)usb_dac) == position(&order, (unsigned)bt_dac) + 1);
     assert(!contains(&order, (unsigned)remote));
-    puts("USB DAC drawer order migration passed");
+    ui_order_resolve(UI_ORDER_DRAWER, "@drawer2,!power_off", &order);
+    assert(!contains(&order, (unsigned)power));
+    puts("USB DAC and power drawer order migration passed");
     return 0;
 }

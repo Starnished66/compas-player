@@ -316,6 +316,7 @@ static const char * const qd_toggle_on_asset[QD_TOGGLE_COUNT] = {
     "pull_down/gapless_play_s.png",
     "pull_down/hibylink_s.png",
     "pull_down/car_mode_s.png",
+    "power_action/power.png",
 };
 static const char * const qd_toggle_off_asset[QD_TOGGLE_COUNT] = {
     "pull_down/wifi.png",
@@ -329,6 +330,7 @@ static const char * const qd_toggle_off_asset[QD_TOGGLE_COUNT] = {
     "pull_down/gapless_play.png",
     "pull_down/hibylink.png",
     "pull_down/car_mode.png",
+    "power_action/power.png",
 };
 static asset_decoded_image_t qd_toggle_on_img[QD_TOGGLE_COUNT];
 /* Decoded only when the off artwork is square (see toggle_corners_opaque()). */
@@ -436,7 +438,8 @@ static void close_quick_drawer_toggle_images(void) {
 void load_quick_drawer_toggle_images(void) {
     lv_color_t accent = accent_lv_color();
     for (int i = 0; i < QD_TOGGLE_COUNT; i++) {
-        prepare_toggle_on_image(&qd_toggle_on_img[i], qd_toggle_on_asset[i], accent);
+        if (i != QD_TOGGLE_POWER_OFF)
+            prepare_toggle_on_image(&qd_toggle_on_img[i], qd_toggle_on_asset[i], accent);
         load_toggle_off_image(&qd_toggle_off_img[i], qd_toggle_off_asset[i], &qd_toggle_off_path[i]);
     }
     int plugin_count = plugin_manager_get_quick_toggle_count();
@@ -459,6 +462,7 @@ void load_quick_drawer_toggle_images(void) {
  * state only when its artwork needed rounding. Either falls back to the plain
  * asset path if no decoded copy exists. */
 const void * quick_drawer_toggle_src(qd_toggle_t t, bool on) {
+    if (t == QD_TOGGLE_POWER_OFF) on = false;
     const void * src = asset_decoded_image_source(on ? &qd_toggle_on_img[t] : &qd_toggle_off_img[t]);
     return src ? src : (const void *) asset_path(on ? qd_toggle_on_asset[t] : qd_toggle_off_asset[t]);
 }

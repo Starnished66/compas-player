@@ -462,6 +462,23 @@ static void quick_drawer_build_car_mode_toggle(int32_t x, int32_t row_y) {
     quick_drawer_set_toggle_state(QD_TOGGLE_CAR_MODE, on);
 }
 
+static void quick_drawer_power_off_event_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
+    quick_drawer_dismiss_for_navigation();
+    start_power_off_countdown();
+}
+
+static void quick_drawer_build_power_off(int32_t x, int32_t row_y) {
+    lv_obj_t * icon = lv_image_create(quick_drawer_expansion_box);
+    quick_drawer_set_toggle_image(icon, quick_drawer_toggle_src(QD_TOGGLE_POWER_OFF, false));
+    lv_obj_set_pos(icon, quick_drawer_toggle_icon_x(x), row_y);
+    lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    quick_drawer_toggle_icon[QD_TOGGLE_POWER_OFF] = icon;
+    lv_obj_add_event_cb(icon, quick_drawer_power_off_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    quick_drawer_make_toggle_labels(QD_TOGGLE_POWER_OFF, x, row_y, TR("Power off"));
+    lv_label_set_text(quick_drawer_toggle_state[QD_TOGGLE_POWER_OFF], "");
+}
+
 static void quick_drawer_output_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     quick_drawer_dismiss_for_navigation();
@@ -493,19 +510,20 @@ static void quick_drawer_build_plugin_toggle(int plugin_index, int32_t x, int32_
     quick_drawer_set_toggle_state_text(slot, on, plugin_manager_get_quick_toggle_state_text(plugin_index, on));
 }
 
-/* Expanded row 3: Car Mode, then any plugin quick toggles. */
+/* Expanded row 3: Car Mode, Power off, then plugin quick toggles. */
 static void quick_drawer_build_expansion_row3(void) {
-    for (int i = 0; i < 1 + quick_drawer_plugin_toggle_count; i++) {
+    for (int i = 0; i < 2 + quick_drawer_plugin_toggle_count; i++) {
         int32_t x, row_y;
         quick_drawer_row3_cell(i, &x, &row_y);
         if (i == 0) quick_drawer_build_car_mode_toggle(x, row_y);
-        else quick_drawer_build_plugin_toggle(i - 1, x, row_y);
+        else if (i == 1) quick_drawer_build_power_off(x, row_y);
+        else quick_drawer_build_plugin_toggle(i - 2, x, row_y);
     }
 }
 
 static void quick_drawer_set_expansion_full_height(void) {
 #if defined(BOARD_TEMPOTEC_V1)
-    int expanded_rows = (quick_drawer_plugin_toggle_count + 4) / 4;
+    int expanded_rows = (quick_drawer_plugin_toggle_count + 5) / 4;
     if (expanded_rows < 1) expanded_rows = 1;
     quick_drawer_expansion_full = quick_drawer_expansion_visible_height(
         QUICK_DRAWER_TOGGLE_ROW_PITCH * expanded_rows);
