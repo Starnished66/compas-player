@@ -338,6 +338,14 @@ static bool search_global_playlists(const char * query) {
     return matched > 0;
 }
 
+/* The worker fills a SEARCH_RESULTS_MAX array; keep only the rows that matched. */
+static void trim_global_results(void) {
+    if (!global_job_results) return;
+    size_t rows = global_job_result_count > 0 ? (size_t) global_job_result_count : 1;
+    library_global_result_t * trimmed = realloc(global_job_results, rows * sizeof(*global_job_results));
+    if (trimmed) global_job_results = trimmed;
+}
+
 static void search_global_worker(const search_job_request_t * req) {
     global_job_result_count = 0;
     free(global_job_results);
@@ -405,10 +413,12 @@ static void * search_job_thread_func(void * arg) {
         }
         free(req);
         atomic_store_explicit(&search_job_done_flag, true, memory_order_release);
+        worker_notify_ui();
         return NULL;
     }
     if (req->binding_id == SEARCH_BINDING_GLOBAL) {
         search_global_worker(req);
+        trim_global_results();
         atomic_store_explicit(&search_job_done_flag, true, memory_order_release);
         free(req);
         worker_notify_ui();
@@ -477,6 +487,7 @@ static void * search_job_thread_func(void * arg) {
     }
     free(req);
     atomic_store_explicit(&search_job_done_flag, true, memory_order_release); /* written last -- poll_search_job() only checks this flag */
+    worker_notify_ui();
     return NULL;
 }
 
