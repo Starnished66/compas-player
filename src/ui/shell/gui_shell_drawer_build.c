@@ -3,12 +3,9 @@
 
 #if defined(BOARD_TEMPOTEC_V1)
 #define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(265)
-#endif
-#if defined(BOARD_TEMPOTEC_V1)
 #else
-#define QUICK_DRAWER_EXPANSION_TOP BOARD_SCALE_PY(211)
+#define QUICK_DRAWER_EXPANSION_TOP quick_drawer_expansion_top()
 #endif
-#define QUICK_DRAWER_PANEL_Y BOARD_SCALE_PY(59)
 #define QUICK_DRAWER_PANEL_H BOARD_SCALE_PY(726)
 #define QUICK_DRAWER_CARD_X (QUICK_DRAWER_PANEL_X + QUICK_DRAWER_CARD_INSET)
 #define QUICK_DRAWER_CARD_Y (QUICK_DRAWER_PANEL_Y + QUICK_DRAWER_PANEL_H - \
@@ -18,6 +15,9 @@
 #define QUICK_DRAWER_EQ_INSET BOARD_SCALE_PX(8)
 #define QUICK_DRAWER_EQ_X (QUICK_DRAWER_CARD_X + QUICK_DRAWER_CARD_W - QUICK_DRAWER_EQ_INSET - QUICK_DRAWER_EQ_SIZE)
 #define QUICK_DRAWER_EQ_Y (QUICK_DRAWER_CARD_Y + QUICK_DRAWER_EQ_INSET)
+/* Transport row height (the play button fills it) and the format badge's vertical padding. */
+#define QUICK_DRAWER_TRANSPORT_H BOARD_SCALE_PY(86)
+#define QUICK_DRAWER_FORMAT_PAD_VER BOARD_SCALE_PY(4)
 /* Row 2 taps use LV_EVENT_SHORT_CLICKED, which LVGL does not emit after a
  * long press, so opening a tile's page cannot also toggle it on release. */
 static void quick_drawer_airplay_event_cb(lv_event_t * e) {
@@ -149,6 +149,7 @@ static fill_slider_t quick_drawer_create_slider(int32_t v1_y, int32_t y, int32_t
     lv_image_set_inner_align(ui.icon, LV_IMAGE_ALIGN_CONTAIN);
     lv_obj_set_size(ui.icon, BOARD_SCALE_PX(36), BOARD_SCALE_PY(45));
     lv_obj_set_style_text_font(ui.label, &lv_font_montserrat_14, 0);
+    fill_slider_place_value(&ui);
 #endif
     return ui;
 }
@@ -190,9 +191,9 @@ static void quick_drawer_build_expansion_handle(void) {
     lv_obj_remove_style_all(expansion_handle);
 #if defined(BOARD_TEMPOTEC_V1)
     /* Centered grab target between the toggle states and slider pills. */
-    lv_obj_set_pos(expansion_handle, BOARD_SCALE_PX(210), BOARD_SCALE_PY(272));
+    lv_obj_set_pos(expansion_handle, BOARD_SCALE_PX(210), QUICK_DRAWER_HANDLE_Y);
 #else
-    lv_obj_set_pos(expansion_handle, BOARD_SCALE_PX(210), BOARD_SCALE_PY(219));
+    lv_obj_set_pos(expansion_handle, BOARD_SCALE_PX(210), QUICK_DRAWER_HANDLE_Y);
 #endif
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_size(expansion_handle, BOARD_SCALE_PX(60), BOARD_SCALE_PY(5));
@@ -284,7 +285,7 @@ static void quick_drawer_build_toggle_icons(void) {
         if (quick_drawer_row1[i].asset)
             quick_drawer_set_toggle_image(icon, asset_path(quick_drawer_row1[i].asset));
         lv_obj_align(icon, LV_ALIGN_TOP_LEFT, quick_drawer_toggle_icon_x(quick_drawer_toggle_column_x(i, 4)),
-                     QUICK_DRAWER_ROW1_TOP);
+                     quick_drawer_row1_top());
         lv_obj_add_flag(icon, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(icon, quick_drawer_row1[i].click_cb, quick_drawer_row1[i].click_code, NULL);
         lv_obj_add_event_cb(icon, quick_drawer_row1[i].long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
@@ -322,7 +323,7 @@ static void quick_drawer_build_toggle_name(int i, int32_t x, const char * text) 
     int32_t label_x = x;
 #endif
     lv_obj_align(name, LV_ALIGN_TOP_LEFT, label_x,
-                 QUICK_DRAWER_ROW1_TOP + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP);
+                 quick_drawer_row1_top() + QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_height(name, lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT)));
 #endif
@@ -344,9 +345,10 @@ static void quick_drawer_build_toggle_state(int i, int32_t x) {
 #else
     int32_t label_x = x;
 #endif
-    lv_obj_align(state, LV_ALIGN_TOP_LEFT, label_x, quick_drawer_toggle_state_y(QUICK_DRAWER_ROW1_TOP));
+    lv_obj_align(state, LV_ALIGN_TOP_LEFT, label_x, quick_drawer_toggle_state_y(quick_drawer_row1_top()));
     lv_label_set_text(state, TR("Off"));
     lv_obj_set_style_text_color(state, shell_drawer_off_color, 0);
+    lv_obj_set_flag(state, LV_OBJ_FLAG_HIDDEN, !QUICK_DRAWER_SHOW_STATE);
 }
 
 /* Captions and state labels under the row 1 icons. */
@@ -442,7 +444,7 @@ static void quick_drawer_build_expansion_row2(void) {
 
 /* Row 3 cell i (0 = Car Mode, then plugin toggles): column X and row Y. */
 static void quick_drawer_row3_cell(int i, int32_t * x, int32_t * row_y) {
-    *row_y = QUICK_DRAWER_TOGGLE_ROW_PITCH * (i / 4 + 1);
+    *row_y = QUICK_DRAWER_ROW_PITCH * (i / 4 + 1);
     *x = quick_drawer_toggle_column_x(i % 4, 4);
 }
 
@@ -508,7 +510,7 @@ static void quick_drawer_set_expansion_full_height(void) {
     quick_drawer_expansion_full = quick_drawer_expansion_visible_height(
         QUICK_DRAWER_TOGGLE_ROW_PITCH * expanded_rows);
 #else
-    quick_drawer_expansion_full = QUICK_DRAWER_TOGGLE_ROW_PITCH * 2;
+    quick_drawer_expansion_full = QUICK_DRAWER_ROW_PITCH * 2;
 #endif
 }
 
@@ -612,10 +614,25 @@ static lv_obj_t * quick_drawer_build_card_frame(void) {
 /* Geometry shared by the now-playing card's text labels. */
 typedef struct {
     const lv_font_t * meta_font; /* artist and album face */
-    int32_t width, artist_w;
+    int32_t width, artist_w, title_w;
     int32_t title_h, artist_h;
-    int32_t y_title, y_artist, y_album, y_format;
+    int32_t y_title, y_artist, y_album, y_format, y_controls;
 } quick_drawer_card_text_layout_t;
+
+#if !defined(BOARD_TEMPOTEC_V1)
+/* Offsets from a bounded row label's top to the top of its capitals and to
+ * its baseline. */
+static void quick_drawer_label_ink(const lv_font_t * font, int32_t * cap_top, int32_t * baseline) {
+    lv_font_glyph_dsc_t glyph;
+    *baseline = row_label_descender_margin(font) + lv_font_get_line_height(font) - font->base_line;
+    if (lv_font_get_glyph_dsc(font, &glyph, 'H', '\0')) {
+        *cap_top = *baseline - glyph.ofs_y - glyph.box_h;
+    } else {
+        *cap_top = row_label_descender_margin(font);
+    }
+}
+
+#endif
 
 static void quick_drawer_card_text_layout(quick_drawer_card_text_layout_t * l) {
 #if defined(BOARD_TEMPOTEC_V1)
@@ -624,22 +641,42 @@ static void quick_drawer_card_text_layout(quick_drawer_card_text_layout_t * l) {
     l->title_h = lv_font_get_line_height(&app_font_player_title);
     l->artist_h = lv_font_get_line_height(l->meta_font);
     l->width = BOARD_SCALE_PX(284);
+    l->title_w = l->width;
     l->artist_w = BOARD_SCALE_PX(380);
     l->y_title = BOARD_SCALE_PY(15);
     l->y_artist = BOARD_SCALE_PY(95);
     l->y_album = BOARD_SCALE_PY(157);
     l->y_format = BOARD_SCALE_PY(162);
 #else
-    int32_t text_gap = BOARD_SCALE_PX(4);
+    int32_t title_cap, title_base, meta_cap, meta_base;
+    quick_drawer_label_ink(&app_font_player_title, &title_cap, &title_base);
+    quick_drawer_label_ink(&app_font_player_meta, &meta_cap, &meta_base);
+    int32_t title_ink = title_base - title_cap;
+    int32_t meta_ink = meta_base - meta_cap;
+    int32_t badge_h = lv_font_get_line_height(&app_font_player_meta) + 2 * QUICK_DRAWER_FORMAT_PAD_VER;
+    int32_t top = 0; /* the stack spans the whole card; the EQ badge sits beside the title */
+    /* Six equal gaps between the stacked drawn elements; rounding spreads by at most 1 px. */
+    int32_t space = QUICK_DRAWER_CARD_H - top -
+                    (title_ink + 2 * meta_ink + badge_h + QUICK_DRAWER_TRANSPORT_H);
+    int32_t gap[6];
+    for (int32_t k = 0; k < 6; k++) gap[k] = space * (k + 1) / 6 - space * k / 6;
     l->meta_font = &app_font_player_meta;
     l->title_h = row_label_bounded_height(&app_font_player_title);
     l->artist_h = row_label_bounded_height(&app_font_player_meta);
     l->width = QUICK_DRAWER_CARD_W - 2 * BOARD_SCALE_PX(15);
     l->artist_w = l->width;
-    l->y_title = BOARD_SCALE_PY(40);
-    l->y_artist = l->y_title + l->title_h + text_gap;
-    l->y_album = l->y_artist + l->artist_h + text_gap;
-    l->y_format = l->y_album + l->artist_h + BOARD_SCALE_PY(12);
+    /* Centred, ending one inset short of the EQ badge on both sides. */
+    l->title_w = QUICK_DRAWER_CARD_W - 2 * (2 * QUICK_DRAWER_EQ_INSET + QUICK_DRAWER_EQ_SIZE);
+    int32_t y = top + gap[0];
+    l->y_title = y - title_cap;
+    y += title_ink + gap[1];
+    l->y_artist = y - meta_cap;
+    y += meta_ink + gap[2];
+    l->y_album = y - meta_cap;
+    y += meta_ink + gap[3];
+    l->y_format = y;
+    y += badge_h + gap[4];
+    l->y_controls = y;
 #endif
 }
 
@@ -659,8 +696,7 @@ static lv_obj_t * quick_drawer_build_card_band(lv_obj_t * card) {
 /* One centred, marquee-scrolling line of card text. v1_h is the V1's fixed
  * label height; the other boards use the font's bounded row height. */
 static void quick_drawer_style_card_line(lv_obj_t * label, const char * text, bool secondary,
-                                         const lv_font_t * font, int32_t width, int32_t v1_h,
-                                         int32_t y) {
+                                         const lv_font_t * font, int32_t width, int32_t v1_h) {
     lv_label_set_text(label, text);
     lv_obj_remove_style(label, &style_theme_text_primary, 0);
     lv_obj_add_style(label, gui_player_backdrop_text_style(secondary), 0);
@@ -676,14 +712,12 @@ static void quick_drawer_style_card_line(lv_obj_t * label, const char * text, bo
     row_label_apply_bounded_height(label, font);
 #endif
     row_label_enable_marquee(label);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
 }
 
 static lv_obj_t * quick_drawer_card_line(lv_obj_t * band, const char * text, bool secondary,
-                                         const lv_font_t * font, int32_t width, int32_t v1_h,
-                                         int32_t y) {
+                                         const lv_font_t * font, int32_t width, int32_t v1_h) {
     lv_obj_t * label = lv_label_create(band);
-    quick_drawer_style_card_line(label, text, secondary, font, width, v1_h, y);
+    quick_drawer_style_card_line(label, text, secondary, font, width, v1_h);
     return label;
 }
 
@@ -713,9 +747,8 @@ static void quick_drawer_build_card_format(lv_obj_t * band, const quick_drawer_c
     lv_obj_set_height(label, lv_font_get_line_height(&lv_font_montserrat_12));
 #else
     lv_obj_set_style_pad_hor(label, BOARD_SCALE_PX(14), 0);
-    lv_obj_set_style_pad_ver(label, BOARD_SCALE_PY(4), 0);
+    lv_obj_set_style_pad_ver(label, QUICK_DRAWER_FORMAT_PAD_VER, 0);
 #endif
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, l->y_format);
 }
 
 /* Title / artist / album / format labels inside the card's band. Returns the band. */
@@ -725,9 +758,9 @@ static lv_obj_t * quick_drawer_build_card_text(lv_obj_t * card) {
     lv_obj_t * band = quick_drawer_build_card_band(card);
 
     quick_drawer_artist_label = quick_drawer_card_line(band, "", true, l.meta_font, l.artist_w,
-                                                       l.artist_h, l.y_artist);
+                                                       l.artist_h);
     quick_drawer_album_label = quick_drawer_card_line(band, "", true, l.meta_font, l.width,
-                                                      l.artist_h, l.y_album);
+                                                      l.artist_h);
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_add_flag(quick_drawer_album_label, LV_OBJ_FLAG_HIDDEN);
 #endif
@@ -739,7 +772,7 @@ static void quick_drawer_style_card_title(lv_obj_t * title) {
     quick_drawer_card_text_layout_t l;
     quick_drawer_card_text_layout(&l);
     quick_drawer_style_card_line(title, TR("No track loaded"), false,
-                                 &app_font_player_title, l.width, l.title_h, l.y_title);
+                                 &app_font_player_title, l.title_w, l.title_h);
 }
 
 /* Transport button (prev/next): backdrop-styled icon at its reference X. */
@@ -768,23 +801,19 @@ static void quick_drawer_layout_play_button(void) {
     int32_t row_h = BOARD_SCALE_PY(90);
 #else
     int32_t play_size = BOARD_SCALE_PY(84);
-    int32_t row_h = BOARD_SCALE_PY(86);
+    int32_t row_h = QUICK_DRAWER_TRANSPORT_H;
 #endif
     lv_obj_set_size(quick_drawer_play_btn, play_size, play_size);
     lv_image_set_inner_align(quick_drawer_play_btn, LV_IMAGE_ALIGN_CONTAIN);
     lv_obj_set_pos(quick_drawer_play_btn, BOARD_SCALE_PX(206) - play_size / 2, (row_h - play_size) / 2);
 #else
-    lv_obj_set_pos(quick_drawer_play_btn, BOARD_SCALE_PX(164), (BOARD_SCALE_PY(86) - 84) / 2);
-    lv_image_set_scale(quick_drawer_play_btn, (BOARD_SCALE_PY(86) * LV_SCALE_NONE + 42) / 84);
+    lv_obj_set_pos(quick_drawer_play_btn, BOARD_SCALE_PX(164), (QUICK_DRAWER_TRANSPORT_H - 84) / 2);
+    lv_image_set_scale(quick_drawer_play_btn, (QUICK_DRAWER_TRANSPORT_H * LV_SCALE_NONE + 42) / 84);
 #endif
 }
 
 /* Transport row: prev/play/next, all three in one row. */
 static lv_obj_t * quick_drawer_build_transport_row(lv_obj_t * band) {
-    int32_t controls_bottom = BOARD_SCALE_PY(24);
-#if defined(BOARD_TEMPOTEC_V1)
-    controls_bottom = BOARD_SCALE_PY(12);
-#endif
     lv_obj_t * controls_row = lv_obj_create(band);
     /* 84, not 70 -- btn_play.png/btn_pause.png are 84x84 (confirmed via the
      * actual asset files), and a shorter row was clipping the top/bottom of
@@ -792,16 +821,58 @@ static lv_obj_t * quick_drawer_build_transport_row(lv_obj_t * band) {
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_size(controls_row, lv_pct(100), BOARD_SCALE_PY(90));
 #else
-    lv_obj_set_size(controls_row, lv_pct(100), BOARD_SCALE_PY(86));
+    lv_obj_set_size(controls_row, lv_pct(100), QUICK_DRAWER_TRANSPORT_H);
 #endif
-    lv_obj_align(controls_row, LV_ALIGN_BOTTOM_MID, 0, -controls_bottom);
     lv_obj_set_style_bg_opa(controls_row, 0, 0);
     lv_obj_set_style_border_width(controls_row, 0, 0);
     lv_obj_set_style_pad_all(controls_row, 0, 0);
     lv_obj_remove_flag(controls_row, LV_OBJ_FLAG_SCROLLABLE);
+#if defined(BOARD_TEMPOTEC_V1)
+    int32_t next_x = 290;
+#else
+    /* 289 so the arrows' drawn pixels mirror about the play button. */
+    int32_t next_x = 289;
+#endif
     quick_drawer_create_transport_button(controls_row, "playing_plane/btn_prev.png", 84, prev_btn_event_cb);
-    quick_drawer_create_transport_button(controls_row, "playing_plane/btn_next.png", 290, next_btn_event_cb);
+    quick_drawer_create_transport_button(controls_row, "playing_plane/btn_next.png", next_x, next_btn_event_cb);
     return controls_row;
+}
+
+/* Positions the card's text and transport row from the current font metrics.
+ * Run at build and again after a font swap: the drawer is on lv_layer_top(),
+ * which the font-geometry walks never visit. */
+static void quick_drawer_layout_card(void) {
+    quick_drawer_card_text_layout_t l;
+    quick_drawer_card_text_layout(&l);
+    lv_obj_t * lines[] = { quick_drawer_title_label, quick_drawer_artist_label, quick_drawer_album_label };
+    const int32_t line_y[] = { l.y_title, l.y_artist, l.y_album };
+    for (int i = 0; i < 3; i++) {
+        if (!lines[i]) continue;
+#if !defined(BOARD_TEMPOTEC_V1)
+        row_label_apply_bounded_height(lines[i], lv_obj_get_style_text_font(lines[i], LV_PART_MAIN));
+#endif
+        lv_obj_align(lines[i], LV_ALIGN_TOP_MID, 0, line_y[i]);
+    }
+    if (quick_drawer_format_label) lv_obj_align(quick_drawer_format_label, LV_ALIGN_TOP_MID, 0, l.y_format);
+    lv_obj_t * controls = quick_drawer_play_btn ? lv_obj_get_parent(quick_drawer_play_btn) : NULL;
+    if (!controls) return;
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_align(controls, LV_ALIGN_BOTTOM_MID, 0, -BOARD_SCALE_PY(12));
+#else
+    lv_obj_align(controls, LV_ALIGN_TOP_MID, 0, l.y_controls);
+#endif
+}
+
+/* Re-lays the drawer after a font change (boot load, Font Size, Custom Font). */
+void gui_shell_refresh_drawer_font_geometry(void) {
+    if (!quick_drawer) return;
+    quick_drawer_layout_card();
+    fill_slider_t sliders[] = {
+        { .slider = quick_drawer_brightness_track, .label = quick_drawer_brightness_label },
+        { .slider = quick_drawer_volume_track, .label = quick_drawer_volume_label },
+    };
+    for (int i = 0; i < 2; i++) fill_slider_place_value(&sliders[i]);
+    quick_drawer_mark_snapshot_dirty();
 }
 
 /* Label inside the EQ shortcut button. */
@@ -821,9 +892,9 @@ static void quick_drawer_build_eq_label(lv_obj_t * button) {
  * expansion) elsewhere. Keep it visible even when volume controls are hidden
  * or the drawer's expansion box hides the mini-player card. It sits the same
  * distance from the card's top and right edges; at 480x800 the 36x36px badge
- * occupies x=402..437, y=424..459 and its 44x44px target clears the volume
- * rail's extended click area (ending at y=413) and the title band (starting
- * at y=463). As expansion opens it shifts down by the same amount as the rest
+ * occupies x=402..437, y=421..456, its 44x44px target clears the volume
+ * rail's extended click area (ending at y=413), and it sits in the corner
+ * beside the title, which stops one inset short of it on both sides. As expansion opens it shifts down by the same amount as the rest
  * of the drawer, below row-3 content. */
 static void quick_drawer_build_eq_button(lv_obj_t * card) {
     lv_obj_t * parent = quick_drawer;
@@ -888,6 +959,7 @@ void build_quick_drawer(void) {
     quick_drawer_fit_cover();
     quick_drawer_style_card_title(quick_drawer_title_label);
     quick_drawer_layout_play_button();
+    quick_drawer_layout_card();
     quick_drawer_build_eq_button(card);
 
     gui_shell_refresh_quick_drawer_cover();

@@ -1118,7 +1118,7 @@ void fallback_font_refresh_ui(void) {
     lv_obj_invalidate(lv_layer_sys());
 
     compact_list_refresh_all();
-    quick_drawer_mark_snapshot_dirty();
+    gui_shell_refresh_drawer_font_geometry();
     gui_lyrics_refresh_layout();
     player_transition_mark_dirty();
 }

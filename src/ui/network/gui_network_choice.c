@@ -104,7 +104,7 @@ static void font_size_apply_timer_cb(lv_timer_t * timer) {
     gui_settings_refresh_font_geometry();
     gui_player_refresh_font_geometry();
     compact_list_refresh_all();
-    quick_drawer_mark_snapshot_dirty();
+    gui_shell_refresh_drawer_font_geometry();
     nav_reset_to_home();
     nav_push(gui_settings_get_screen());
     nav_push(gui_settings_get_display_screen());

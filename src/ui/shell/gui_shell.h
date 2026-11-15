@@ -66,6 +66,8 @@ void gui_shell_set_library_scan_indicator(bool active);
 void refresh_volume_topbar(int32_t percent);
 void gui_shell_apply_topbar_settings(void);
 void quick_drawer_mark_snapshot_dirty(void);
+/* Re-lays the drawer's card and slider values after a font change. */
+void gui_shell_refresh_drawer_font_geometry(void);
 /* Repaints the drawer and status bar from the current theme slots. */
 void gui_shell_refresh_theme_colors(void);
 /* The drawer's control-row surface, shared with the volume popup. */

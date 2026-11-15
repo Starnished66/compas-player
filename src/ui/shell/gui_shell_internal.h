@@ -86,7 +86,7 @@
 #define QUICK_DRAWER_TOGGLE_CELL_W BOARD_SCALE_PX(84)
 #endif
 #define QUICK_DRAWER_TOGGLE_ROW_PITCH BOARD_SCALE_PY(148)
-#define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(354)
+#define QUICK_DRAWER_CARD_H BOARD_SCALE_PY(357)
 #define QUICK_DRAWER_ROW1_TOP BOARD_SCALE_PY(71)
 #define QUICK_DRAWER_EXPANSION_MAX_HEIGHT INT32_MAX
 #define QUICK_DRAWER_TOGGLE_STATE_GAP BOARD_SCALE_PY(24)
@@ -115,6 +115,12 @@
  * row 2 straight against it with no gap at all. */
 /* The now-playing card. Its cover frame fills it, so both read these. */
 #define QUICK_DRAWER_PANEL_X BOARD_SCALE_PX(19)
+#define QUICK_DRAWER_PANEL_Y BOARD_SCALE_PY(59)
+#if defined(BOARD_TEMPOTEC_V1)
+#define QUICK_DRAWER_HANDLE_Y BOARD_SCALE_PY(272)
+#else
+#define QUICK_DRAWER_HANDLE_Y BOARD_SCALE_PY(219)
+#endif
 #define QUICK_DRAWER_PANEL_W BOARD_SCALE_PX(442)
 /* Share one physical inset on all three edges, including after board scaling. */
 #define QUICK_DRAWER_CARD_INSET (BOARD_SCALE_PX(34) - QUICK_DRAWER_PANEL_X)
@@ -280,6 +286,20 @@ extern lv_obj_t * quick_drawer_volume_icon;
 extern lv_obj_t * quick_drawer_eq_button;
 extern lv_obj_t * quick_drawer_volume_track;
 extern lv_obj_t * quick_drawer_volume_label;
+/* Test: tiles without the On/Off state line under their names. */
+#define QUICK_DRAWER_SHOW_STATE false
+/* Row 1's top: centred between the panel edge and the handle without the state line. */
+int32_t quick_drawer_row1_top(void);
+#if !defined(BOARD_TEMPOTEC_V1)
+/* Expanded row pitch and the expansion box's top, from the same gap. */
+int32_t quick_drawer_row_pitch(void);
+int32_t quick_drawer_expansion_top(void);
+#endif
+#if defined(BOARD_TEMPOTEC_V1)
+#define QUICK_DRAWER_ROW_PITCH QUICK_DRAWER_TOGGLE_ROW_PITCH
+#else
+#define QUICK_DRAWER_ROW_PITCH quick_drawer_row_pitch()
+#endif
 extern lv_obj_t * quick_drawer_toggle_state[QUICK_DRAWER_TOGGLE_SLOTS];
 extern lv_color_t shell_drawer_off_color;
 extern lv_obj_t * quick_drawer_toggle_icon[QUICK_DRAWER_TOGGLE_SLOTS];

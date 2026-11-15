@@ -89,7 +89,7 @@ static void custom_font_apply_timer_cb(lv_timer_t * timer) {
     gui_settings_refresh_font_geometry();
     compact_list_refresh_all();
     gui_lyrics_refresh_layout();
-    quick_drawer_mark_snapshot_dirty();
+    gui_shell_refresh_drawer_font_geometry();
     nav_reset_to_home();
     screen_builders_refresh_font_geometry(lv_screen_active());
     lv_obj_invalidate(lv_screen_active());

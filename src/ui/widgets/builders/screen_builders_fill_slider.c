@@ -51,6 +51,22 @@ void fill_slider_set_enabled(fill_slider_t * ui, bool enabled) {
     fill_slider_set_greyed(ui->slider, !enabled);
 }
 
+/* A row's number sits as far from the right edge as from the top and bottom,
+ * measured on the drawn digits rather than the font's line box. */
+void fill_slider_place_value(fill_slider_t * ui) {
+    if (!ui->slider || !ui->label) return;
+    const lv_font_t * font = lv_obj_get_style_text_font(ui->label, LV_PART_MAIN);
+    lv_font_glyph_dsc_t digit;
+    if (!font || !lv_font_get_glyph_dsc(font, &digit, '0', '\0')) return;
+    int32_t height = lv_obj_get_style_height(ui->slider, LV_PART_MAIN);
+    int32_t line = lv_font_get_line_height(font);
+    int32_t digit_top = line - font->base_line - digit.ofs_y - digit.box_h;
+    /* The label ends at the advance, past the last digit's drawn pixels. */
+    int32_t bearing = digit.adv_w - digit.ofs_x - digit.box_w;
+    int32_t inset = (height - digit.box_h) / 2 - bearing;
+    lv_obj_align(ui->label, LV_ALIGN_RIGHT_MID, -inset, line / 2 - (digit_top + digit.box_h / 2));
+}
+
 static void fill_slider_deleted_cb(lv_event_t * e) {
     unregister_swipe_dead_zone(lv_event_get_target(e));
 }
@@ -97,6 +113,7 @@ fill_slider_t build_fill_slider(lv_obj_t * parent, const fill_slider_cfg_t * cfg
             lv_obj_set_style_margin_right(ui.label, BOARD_SCALE_PX(18), 0);
         lv_obj_remove_flag(ui.label, LV_OBJ_FLAG_CLICKABLE);
     }
+    if (!vertical && cfg->icon_src) fill_slider_place_value(&ui);
     fill_slider_set_value(&ui, cfg->value);
     if (cfg->event_cb) lv_obj_add_event_cb(ui.slider, cfg->event_cb, LV_EVENT_ALL, cfg->user_data);
     /* The whole row is a drag target: back and Now Playing swipes must not

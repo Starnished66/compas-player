@@ -507,7 +507,7 @@ static void quick_drawer_poll_expansion_release(lv_point_t p, bool pressed) {
                  * the normal halfway snap for layouts of twelve or fewer. */
                 int32_t snap_height = quick_drawer_expansion_full;
                 if (quick_drawer_many_tiles)
-                    snap_height = LV_MIN(snap_height, QUICK_DRAWER_TOGGLE_ROW_PITCH * 2);
+                    snap_height = LV_MIN(snap_height, QUICK_DRAWER_ROW_PITCH * 2);
                 quick_drawer_animate_expansion(quick_drawer_expansion_y * 2 >= snap_height);
             }
             quick_drawer_expansion_moved = false;

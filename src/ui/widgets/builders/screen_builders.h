@@ -225,6 +225,8 @@ fill_slider_t build_fill_slider(lv_obj_t * parent, const fill_slider_cfg_t * cfg
 void fill_slider_set_greyed(lv_obj_t * slider, bool greyed);
 /* In step mode, value is an index into the caller-owned steps table. */
 void fill_slider_set_value(fill_slider_t * ui, int32_t value);
+/* Re-place the number after its font changes (horizontal icon rows). */
+void fill_slider_place_value(fill_slider_t * ui);
 void fill_slider_set_enabled(fill_slider_t * ui, bool enabled);
 
 typedef struct {

@@ -224,6 +224,40 @@ void quick_drawer_set_toggle_state_text(int index, bool enabled, const char * te
     lv_obj_set_style_text_color(quick_drawer_toggle_state[index], color, 0);
     quick_drawer_mark_snapshot_dirty();
 }
+/* Icon top to the caption's baseline, its lowest drawn pixel. */
+static int32_t quick_drawer_row_content(void) {
+#if defined(BOARD_TEMPOTEC_V1)
+    const lv_font_t * font = gui_theme_font(GUI_FONT_ROLE_SUBTEXT);
+#else
+    const lv_font_t * font = fallback_font_ui_12();
+#endif
+    return QUICK_DRAWER_TOGGLE_ICON_PX + QUICK_DRAWER_TOGGLE_CAPTION_GAP +
+           lv_font_get_line_height(font) - font->base_line;
+}
+
+/* Without the state line, one gap separates the panel edge, every row and
+ * the handle: row 1 sits centred above the handle, and each expanded row
+ * starts where the collapsed handle was. */
+static int32_t quick_drawer_row_gap(void) {
+    return (QUICK_DRAWER_HANDLE_Y - QUICK_DRAWER_PANEL_Y - quick_drawer_row_content()) / 2;
+}
+
+int32_t quick_drawer_row1_top(void) {
+    if (QUICK_DRAWER_SHOW_STATE) return QUICK_DRAWER_ROW1_TOP;
+    return QUICK_DRAWER_PANEL_Y + quick_drawer_row_gap();
+}
+
+#if !defined(BOARD_TEMPOTEC_V1)
+int32_t quick_drawer_row_pitch(void) {
+    if (QUICK_DRAWER_SHOW_STATE) return QUICK_DRAWER_TOGGLE_ROW_PITCH;
+    return quick_drawer_row_content() + quick_drawer_row_gap();
+}
+
+int32_t quick_drawer_expansion_top(void) {
+    return QUICK_DRAWER_SHOW_STATE ? BOARD_SCALE_PY(211) : QUICK_DRAWER_HANDLE_Y;
+}
+#endif
+
 void quick_drawer_set_toggle_state(int index, bool enabled) {
     quick_drawer_set_toggle_state_text(index, enabled, NULL);
 }
@@ -501,7 +535,7 @@ void gui_shell_refresh_quick_drawer_expansion_toggles(void) {
         lv_obj_t * icon;
         bool on;
     } toggles[] = {
-        { QD_TOGGLE_AIRPLAY, quick_drawer_airplay_icon, current_settings.wifi_dac_mode_enabled },
+        { QD_TOGGLE_AIRPLAY, quick_drawer_airplay_icon, gui_network_airplay_active() },
         { QD_TOGGLE_BT_DAC, quick_drawer_bt_dac_icon, gui_network_bt_dac_active() },
         { QD_TOGGLE_USB_DAC, quick_drawer_usb_dac_icon, gui_network_usb_dac_active() },
         { QD_TOGGLE_DLNA, quick_drawer_dlna_icon, current_settings.dlna_renderer_enabled },
@@ -743,6 +777,7 @@ void quick_drawer_make_toggle_labels(int slot, int32_t x, int32_t row_y,
 
     lv_obj_t * state = lv_label_create(quick_drawer_expansion_box);
     quick_drawer_toggle_state[slot] = state;
+    lv_obj_set_flag(state, LV_OBJ_FLAG_HIDDEN, !QUICK_DRAWER_SHOW_STATE);
     lv_obj_set_width(state, label_w);
 #if BOARD_COMPACT_UI
     lv_obj_set_height(state, lv_font_get_line_height(&lv_font_montserrat_12));
@@ -816,12 +851,13 @@ void quick_drawer_reflow_customization(void) {
     lv_obj_remove_flag(quick_drawer_expansion_box, LV_OBJ_FLAG_SCROLLABLE);
 #endif
     int expansion_rows = count > 4 ? (count - 4 + 3) / 4 : 0;
-    int32_t row_pitch = QUICK_DRAWER_TOGGLE_ROW_PITCH;
 #if defined(BOARD_TEMPOTEC_V1)
+    int32_t row_pitch = QUICK_DRAWER_TOGGLE_ROW_PITCH;
     row_pitch -= BOARD_SCALE_PY(60);
     quick_drawer_expansion_full = quick_drawer_expansion_visible_height(
         QUICK_DRAWER_TOGGLE_ROW_PITCH * expansion_rows);
 #else
+    int32_t row_pitch = quick_drawer_row_pitch();
     quick_drawer_expansion_full = row_pitch * expansion_rows;
 #endif
     if (quick_drawer_expansion_handle)
@@ -836,12 +872,12 @@ void quick_drawer_reflow_customization(void) {
                                  ? count - 4 - (row - 1) * 4 : 4);
         int32_t x = quick_drawer_toggle_column_x(column, row_count);
         /* Expanded captions are single-line, so later rows can sit closer. */
-        int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP
+        int32_t y = row == 0 ? quick_drawer_row1_top()
                              : (row - 1) * row_pitch;
 #else
         int row = i / 4, column = i % 4;
         int32_t x = quick_drawer_toggle_column_x(column, 4);
-        int32_t y = row == 0 ? QUICK_DRAWER_ROW1_TOP :
+        int32_t y = row == 0 ? quick_drawer_row1_top() :
                     (row - 1) * row_pitch;
 #endif
         lv_obj_t * parent = row == 0 ? quick_drawer : quick_drawer_expansion_box;
@@ -878,15 +914,15 @@ void quick_drawer_reflow_customization(void) {
         int32_t icon_x = x + (QUICK_DRAWER_TOGGLE_CELL_W - QUICK_DRAWER_TOGGLE_ICON_PX) / 2;
         quick_drawer_place_widget(items[i].icon, parent, icon_x, y, true);
         quick_drawer_place_widget(items[i].name, parent, row > 0 ? label_x : x, caption_y, true);
-        quick_drawer_place_widget(items[i].state, parent, label_x, state_y, true);
+        quick_drawer_place_widget(items[i].state, parent, label_x, state_y, QUICK_DRAWER_SHOW_STATE);
 #elif BOARD_COMPACT_UI
         quick_drawer_place_widget(items[i].icon, parent, x, y, true);
         quick_drawer_place_widget(items[i].name, parent, label_x, caption_y, true);
-        quick_drawer_place_widget(items[i].state, parent, label_x, state_y, true);
+        quick_drawer_place_widget(items[i].state, parent, label_x, state_y, QUICK_DRAWER_SHOW_STATE);
 #else
         quick_drawer_place_widget(items[i].icon, parent, x, y, true);
         quick_drawer_place_widget(items[i].name, parent, x, caption_y, true);
-        quick_drawer_place_widget(items[i].state, parent, x, state_y, true);
+        quick_drawer_place_widget(items[i].state, parent, x, state_y, QUICK_DRAWER_SHOW_STATE);
 #endif
     }
     if (quick_drawer_many_tiles) {
