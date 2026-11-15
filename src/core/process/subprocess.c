@@ -361,6 +361,12 @@ bool subprocess_ps_line_is_command(const char * line, const char * name) {
         p += strspn(p, " ");
     }
     size_t len = strcspn(p, " \n");
+    /* "{adbserver.sh} /bin/sh ...": BusyBox shows the process name in braces
+     * when it differs from argv[0], as for a script started by its shebang. */
+    if (len > 2 && p[0] == '{' && p[len - 1] == '}') {
+        p++;
+        len -= 2;
+    }
     for (size_t i = len; i > 0; i--) {
         if (p[i - 1] != '/') continue;
         p += i;

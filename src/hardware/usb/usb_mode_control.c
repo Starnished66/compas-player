@@ -584,6 +584,19 @@ static bool wait_path(const char * path, int attempts) {
     return false;
 }
 
+static bool stop_usb_adb(void) {
+    char * argv[] = { (char *) "/etc/init.d/adb/S440adb", (char *) "stop", NULL };
+    subprocess_run(argv, NULL, 0);
+    for (int i = 0; i < SETTLE_RETRY_LIMIT; ++i) {
+        subprocess_kill_all_matching("adbserver.sh");
+        subprocess_kill_all_matching("adbd");
+        if (!subprocess_is_running("adbserver.sh") && !subprocess_is_running("adbd")) return true;
+        usleep(50000);
+    }
+    fprintf(stderr, "usb_mode_control: USB ADB cleanup incomplete; retaining claim\n");
+    return false;
+}
+
 static bool start_adb_gadget(void) {
     int exit_code = -1;
     char * argv[] = { (char *) "/etc/init.d/adb/S440adb", (char *) "start", NULL };
@@ -623,8 +636,7 @@ static bool usb_mode_control_apply_gadget_locked(usb_mode_t mode) {
      * leftover state) handles android0 teardown unconditionally instead,
      * for both DAC and Storage. */
 
-    char * adb_stop_argv[] = { (char *) "/etc/init.d/adb/S440adb", (char *) "stop", NULL };
-    subprocess_run(adb_stop_argv, NULL, 0);
+    if (!stop_usb_adb()) return false;
 
     /* Do not call usb_dev_mass_storage.sh stop. If rmdir of mass_storage.0
      * fails because the host still has the volume mounted, that script
@@ -890,9 +902,16 @@ bool usb_mode_control_apply_with_status(usb_mode_t mode, bool * storage_busy) {
     }
     /* One adbd at a time: the TCP one steps aside before USB ADB starts and
      * comes back after any other outcome, a failed ADB switch included. */
-    if (mode == USB_MODE_ADB) wireless_adb_usb_adb_claim(true);
+    if (mode == USB_MODE_ADB && !wireless_adb_usb_adb_claim(true)) {
+        pthread_mutex_unlock(&usb_mode_mutex);
+        return false;
+    }
     bool applied = usb_mode_control_apply_locked(mode);
-    wireless_adb_usb_adb_claim(mode == USB_MODE_ADB && applied);
+    bool retain_claim = mode == USB_MODE_ADB && applied;
+    if (mode == USB_MODE_ADB && !applied) retain_claim = !stop_usb_adb();
+    if (!retain_claim && (subprocess_is_running("adbserver.sh") || subprocess_is_running("adbd")))
+        retain_claim = true;
+    wireless_adb_usb_adb_claim(retain_claim);
     pthread_mutex_unlock(&usb_mode_mutex);
     return applied;
 }
