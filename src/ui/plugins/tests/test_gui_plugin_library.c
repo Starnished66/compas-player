@@ -82,6 +82,8 @@ static void expect(const char * artist, const char * album, int want, const char
     gui_plugin_free_string_array(tracks, count);
 }
 
+bool metadata_db_album_sort_available(metadata_db_album_sort_t sort) { (void)sort; return true; }
+
 int main(void) {
     expect("A", "A1", 2, "/b1/1.flac");   /* Single-album artist continues to the next artist. */
     expect("B", "B1", 1, "/b2/1.flac");   /* Inside an artist the next album comes first. */

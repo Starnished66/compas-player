@@ -11,6 +11,30 @@ static bool playing, paused;
 static int launches, launch_count;
 static int album_next_count;
 static char first_launched[1024];
+static char storage_path[1024];
+static atomic_bool block_discovery, discovery_entered;
+
+lv_timer_t * lv_timer_create(lv_timer_cb_t cb, uint32_t period, void * data) {
+    (void)cb; (void)period; (void)data;
+    return (lv_timer_t *)1;
+}
+size_t storage_roots_list(storage_root_t * roots, size_t max) {
+    assert(max > 0);
+    assert(strlen(storage_path) < sizeof(roots[0].path));
+    strcpy(roots[0].path, storage_path);
+    return 1;
+}
+bool storage_roots_find_path(const storage_root_t * roots, size_t count, const char * path, size_t * index) {
+    if (count && path_below(path, roots[0].path)) { *index = 0; return true; }
+    return false;
+}
+static void finish_discovery(void) {
+    for (int i = 0; i < 5000 && (discovery_active || discovery_queued); ++i) {
+        poll_discovery();
+        usleep(1000);
+    }
+    assert(!discovery_active && !discovery_queued);
+}
 
 const char * gui_plugin_get_play_mode(void) { return mode; }
 const char * gui_plugin_get_current_track_path(void) { return current_path; }
@@ -33,13 +57,17 @@ static char ** path_array(int count, const char * prefix) {
 }
 char ** gui_plugin_get_album_tracks(const char * artist, const char * album, int * count) {
     (void)artist; (void)album;
+    atomic_store(&discovery_entered, true);
+    while (atomic_load(&block_discovery)) usleep(1000);
     *count = 1;
     char ** paths = calloc(1, sizeof(*paths));
     paths[0] = strdup(current_path);
     return paths;
 }
-char ** gui_plugin_get_next_album_tracks(const char * artist, const char * album, int * count) {
+metadata_db_album_sort_t requested_group_album_sort(metadata_db_group_kind_t kind) { (void)kind; return METADATA_DB_ALBUM_SORT_YEAR; }
+char ** gui_plugin_get_next_album_tracks_sorted(const char * artist, const char * album, metadata_db_album_sort_t sort, int * count) {
     (void)artist; (void)album;
+    (void)sort;
     *count = album_next_count;
     return *count ? path_array(*count, "/next-album") : NULL;
 }
@@ -79,6 +107,7 @@ static void touch_file(const char * root, const char * tail) {
 int main(void) {
     char root[] = "/tmp/compas-play-through-XXXXXX";
     assert(mkdtemp(root));
+    snprintf(storage_path, sizeof(storage_path), "%s", root);
     char a[1024], b[1024], empty[1024], path[1024];
     snprintf(a, sizeof(a), "%s/a", root); assert(!mkdir(a, 0700));
     snprintf(b, sizeof(b), "%s/B", root); assert(!mkdir(b, 0700));
@@ -134,6 +163,15 @@ int main(void) {
     tracks = next_folder_tracks(path, root, &count); /* Under a wider root the climb continues. */
     assert(count == 1 && strstr(tracks[0], "/zz-outside/o.flac"));
     gui_plugin_free_string_array(tracks, count);
+    /* The live containing root also allows a USB-style tree to cross artists. */
+    snprintf(storage_path, sizeof(storage_path), "%s", music);
+    snprintf(current_path, sizeof(current_path), "%s/music/Artist1/Album/cue.flac", root);
+    current_settings.native_play_through_folders = true;
+    gui_play_through_track_started(NULL, NULL);
+    finish_discovery();
+    assert(candidate_count == 1 && strstr(candidates[0], "/Artist2/Album1/x.flac"));
+    clear_candidates();
+    snprintf(storage_path, sizeof(storage_path), "%s", root);
     for (size_t i = 0; i < sizeof(nested_files) / sizeof(nested_files[0]); ++i) {
         snprintf(path, sizeof(path), "%s/%s", root, nested_files[i]); assert(!unlink(path));
     }
@@ -146,7 +184,12 @@ int main(void) {
     current_settings.native_play_through_albums = true;
     album_next_count = 1001;
     gui_play_through_track_started("Artist", "Album");
+    finish_discovery();
     assert(candidate_count == 1001 && strstr(candidates[0], "next-album")); /* Album wins. */
+    playing = true;
+    continuation_tick(NULL); continuation_tick(NULL);
+    assert(candidate_count == 1001 && !launches); /* Early completion remains armed. */
+    playing = false;
     mode = "shuffle";
     gui_play_through_queue_exhausted(1);
     assert(!launches);
@@ -177,6 +220,39 @@ int main(void) {
     paused = false; continuation_tick(NULL); assert(launches == 3);
     gui_play_through_resumed(); continuation_tick(NULL); assert(launches == 3);
     continuation_tick(NULL); assert(launches == 4);
+    /* Stale completion after a stop or setting change cannot rearm playback. */
+    current_settings.native_play_through_albums = true;
+    atomic_store(&block_discovery, true);
+    atomic_store(&discovery_entered, false);
+    gui_play_through_track_started("Artist", "Album");
+    while (!atomic_load(&discovery_entered)) usleep(1000);
+    gui_play_through_stopped();
+    atomic_store(&block_discovery, false);
+    finish_discovery();
+    assert(!candidates);
+    atomic_store(&block_discovery, true);
+    atomic_store(&discovery_entered, false);
+    gui_play_through_track_started("Artist", "Album");
+    while (!atomic_load(&discovery_entered)) usleep(1000);
+    snprintf(current_path, sizeof(current_path), "/changed/track.flac");
+    atomic_store(&block_discovery, false);
+    finish_discovery();
+    assert(!candidates);
+    gui_play_through_track_started("Artist", "Album");
+    current_settings.native_play_through_albums = false;
+    finish_discovery();
+    assert(!candidates);
+    /* A queue that ends before discovery completes continues from the timer. */
+    current_settings.native_play_through_albums = true;
+    atomic_store(&block_discovery, true);
+    gui_play_through_track_started("Artist", "Album");
+    gui_play_through_queue_exhausted(1);
+    assert(launches == 4);
+    atomic_store(&block_discovery, false);
+    finish_discovery();
+    continuation_tick(NULL); continuation_tick(NULL);
+    assert(launches == 5);
+    gui_play_through_stopped();
     mode = "shuffle";
     gui_play_through_track_started("Artist", "Album"); assert(!candidates);
     clear_candidates();

@@ -121,11 +121,18 @@ static char ** next_artist_album_tracks(const char * artist, metadata_db_album_s
 }
 
 char ** gui_plugin_get_next_album_tracks(const char * artist, const char * current_album, int * out_count) {
+    return gui_plugin_get_next_album_tracks_sorted(artist, current_album,
+        gui_library_group_album_sort(METADATA_DB_GROUP_ARTIST), out_count);
+}
+
+char ** gui_plugin_get_next_album_tracks_sorted(const char * artist, const char * current_album,
+                                                metadata_db_album_sort_t sort, int * out_count) {
     *out_count = 0;
     int64_t count64 = metadata_db_count_albums_for_group(METADATA_DB_GROUP_ARTIST, artist);
     if (count64 <= 0 || count64 > INT_MAX) return NULL;
     /* The next album as the artist's page orders them, so playing through follows the chosen sort. */
-    metadata_db_album_sort_t sort = gui_library_group_album_sort(METADATA_DB_GROUP_ARTIST);
+    if (!metadata_db_album_sort_available(sort))
+        sort = (metadata_db_album_sort_t)(sort & METADATA_DB_ALBUM_SORT_REVERSE);
     group_row_t rows[32];
     int offset = 0;
     while (offset < count64) {

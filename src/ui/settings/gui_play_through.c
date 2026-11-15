@@ -2,18 +2,22 @@
 #include "gui_native_audio.h"
 #include "../application/gui.h"
 #include "../plugins/gui_plugin_library.h"
+#include "../library/browse/gui_library_internal.h"
 #include "../widgets/builders/screen_builders.h"
 #include "../text/i18n/i18n.h"
 #include "../../audio/engine/audio.h"
 #include "../../library/browser/paths/library_paths.h"
 #include "../../library/parsers/cue/cue_parser.h"
 #include "../../core/persistence/settings.h"
+#include "../../core/storage/storage_roots.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
 static char ** candidates;
 static int candidate_count, candidate_index;
@@ -25,7 +29,32 @@ static lv_timer_t * continuation_timer;
 static lv_obj_t * play_through_screen;
 static lv_obj_t * about_screen;
 
+struct discovery {
+    char * path, * artist, * album;
+    bool albums, folders;
+    metadata_db_album_sort_t sort;
+    unsigned generation;
+    char ** tracks;
+    int count;
+    atomic_bool done;
+};
+static unsigned discovery_generation;
+static struct discovery * discovery_active, * discovery_queued;
+static void continuation_tick(lv_timer_t * timer);
+
+static void free_discovery(struct discovery * job) {
+    if (!job) return;
+    free(job->path);
+    free(job->artist);
+    free(job->album);
+    gui_plugin_free_string_array(job->tracks, job->count);
+    free(job);
+}
+
 static void clear_candidates(void) {
+    ++discovery_generation;
+    free_discovery(discovery_queued);
+    discovery_queued = NULL;
     gui_plugin_free_string_array(candidates, candidate_count);
     candidates = NULL;
     candidate_count = candidate_index = 0;
@@ -169,6 +198,52 @@ static bool sequential(void) {
     return !strcmp(gui_plugin_get_play_mode(), "sequential");
 }
 
+static void * discover_tracks(void * arg) {
+    struct discovery * job = arg;
+    if (job->albums && *job->artist && *job->album) {
+        int count;
+        char ** tracks = gui_plugin_get_album_tracks(job->artist, job->album, &count);
+        bool last = count > 0 && !strcmp(tracks[count - 1], job->path);
+        gui_plugin_free_string_array(tracks, count);
+        if (last) job->tracks = gui_plugin_get_next_album_tracks_sorted(job->artist, job->album, job->sort, &job->count);
+    }
+    if (!job->tracks && job->folders) {
+        storage_root_t roots[STORAGE_ROOTS_MAX];
+        size_t count = storage_roots_list(roots, STORAGE_ROOTS_MAX), index;
+        const char * root = storage_roots_find_path(roots, count, job->path, &index)
+            ? roots[index].path : MUSIC_ROOT_DIR;
+        job->tracks = next_folder_tracks(job->path, root, &job->count);
+    }
+    atomic_store_explicit(&job->done, true, memory_order_release);
+    return NULL;
+}
+
+/* Only the UI publishes results; a single worker bounds concurrent scans. */
+static void poll_discovery(void) {
+    if (discovery_active && atomic_load_explicit(&discovery_active->done, memory_order_acquire)) {
+        struct discovery * job = discovery_active;
+        const char * path = gui_plugin_get_current_track_path();
+        if (job->generation == discovery_generation && path && !strcmp(path, job->path) &&
+            job->albums == current_settings.native_play_through_albums &&
+            job->folders == current_settings.native_play_through_folders && sequential()) {
+            candidates = job->tracks;
+            candidate_count = job->count;
+            job->tracks = NULL;
+            job->count = 0;
+        }
+        free_discovery(job);
+        discovery_active = NULL;
+    }
+    if (!discovery_active && discovery_queued) {
+        pthread_t thread;
+        if (pthread_create(&thread, NULL, discover_tracks, discovery_queued) == 0) {
+            discovery_active = discovery_queued;
+            discovery_queued = NULL;
+            pthread_detach(thread);
+        }
+    }
+}
+
 void gui_play_through_track_started(const char * artist, const char * album) {
     const char * path = gui_plugin_get_current_track_path();
     if (candidates && path) {
@@ -176,16 +251,22 @@ void gui_play_through_track_started(const char * artist, const char * album) {
             if (!strcmp(batch[i], path)) return;
     }
     clear_candidates();
-    if (!sequential() || !path || strstr(path, "://")) return;
-    if (current_settings.native_play_through_albums && artist && *artist && album && *album) {
-        int count;
-        char ** tracks = gui_plugin_get_album_tracks(artist, album, &count);
-        bool last = count > 0 && !strcmp(tracks[count - 1], path);
-        gui_plugin_free_string_array(tracks, count);
-        if (last) candidates = gui_plugin_get_next_album_tracks(artist, album, &candidate_count);
-    }
-    if (!candidates && current_settings.native_play_through_folders)
-        candidates = next_folder_tracks(path, MUSIC_ROOT_DIR, &candidate_count);
+    if (!sequential() || !path || strstr(path, "://") ||
+        (!current_settings.native_play_through_albums && !current_settings.native_play_through_folders)) return;
+    struct discovery * job = calloc(1, sizeof(*job));
+    if (!job) return;
+    job->path = strdup(path);
+    job->artist = strdup(artist ? artist : "");
+    job->album = strdup(album ? album : "");
+    if (!job->path || !job->artist || !job->album) { free_discovery(job); return; }
+    job->sort = requested_group_album_sort(METADATA_DB_GROUP_ARTIST);
+    job->albums = current_settings.native_play_through_albums;
+    job->folders = current_settings.native_play_through_folders;
+    job->generation = discovery_generation;
+    atomic_init(&job->done, false);
+    discovery_queued = job;
+    if (!continuation_timer) continuation_timer = lv_timer_create(continuation_tick, 1000, NULL);
+    poll_discovery();
 }
 
 void gui_play_through_stopped(void) {
@@ -223,11 +304,13 @@ static void continue_now(void) {
 }
 
 void gui_play_through_queue_exhausted(int direction) {
+    poll_discovery();
     if (direction == 1 && candidates && sequential()) continue_now();
 }
 
 static void continuation_tick(lv_timer_t * timer) {
     (void)timer;
+    poll_discovery();
     if (!candidates || !sequential() || audio_is_playing() || audio_is_paused()) {
         stopped_polls = 0;
         return;

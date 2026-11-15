@@ -19,6 +19,9 @@
 char ** gui_plugin_get_artist_albums(const char * artist, int * out_count);
 char ** gui_plugin_get_album_tracks(const char * artist, const char * album, int * out_count);
 char ** gui_plugin_get_next_album_tracks(const char * artist, const char * current_album, int * out_count);
+/* Worker callers supply a UI snapshot of the requested sort. */
+char ** gui_plugin_get_next_album_tracks_sorted(const char * artist, const char * current_album,
+                                                metadata_db_album_sort_t sort, int * out_count);
 void gui_plugin_free_string_array(char ** array, int count);
 
 /* Paged plugin queries read metadata_db directly without loading UI library
