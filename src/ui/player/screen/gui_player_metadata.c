@@ -427,14 +427,14 @@ static void apply_loaded_track_metadata(int index, track_metadata_t * out_meta, 
     refresh_format_badge();
     dispatch_track_artwork(index, path, out_meta, metadata_ui_token);
 
-    /* No local sidecar (or embedded tag) makes sense for a Subsonic stream
-     * or remote-provider URL -- same reasoning cover art uses a server-
-     * supplied cover URL instead of a local-file lookup for those. A
-     * streamed track just never gets lyrics in this first release. */
-    if (!src.is_subsonic && !src.is_remote) {
-        gui_lyrics_load_track(index, path);
+    if (src.is_subsonic) {
+        subsonic_server_t server = subsonic_server_from_settings();
+        char key[SUBSONIC_CACHE_KEY_SIZE];
+        subsonic_cache_server_key(&server, key);
+        gui_lyrics_load_subsonic(index, !strcmp(key, src.subsonic->server_key) ? &server : NULL,
+                                 src.subsonic->song_id, src.subsonic->artist, src.subsonic->title);
     } else {
-        gui_lyrics_load_track(index, NULL);
+        gui_lyrics_load_track(index, src.is_remote ? NULL : path);
     }
     /* Results contain only scalar tags; keep this defensive ownership guard
      * if the metadata loader later supplies optional blobs. */

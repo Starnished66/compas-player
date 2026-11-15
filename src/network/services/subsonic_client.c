@@ -11,6 +11,10 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <math.h>
+#include <pthread.h>
+#include "../../library/remote/subsonic/subsonic_cache.h"
+#include "../../library/text/lyrics/lyrics.h"
 
 #define SUBSONIC_API_VERSION "1.16.1"
 #define SUBSONIC_CLIENT_NAME "Compas"
@@ -200,16 +204,22 @@ static cJSON * api_response_ok(cJSON * root) {
 }
 
 /* Caller owns *out_root upon success. */
-static cJSON * api_request(const subsonic_server_t * server, const char * endpoint, const char * extra_params,
-                           cJSON ** out_root, http_cancel_token_t * cancel) {
+static cJSON * api_request_limited(const subsonic_server_t * server, const char * endpoint, const char * extra_params,
+                           cJSON ** out_root, http_cancel_token_t * cancel, size_t limit) {
     api_error_clear();
     http_request_t request = {0};
     if (!api_build_request(server, endpoint, extra_params, &request)) return NULL;
+    request.max_response_bytes = limit;
     cJSON * root = api_fetch_json(&request, cancel);
     if (!root) return NULL;
     cJSON * resp = api_response_ok(root);
     if (resp) *out_root = root;
     return resp;
+}
+
+static cJSON * api_request(const subsonic_server_t * server, const char * endpoint, const char * extra_params,
+                           cJSON ** out_root, http_cancel_token_t * cancel) {
+    return api_request_limited(server, endpoint, extra_params, out_root, cancel, SUBSONIC_MAX_API_RESPONSE);
 }
 
 /* Preserve the original 256-byte encoded-id limit, but never send a cut id. */
@@ -902,4 +912,140 @@ void subsonic_build_cover_art_url(const subsonic_server_t * server, const char *
     clear_if_cut(len, out_url, out_url_size);
     if (size_px > 0 && out_url[0])
         clear_if_cut(len + snprintf(out_url + len, out_url_size - (size_t) len, "&size=%d", size_px), out_url, out_url_size);
+}
+
+static uint32_t lyrics_time_ms(double start, double offset) {
+    double shifted = start - offset;
+    if (shifted <= 0) return 0;
+    if (shifted >= LYRICS_MAX_TIME_MS) return LYRICS_MAX_TIME_MS;
+    return (uint32_t)shifted;
+}
+
+static char * structured_lyrics_text(cJSON * doc, bool synced) {
+    cJSON * lines = cJSON_GetObjectItemCaseSensitive(doc, "line");
+    if (!cJSON_IsArray(lines) || cJSON_GetArraySize(lines) > LYRICS_MAX_LINES) return NULL;
+    char * text = malloc(LYRICS_MAX_FILE_BYTES + 1);
+    if (!text) return NULL;
+    size_t used = 0;
+    double offset = 0;
+    cJSON * bias = cJSON_GetObjectItemCaseSensitive(doc, "offset");
+    if (cJSON_IsNumber(bias) && isfinite(bias->valuedouble)) offset = bias->valuedouble;
+    cJSON * line;
+    cJSON_ArrayForEach(line, lines) {
+        const char * value = json_str(line, "value", "");
+        size_t len = strlen(value);
+        if (len > LYRICS_MAX_LINE_BYTES || used + len + 40 > LYRICS_MAX_FILE_BYTES) { free(text); return NULL; }
+        if (synced) {
+            cJSON * start = cJSON_GetObjectItemCaseSensitive(line, "start");
+            if (!cJSON_IsNumber(start) || !isfinite(start->valuedouble) || start->valuedouble < 0) continue;
+            uint32_t ms = lyrics_time_ms(start->valuedouble, offset);
+            /* A space prevents bracketed lyric text becoming another LRC tag. */
+            used += (size_t)snprintf(text + used, 40, "[%02u:%02u.%03u] ", ms / 60000, ms / 1000 % 60, ms % 1000);
+        }
+        for (size_t i = 0; i < len; ++i)
+            text[used++] = synced && (value[i] == '\n' || value[i] == '\r') ? ' ' : value[i];
+        text[used++] = '\n';
+    }
+    if (!used) { free(text); return NULL; }
+    text[used] = '\0';
+    char * small = realloc(text, used + 1);
+    return small ? small : text;
+}
+
+/* One server capability is cached for the current session. */
+static char lyrics_capability_key[SUBSONIC_CACHE_KEY_SIZE];
+static bool lyrics_capability_supported;
+static pthread_mutex_t lyrics_capability_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static bool server_song_lyrics(const subsonic_server_t * server, http_cancel_token_t * cancel) {
+    char key[SUBSONIC_CACHE_KEY_SIZE];
+    subsonic_cache_server_key(server, key);
+    pthread_mutex_lock(&lyrics_capability_mutex);
+    if (lyrics_capability_key[0] && !strcmp(lyrics_capability_key, key)) {
+        bool supported = lyrics_capability_supported;
+        pthread_mutex_unlock(&lyrics_capability_mutex);
+        return supported;
+    }
+    pthread_mutex_unlock(&lyrics_capability_mutex);
+    cJSON * root = NULL;
+    cJSON * resp = api_request_limited(server, "getOpenSubsonicExtensions.view", NULL, &root, cancel, 64 * 1024);
+    bool song_lyrics = false;
+    cJSON * extensions = cJSON_GetObjectItemCaseSensitive(resp, "openSubsonicExtensions");
+    if (cJSON_IsArray(extensions)) {
+        cJSON * extension;
+        cJSON_ArrayForEach(extension, extensions) {
+            if (!strcmp(json_str(extension, "name", ""), "songLyrics")) song_lyrics = true;
+        }
+    }
+    bool known = resp != NULL || api_error_code == SUBSONIC_ERROR_NOT_FOUND ||
+                 (api_error.kind == SUBSONIC_ERROR_HTTP_STATUS && api_error.number == 404);
+    cJSON_Delete(root);
+    if (known && !http_cancel_token_is_cancelled(cancel)) {
+        pthread_mutex_lock(&lyrics_capability_mutex);
+        snprintf(lyrics_capability_key, sizeof(lyrics_capability_key), "%s", key);
+        lyrics_capability_supported = song_lyrics;
+        pthread_mutex_unlock(&lyrics_capability_mutex);
+    }
+    return song_lyrics;
+}
+
+static char * find_structured_lyrics(cJSON * docs, bool synced) {
+    if (!cJSON_IsArray(docs)) return NULL;
+    cJSON * doc;
+    cJSON_ArrayForEach(doc, docs) {
+        bool doc_synced = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(doc, "synced"));
+        if (doc_synced != synced) continue;
+        char * text = structured_lyrics_text(doc, synced);
+        if (text) return text;
+    }
+    return NULL;
+}
+
+static bool request_structured_lyrics(const subsonic_server_t * server, const char * song_id,
+                                      cJSON ** root, char ** text, bool * synced,
+                                      http_cancel_token_t * cancel) {
+    char params[1600];
+    if (!id_params(song_id, params, sizeof(params))) return false;
+    cJSON * resp = api_request_limited(server, "getLyricsBySongId.view", params, root, cancel,
+                                       LYRICS_MAX_FILE_BYTES * 2);
+    cJSON * list = cJSON_GetObjectItemCaseSensitive(resp, "lyricsList");
+    cJSON * docs = cJSON_GetObjectItemCaseSensitive(list, "structuredLyrics");
+    *text = find_structured_lyrics(docs, true);
+    if (*text) {
+        *synced = true;
+    } else {
+        *text = find_structured_lyrics(docs, false);
+    }
+    return resp != NULL;
+}
+
+static bool request_classic_lyrics(const subsonic_server_t * server, const char * artist,
+                                   const char * title, cJSON ** root, char ** text,
+                                   http_cancel_token_t * cancel) {
+    char artist_enc[512], title_enc[512], params[1600];
+    if (!url_encode(artist ? artist : "", artist_enc, sizeof(artist_enc)) ||
+        !url_encode(title ? title : "", title_enc, sizeof(title_enc))) return false;
+    snprintf(params, sizeof(params), "artist=%s&title=%s", artist_enc, title_enc);
+    cJSON * resp = api_request_limited(server, "getLyrics.view", params, root, cancel,
+                                       LYRICS_MAX_FILE_BYTES * 2);
+    cJSON * lyrics = cJSON_GetObjectItemCaseSensitive(resp, "lyrics");
+    const char * value = json_str(lyrics, "value", "");
+    size_t len = strlen(value);
+    if (len && len <= LYRICS_MAX_FILE_BYTES) *text = strdup(value);
+    return resp != NULL;
+}
+
+bool subsonic_get_lyrics(const subsonic_server_t * server, const char * song_id,
+                         const char * artist, const char * title, char ** text,
+                         bool * synced, http_cancel_token_t * cancel) {
+    *text = NULL;
+    *synced = false;
+    bool song_lyrics = server_song_lyrics(server, cancel);
+    if (http_cancel_token_is_cancelled(cancel)) return false;
+    cJSON * root = NULL;
+    bool ok = song_lyrics ? request_structured_lyrics(server, song_id, &root, text, synced, cancel)
+                          : request_classic_lyrics(server, artist, title, &root, text, cancel);
+    cJSON_Delete(root);
+    if (cancel && http_cancel_token_is_cancelled(cancel)) { free(*text); *text = NULL; return false; }
+    return ok;
 }

@@ -217,4 +217,10 @@ void subsonic_build_stream_url_quality(const subsonic_server_t * server, const c
 void subsonic_build_cover_art_url(const subsonic_server_t * server, const char * cover_art_id, int size_px,
                                   char * out_url, size_t out_url_size);
 
+/* Worker-only. Returns success for an empty result; caller frees *text.
+ * Synced responses are converted to LRC for the shared lyrics parser. */
+bool subsonic_get_lyrics(const subsonic_server_t * server, const char * song_id,
+                         const char * artist, const char * title, char ** text,
+                         bool * synced, http_cancel_token_t * cancel);
+
 #endif /* SUBSONIC_CLIENT_H */

@@ -2,6 +2,7 @@
 #define GUI_LYRICS_H
 #include <stdbool.h>
 #include "lvgl/lvgl.h"
+#include "../../../network/services/subsonic_client.h"
 
 void gui_lyrics_init(void);
 /* Deletes both screens this module owns so gui_reload.c's in-process UI
@@ -16,6 +17,8 @@ void gui_lyrics_poll_load(void);
 void gui_lyrics_poll_backdrop(void);
 void gui_lyrics_on_cover_changed(int current_playlist_index);
 void gui_lyrics_load_track(int index, const char * path);
+void gui_lyrics_load_subsonic(int index, const subsonic_server_t * server,
+                             const char * song_id, const char * artist, const char * title);
 void gui_lyrics_open_screen(void);
 /* Precomputes or updates line geometry without changing list visibility,
  * parenting, scroll position, or row-pool state. */
