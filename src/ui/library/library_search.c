@@ -45,7 +45,12 @@ extern void enable_gesture_bubble_recursive(lv_obj_t *obj);
  * screen's own back button becomes reachable again once that's tapped. */
 
 #define SEARCH_BAR_Y STATUS_BAR_CLEARANCE
+#if defined(BOARD_TEMPOTEC_V1)
+/* Keep one complete result, including its top gap, above the keypad. */
+#define SEARCH_BAR_HEIGHT LV_MIN(80, t9_keypad_get_grid_y() - SEARCH_BAR_Y - ui_list_row_height() - GUI_ROW_GAP)
+#else
 #define SEARCH_BAR_HEIGHT 80
+#endif
 #define SEARCH_BAR_EDGE_INSET BOARD_SCALE_PX(8)
 #define SEARCH_BAR_CLOSE_SIZE BOARD_SCALE_PX(51)
 #define SEARCH_BAR_TEXT_GAP BOARD_SCALE_PX(8)
@@ -812,6 +817,9 @@ static void search_open(search_binding_t * b) {
      * Files/Subsonic still scan the in-memory name_of/count_ptr arrays. */
     lv_obj_add_flag(b->search_btn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(b->search_bar, LV_OBJ_FLAG_HIDDEN);
+#if defined(BOARD_TEMPOTEC_V1)
+    lv_obj_set_height(b->search_bar, SEARCH_BAR_HEIGHT);
+#endif
     if (b->id == SEARCH_BINDING_FILES && b->files_options)
         lv_obj_add_flag(b->files_options, LV_OBJ_FLAG_HIDDEN);
 
