@@ -350,7 +350,19 @@ int64_t metadata_db_get_group_offset(metadata_db_group_kind_t kind, const char *
 
 /* First collation byte, normalized to ASCII for letter buckets. Keep non-letter
  * keys in sort order instead of collapsing both ends into a single '#' key. */
-static bool az_first_char(int group_kind, int index, unsigned char * out) {
+typedef struct {
+    int32_t generation;
+    uint32_t incarnation;
+} az_snapshot_t;
+
+static bool az_snapshot_valid(const az_snapshot_t *snapshot) {
+    return metadata_db_db_ready && tagcache_generation() == snapshot->generation &&
+           metadata_db_db_incarnation == snapshot->incarnation;
+}
+
+static bool az_first_char(const az_snapshot_t *snapshot, int group_kind, int index, unsigned char * out) {
+    METADATA_DB_GUARD;
+    if (!az_snapshot_valid(snapshot)) return false;
     const char *name;
     union { tagcache_group_t group; tagcache_song_t song; } row;
     if (group_kind >= 0) {
@@ -378,12 +390,12 @@ static bool az_first_char(int group_kind, int index, unsigned char * out) {
 }
 
 /* First row at or above target, or -1 on a failed read. */
-static int az_lower_bound(int group_kind, int count, unsigned char target) {
+static int az_lower_bound(const az_snapshot_t *snapshot, int group_kind, int count, unsigned char target) {
     int lo = 0, hi = count;
     while (lo < hi) {
         int mid = lo + (hi - lo) / 2;
         unsigned char first;
-        if (!az_first_char(group_kind, mid, &first)) return -1;
+        if (!az_first_char(snapshot, group_kind, mid, &first)) return -1;
         if (first < target) lo = mid + 1; else hi = mid;
     }
     return lo;
@@ -393,19 +405,34 @@ void metadata_db_get_az_table(metadata_db_az_kind_t kind, int out_table[27]) {
     metadata_db_get_az_table_sorted(kind, false, out_table);
 }
 
-void metadata_db_get_az_table_sorted(metadata_db_az_kind_t kind, bool reverse, int out_table[27]) {
-    METADATA_DB_GUARD;
+static bool az_build(metadata_db_az_kind_t kind, bool reverse, int out_table[27],
+                     int32_t *generation, bool *available) {
+    az_snapshot_t state;
+    const az_snapshot_t *snapshot = &state;
+    int group_kind = az_kind_to_group(kind), count;
     for (int i = 0; i < 27; i++) out_table[i] = -1;
-    if (!metadata_db_db_ready) return;
-    int group_kind = az_kind_to_group(kind);
-    int count = group_kind >= 0 ? tagcache_group_count(group_kind) : tagcache_live_count();
+    {
+        METADATA_DB_GUARD;
+        state = (az_snapshot_t){ tagcache_generation(), metadata_db_db_incarnation };
+        *generation = state.generation;
+        /* The UI declines legacy catalogs before performing any rank probes. */
+        if (available) {
+            *available = metadata_db_db_ready && tagcache_title_ranks_indexed();
+            if (!*available) return true;
+        }
+        if (!metadata_db_db_ready) return false;
+        count = group_kind >= 0 ? tagcache_group_count(group_kind) : tagcache_live_count();
+    }
+    if (count <= 0) return true;
     for (int letter = 0; letter < 26; letter++) {
         unsigned char target = (unsigned char)('a' + letter), first;
-        int row = az_lower_bound(group_kind, count, target + (reverse ? 1 : 0));
-        if (row < 0) return;
+        int row = az_lower_bound(snapshot, group_kind, count, target + (reverse ? 1 : 0));
+        if (row < 0) return false;
         if (reverse) row--;
-        if (row >= 0 && row < count && az_first_char(group_kind, row, &first) && first == target)
-            out_table[letter] = title_order_index(row, count, reverse);
+        if (row >= 0 && row < count) {
+            if (!az_first_char(snapshot, group_kind, row, &first)) return false;
+            if (first == target) out_table[letter] = title_order_index(row, count, reverse);
+        }
     }
     for (int i = 0; i < 25; i++) {
         int letter = reverse ? i + 1 : 24 - i;
@@ -415,13 +442,27 @@ void metadata_db_get_az_table_sorted(metadata_db_az_kind_t kind, bool reverse, i
      * keys occur both before A and after Z. */
     unsigned char first;
     int row = reverse ? count - 1 : 0;
-    if (count <= 0 || !az_first_char(group_kind, row, &first)) return;
+    if (!az_first_char(snapshot, group_kind, row, &first)) return false;
     if (first >= 'a' && first <= 'z') {
-        row = az_lower_bound(group_kind, count, reverse ? 'a' : 'z' + 1);
-        if (row < 0) return;
+        row = az_lower_bound(snapshot, group_kind, count, reverse ? 'a' : 'z' + 1);
+        if (row < 0) return false;
         if (reverse) row--;
     }
     if (row >= 0 && row < count) out_table[26] = title_order_index(row, count, reverse);
+    METADATA_DB_GUARD;
+    return az_snapshot_valid(snapshot);
+}
+
+bool metadata_db_build_az_table(metadata_db_az_kind_t kind, bool reverse, int out_table[27],
+                                int32_t *generation, bool *available) {
+    bool valid = az_build(kind, reverse, out_table, generation, available);
+    if (!valid) for (int i = 0; i < 27; i++) out_table[i] = -1;
+    return valid;
+}
+
+void metadata_db_get_az_table_sorted(metadata_db_az_kind_t kind, bool reverse, int out_table[27]) {
+    int32_t generation;
+    metadata_db_build_az_table(kind, reverse, out_table, &generation, NULL);
 }
 
 void metadata_db_get_album_az_table_sorted(metadata_db_album_sort_t sort, int out_table[27]) {

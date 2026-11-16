@@ -9,6 +9,10 @@
 #include "../text/rendering/fallback_font.h"
 #include "../widgets/builders/screen_builders.h"
 
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdlib.h>
+
 #define AZ_INDEX_BINDING_COUNT 7 /* 4 library lists, 2 Subsonic lists, 1 spare */
 #define AZ_INDEX_HIDE_DELAY_MS 900
 
@@ -19,6 +23,11 @@ typedef struct {
     lv_obj_t * popup;
     lv_obj_t * popup_label;
     bool reverse;
+    unsigned lifetime;
+    int jump[27];
+    int32_t generation;
+    bool loaded;
+    bool available;
     metadata_db_az_kind_t db_kind;
     library_az_index_table_t table; /* set for an in-memory list, which has no db_kind */
     library_az_index_allowed_t allowed; /* optional, for a table list */
@@ -34,7 +43,20 @@ static bool az_index_dragging;
 static bool az_index_press_judged;
 static lv_timer_t * az_index_drag_timer;
 static az_index_binding_t * az_index_active_binding;
-static int az_index_jump_table[27];
+typedef struct {
+    pthread_t thread;
+    atomic_bool done;
+    unsigned lifetime;
+    metadata_db_az_kind_t kind;
+    bool reverse, valid, available;
+    int32_t generation;
+    int jump[27];
+} az_index_job_t;
+
+static az_index_job_t *az_index_job;
+static unsigned az_index_lifetime;
+static lv_timer_t *az_index_refresh_timer;
+static void az_index_refresh(lv_timer_t *timer);
 static library_az_index_pointer_indev_getter_t pointer_indev_getter;
 static library_az_index_strip_allowed_t strip_allowed;
 
@@ -58,7 +80,69 @@ static void az_index_visibility_timeout_cb(lv_timer_t * timer) {
 }
 
 static bool az_binding_allowed(const az_index_binding_t * b) {
+    if (!b->table && b->loaded && !b->available) return false;
     return b->allowed ? b->allowed() : (!strip_allowed || strip_allowed(b->list));
+}
+
+/* Jobs own only values, never widgets or binding pointers. Moving or deleting
+ * a binding therefore cannot invalidate a running worker's storage. */
+static void *az_index_build(void *data) {
+    az_index_job_t *job = data;
+    job->valid = metadata_db_build_az_table(job->kind, job->reverse, job->jump,
+                                           &job->generation, &job->available);
+    atomic_store_explicit(&job->done, true, memory_order_release);
+    return NULL;
+}
+
+static void az_index_refresh(lv_timer_t *timer) {
+    int32_t generation;
+    if (!metadata_db_try_get_generation(&generation)) return;
+    if (az_index_job && atomic_load_explicit(&az_index_job->done, memory_order_acquire)) {
+        pthread_join(az_index_job->thread, NULL);
+        for (int i = 0; i < az_index_registered_count; i++) {
+            az_index_binding_t *b = &az_index_bindings[i];
+            if (b->lifetime != az_index_job->lifetime || !az_index_job->valid ||
+                generation != az_index_job->generation) continue;
+            for (int j = 0; j < 27; j++) b->jump[j] = az_index_job->jump[j];
+            b->generation = generation;
+            b->available = az_index_job->available;
+            b->loaded = true;
+            if (!b->available) lv_obj_add_flag(b->strip, LV_OBJ_FLAG_HIDDEN);
+        }
+        free(az_index_job);
+        az_index_job = NULL;
+    }
+    for (int i = 0; i < az_index_registered_count; i++) {
+        az_index_binding_t *b = &az_index_bindings[i];
+        if (b->table || (b->loaded && b->generation == generation)) continue;
+        b->loaded = false;
+        if (az_index_job) continue;
+        az_index_job_t *job = calloc(1, sizeof(*job));
+        if (!job) return;
+        job->lifetime = b->lifetime;
+        job->kind = b->db_kind;
+        job->reverse = b->reverse;
+        atomic_init(&job->done, false);
+        if (pthread_create(&job->thread, NULL, az_index_build, job)) {
+            free(job);
+            return;
+        }
+        az_index_job = job;
+    }
+    /* Runs only while a table is pending; a touch on a stale table restarts it. */
+    bool pending = az_index_job != NULL;
+    for (int i = 0; i < az_index_registered_count && !pending; i++)
+        pending = !az_index_bindings[i].table && !az_index_bindings[i].loaded;
+    if (!pending && timer) {
+        lv_timer_delete(timer);
+        az_index_refresh_timer = NULL;
+    }
+}
+
+static void az_index_schedule(void) {
+    if (!az_index_refresh_timer)
+        az_index_refresh_timer = lv_timer_create(az_index_refresh, 25, NULL);
+    if (az_index_refresh_timer) az_index_refresh(az_index_refresh_timer);
 }
 
 bool library_az_index_list_allowed(lv_obj_t * list) {
@@ -233,10 +317,21 @@ lv_obj_t * library_az_index_strip_for_screen(lv_obj_t * screen) {
     return binding ? binding->strip : NULL;
 }
 
+void library_az_index_rearm(lv_obj_t *list) {
+    for (int i = 0; i < az_index_registered_count; i++) {
+        az_index_binding_t *b = &az_index_bindings[i];
+        if (b->list != list || b->table) continue;
+        b->lifetime = ++az_index_lifetime;
+        b->loaded = false;
+        az_index_schedule();
+    }
+}
+
 void library_az_index_set_reverse(lv_obj_t *screen, bool reverse) {
     az_index_binding_t *b = find_az_binding_for_screen(screen);
     if (!b) return;
     b->reverse = reverse;
+    library_az_index_rearm(b->list);
     lv_label_set_text(b->strip, reverse
         ? "Z\nY\nX\nW\nV\nU\nT\nS\nR\nQ\nP\nO\nN\nM\nL\nK\nJ\nI\nH\nG\nF\nE\nD\nC\nB\nA\n#"
         : "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\nN\nO\nP\nQ\nR\nS\nT\nU\nV\nW\nX\nY\nZ\n#");
@@ -285,7 +380,7 @@ void library_az_index_poll(lv_timer_t * timer) {
         az_index_binding_t * b = find_az_binding_for_screen(lv_screen_active());
         if (!b) return;
         if (lv_obj_has_flag(b->strip, LV_OBJ_FLAG_HIDDEN)) return;
-        if (b->allowed && !b->allowed()) return; /* a stale strip after search */
+        if (!az_binding_allowed(b)) return; /* a stale strip after search or sort */
 
         lv_area_t area;
         lv_obj_get_coords(b->strip, &area);
@@ -293,14 +388,8 @@ void library_az_index_poll(lv_timer_t * timer) {
 
         az_index_dragging = true;
         az_index_active_binding = b;
-        /* One entry per letter A-Z plus '#' (index 26) for anything not
-         * starting with a letter -- the display offset of the first
-         * matching entry, or the nearest one after it if that exact letter
-         * has no entries ("jump forward to nearest match"). Computed fresh
-         * on every touch-down from the already-sorted in-memory index
-         * (metadata_db_get_az_table()). */
-        if (b->table) b->table(az_index_jump_table);
-        else metadata_db_get_az_table_sorted(b->db_kind, b->reverse, az_index_jump_table);
+        /* In-memory providers are UI-owned and do not access the database. */
+        if (b->table) b->table(b->jump);
         lv_obj_remove_flag(b->popup, LV_OBJ_FLAG_HIDDEN);
     } else if (!pressed) {
         lv_obj_add_flag(az_index_active_binding->popup, LV_OBJ_FLAG_HIDDEN);
@@ -322,7 +411,16 @@ void library_az_index_poll(lv_timer_t * timer) {
     if (letter_idx > 26) letter_idx = 26;
 
     if (b->reverse && letter_idx < 26) letter_idx = 25 - letter_idx;
-    int target = az_index_jump_table[letter_idx];
+    int32_t generation;
+    /* A busy guard cannot establish freshness. Keep dragging and displaying
+     * the letter, but never jump using an unverified generation. */
+    bool known = !b->table && metadata_db_try_get_generation(&generation);
+    if (known && (!b->loaded || generation != b->generation)) {
+        b->loaded = false;
+        az_index_schedule();
+    }
+    bool ready = b->table || (b->loaded && b->available && known && generation == b->generation);
+    int target = ready && az_binding_allowed(b) ? b->jump[letter_idx] : -1;
     if (target >= 0) compact_list_scroll_to_index(b->list, target);
 
     char letter = (letter_idx < 26) ? (char) ('A' + letter_idx) : '#';

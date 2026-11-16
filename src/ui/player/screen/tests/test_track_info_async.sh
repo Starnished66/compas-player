@@ -23,7 +23,7 @@ g++ \
     -Wl,--wrap=compact_list_set_now_playing,--wrap=compact_list_scroll_to_index \
     -Wl,--wrap=metadata_db_get_songs_filtered_page,--wrap=open_song_context_menu \
     -Wl,--wrap=metadata_db_snapshot_open,--wrap=metadata_db_snapshot_count,--wrap=metadata_db_snapshot_retain,--wrap=metadata_db_snapshot_close \
-    -Wl,--wrap=metadata_db_load_rating_order,--wrap=metadata_db_get_songs_at_title_ranks,--wrap=metadata_db_get_song_count,--wrap=metadata_db_try_get_generation \
+    -Wl,--wrap=metadata_db_build_az_table,--wrap=metadata_db_load_rating_order,--wrap=metadata_db_get_songs_at_title_ranks,--wrap=metadata_db_get_song_count,--wrap=metadata_db_try_get_generation \
     -Wl,--wrap=metadata_db_load_favorite_songs,--wrap=compact_list_set_items \
     -Wl,--wrap=on_file_selected,--wrap=set_player_source_group_songs_direct \
     -Wl,--wrap=metadata_db_load_rated_albums,--wrap=album_group_resolve \

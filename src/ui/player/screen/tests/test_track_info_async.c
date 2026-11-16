@@ -13,6 +13,7 @@
 #include "src/ui/library/browse/gui_library_internal.h"
 #include "src/ui/library/library_az_index.h"
 #include "src/library/metadata/db/album_rating.h"
+#include "src/library/metadata/db/metadata_db_internal.h"
 #include "src/library/remote/remote_state.h"
 #include "src/ui/appearance/gui_theme.h"
 #include "src/ui/player/artwork/player_backdrop.h"
@@ -1139,9 +1140,12 @@ bool __wrap_metadata_db_load_rating_order(int **ranks, int sections[6], int *cou
 }
 
 static atomic_bool all_rating_db_busy;
+static atomic_int az_generation_offset;
 bool __real_metadata_db_try_get_generation(int32_t *);
 bool __wrap_metadata_db_try_get_generation(int32_t *generation) {
-    return !atomic_load(&all_rating_db_busy) && __real_metadata_db_try_get_generation(generation);
+    bool ok = !atomic_load(&all_rating_db_busy) && __real_metadata_db_try_get_generation(generation);
+    if (ok) *generation += atomic_load(&az_generation_offset);
+    return ok;
 }
 
 int64_t __real_metadata_db_get_song_count(void);
@@ -1472,6 +1476,33 @@ static void select_all_songs_sort(lv_obj_t *button, int current, int selected) {
     assert(!find_sort_option(lv_layer_top(), "Rating"));
 }
 
+static atomic_bool az_hold_build, az_build_entered, az_release_build, az_build_exited;
+static pthread_t az_ui_thread;
+bool __real_metadata_db_build_az_table(metadata_db_az_kind_t, bool, int *, int32_t *, bool *);
+bool __wrap_metadata_db_build_az_table(metadata_db_az_kind_t kind, bool reverse, int *jump,
+                                      int32_t *generation, bool *available) {
+    assert(!pthread_equal(pthread_self(), az_ui_thread));
+    bool valid = __real_metadata_db_build_az_table(kind, reverse, jump, generation, available);
+    *generation += atomic_load(&az_generation_offset);
+    if (kind == METADATA_DB_AZ_ALL_SONGS && atomic_load(&az_hold_build)) {
+        /* A rejected completion must never supply a row to the replacement. */
+        for (int i = 0; i < 27; i++) jump[i] = 999;
+        atomic_store(&az_build_entered, true);
+        while (!atomic_load(&az_release_build)) usleep(1000);
+        atomic_store(&az_build_exited, true);
+    }
+    return valid;
+}
+
+static atomic_bool az_guard_held, az_guard_release;
+static void *hold_az_guard(void *unused) {
+    (void)unused;
+    METADATA_DB_GUARD;
+    atomic_store(&az_guard_held, true);
+    while (!atomic_load(&az_guard_release)) usleep(1000);
+    return NULL;
+}
+
 static lv_indev_data_t strip_pointer;
 static int strip_target = -1;
 void __real_compact_list_scroll_to_index(lv_obj_t *, int);
@@ -1498,11 +1529,89 @@ static void check_reverse_strip(lv_obj_t *strip) {
     library_az_index_reset_drag();
     strip_target = -1;
     lv_indev_read(pointer);
+    /* Warm the asynchronously prepared table before testing the ready path. */
+    for (int i = 0; i < 2000 && strip_target < 0; i++) {
+        pump_ui();
+        library_az_index_poll(NULL);
+    }
     library_az_index_poll(NULL);
     assert(strip_target == 0);
     assert(has_text(all_songs_screen, "Z"));
+    /* A completed cache must also refuse a busy generation check immediately. */
+    pthread_t holder;
+    atomic_store(&az_guard_held, false);
+    atomic_store(&az_guard_release, false);
+    assert(!pthread_create(&holder, NULL, hold_az_guard, NULL));
+    while (!atomic_load(&az_guard_held)) usleep(1000);
+    library_az_index_reset_drag();
+    strip_target = -1;
+    struct timespec before, after;
+    clock_gettime(CLOCK_MONOTONIC, &before);
+    alarm(5);
+    library_az_index_poll(NULL);
+    clock_gettime(CLOCK_MONOTONIC, &after);
+    alarm(0);
+    assert((after.tv_sec - before.tv_sec) * 1000000000LL +
+           after.tv_nsec - before.tv_nsec < 100000000LL);
+    assert(strip_target == -1);
+    library_az_index_rearm(all_songs_list);
+    library_az_index_poll(NULL);
+    assert(strip_target == -1);
+    atomic_store(&az_guard_release, true);
+    pthread_join(holder, NULL);
+    for (int i = 0; i < 2000 && strip_target < 0; i++) {
+        pump_ui();
+        library_az_index_poll(NULL);
+    }
+    assert(strip_target == 0);
+
+    /* Hold a worker result across a generation change. The next worker is
+     * held too, so a stale landing cannot be hidden by a fast replacement. */
+    atomic_store(&az_build_exited, false);
+    atomic_store(&az_hold_build, true);
+    atomic_store(&az_build_entered, false);
+    atomic_store(&az_release_build, false);
+    library_az_index_set_reverse(all_songs_screen, true);
+    for (int i = 0; i < 2000 && !atomic_load(&az_build_entered); i++) pump_ui();
+    assert(atomic_load(&az_build_entered));
+    atomic_fetch_add(&az_generation_offset, 1);
+    strip_target = -1;
+    library_az_index_poll(NULL);
+    assert(strip_target == -1);
+    atomic_store(&az_release_build, true);
+    /* A busy landing check retains ownership until a later timer tick. */
+    atomic_store(&all_rating_db_busy, true);
+    for (int i = 0; i < 2000 && !atomic_load(&az_build_exited); i++) pump_ui();
+    assert(atomic_load(&az_build_exited));
+    atomic_store(&az_build_entered, false);
+    atomic_store(&az_release_build, false);
+    atomic_store(&all_rating_db_busy, false);
+    for (int i = 0; i < 2000 && !atomic_load(&az_build_entered); i++) pump_ui();
+    assert(atomic_load(&az_build_entered));
+    strip_target = -1;
+    library_az_index_poll(NULL);
+    assert(strip_target == -1);
+
+    /* Remove the binding while its worker owns a result, then reuse its
+     * slot. The lifetime token must reject that completion. */
+    library_az_index_unregister(all_songs_screen);
+    lv_obj_delete(strip);
+    library_az_index_register(all_songs_screen, all_songs_list, METADATA_DB_AZ_ALL_SONGS);
+    library_az_index_set_reverse(all_songs_screen, true);
+    strip = library_az_index_strip_for_screen(all_songs_screen);
+    lv_obj_remove_flag(strip, LV_OBJ_FLAG_HIDDEN);
+    /* A new strip has no coordinates until layout; the press is judged once. */
+    lv_obj_update_layout(all_songs_screen);
+    atomic_store(&az_hold_build, false);
+    atomic_store(&az_release_build, true);
+    for (int i = 0; i < 2000 && strip_target < 0; i++) {
+        pump_ui();
+        library_az_index_poll(NULL);
+    }
+    assert(strip_target == 0);
     library_az_index_reset_drag();
     lv_indev_delete(pointer);
+    atomic_store(&az_generation_offset, 0);
 }
 
 static void check_all_songs_reverse(lv_obj_t *sort) {
@@ -1658,6 +1767,7 @@ static void check_all_songs_by_rating(void) {
 
 int compas_original_main(int argc, char **argv);
 int main(int argc, char **argv) {
+    az_ui_thread = pthread_self();
     if (argc > 1 && (!strcmp(argv[1], "--metadata-artwork-helper") ||
                      !strcmp(argv[1], "--metadata-scan-worker")))
         return compas_original_main(argc, argv);

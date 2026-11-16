@@ -313,6 +313,11 @@ typedef enum {
     METADATA_DB_AZ_ALBUM,
     METADATA_DB_AZ_ALL_SONGS
 } metadata_db_az_kind_t;
+/* Worker builder: false means the catalog changed or a probe failed. Each
+ * probe owns the guard separately. A non-NULL available declines legacy
+ * catalogs; generation identifies the returned table, including empty ones. */
+bool metadata_db_build_az_table(metadata_db_az_kind_t kind, bool reverse, int out_table[27],
+                                int32_t *generation, bool *available);
 void metadata_db_get_az_table_sorted(metadata_db_az_kind_t kind, bool reverse, int out_table[27]);
 void metadata_db_get_album_az_table_sorted(metadata_db_album_sort_t sort, int out_table[27]);
 void metadata_db_get_az_table(metadata_db_az_kind_t kind, int out_table[27]);

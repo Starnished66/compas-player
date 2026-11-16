@@ -4,8 +4,36 @@
 #include <stdlib.h>
 #include "src/core/text/utf8_util.h"
 #include <string.h>
+#include <stdatomic.h>
+#include <sched.h>
+#include <unistd.h>
 
 bool metadata_db_db_ready = true;
+uint32_t metadata_db_db_incarnation;
+static int32_t generation = 1;
+static bool indexed = true;
+int32_t tagcache_generation(void) { return generation; }
+bool tagcache_title_ranks_indexed(void) { return indexed; }
+static atomic_bool yield_probe, released, acquired;
+static bool change_generation, probe_test;
+int __real_pthread_mutex_unlock(pthread_mutex_t *mutex);
+int __wrap_pthread_mutex_unlock(pthread_mutex_t *mutex) {
+    int result = __real_pthread_mutex_unlock(mutex);
+    if (mutex == &metadata_db_mutex && atomic_exchange(&yield_probe, false)) {
+        atomic_store(&released, true);
+        while (!atomic_load(&acquired)) sched_yield();
+    }
+    return result;
+}
+static void *between_probes(void *unused) {
+    (void)unused;
+    while (!atomic_load(&released)) sched_yield();
+    pthread_mutex_lock(&metadata_db_mutex);
+    if (change_generation) generation++;
+    pthread_mutex_unlock(&metadata_db_mutex);
+    atomic_store(&acquired, true);
+    return NULL;
+}
 pthread_once_t metadata_db_mutex_once = PTHREAD_ONCE_INIT;
 pthread_mutex_t metadata_db_mutex;
 _Thread_local unsigned metadata_query_depth;
@@ -24,6 +52,7 @@ bool tagcache_song_fields_at_title_rank(int32_t rank, unsigned fields, tagcache_
     (void)fields;
     if (rank < 0 || rank >= count) return false;
     reads++;
+    if (probe_test && reads == 1) atomic_store(&yield_probe, true);
     /* A name starting with '/' is an untagged song: empty title, that path. */
     out->path = names[rank];
     out->title = names[rank][0] == '/' ? "" : names[rank];
@@ -122,6 +151,39 @@ int main(void) {
         check(untagged, sizeof(untagged) / sizeof(*untagged));
         check_songs_only = false;
     }
+    static const char *probe_names[] = {"Alpha", "Zulu"};
+    names = probe_names;
+    count = 2;
+    probe_test = true;
+    alarm(10);
+    for (int changed = 0; changed < 2; changed++) {
+        reads = 0;
+        change_generation = changed;
+        atomic_store(&released, false);
+        atomic_store(&acquired, false);
+        pthread_t contender;
+        assert(!pthread_create(&contender, NULL, between_probes, NULL));
+        int jump[27];
+        int32_t built_generation;
+        bool available;
+        bool valid = metadata_db_build_az_table(METADATA_DB_AZ_ALL_SONGS, false,
+                                                jump, &built_generation, &available);
+        pthread_join(contender, NULL);
+        assert(atomic_load(&acquired));
+        assert(valid == !changed);
+        if (changed) for (int i = 0; i < 27; i++) assert(jump[i] == -1);
+        else assert(jump[0] == 0 && jump[25] == 1);
+    }
+    probe_test = false;
+    indexed = false;
+    reads = 0;
+    int jump[27];
+    int32_t built_generation;
+    bool available = true;
+    assert(metadata_db_build_az_table(METADATA_DB_AZ_ALL_SONGS, false,
+                                      jump, &built_generation, &available));
+    assert(!available && !reads);
+    alarm(0);
     puts("metadata reverse A-Z: ok");
     return 0;
 }

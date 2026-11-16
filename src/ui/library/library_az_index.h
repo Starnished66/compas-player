@@ -18,7 +18,7 @@ void library_az_index_register(lv_obj_t * screen, lv_obj_t * list,
                                metadata_db_az_kind_t db_kind);
 /* An in-memory list's strip. `table` fills the 27-entry jump table (first row
  * of each letter, as metadata_db_get_az_table does) from the list's current
- * contents; it runs at each touch-down, so no refresh is needed when items
+ * contents without DB calls or blocking; it runs at each touch-down, so no refresh is needed when items
  * change. `allowed` (optional) says whether the strip may show now. The
  * binding lives until library_az_index_unregister(screen), which the owner
  * calls before deleting the screen. Not dropped by reset_bindings. */
@@ -29,6 +29,8 @@ bool library_az_index_register_table(lv_obj_t * screen, lv_obj_t * list, library
                                      library_az_index_allowed_t allowed);
 /* Whether the strip of this list may show now (true for a list with no strip). */
 bool library_az_index_list_allowed(lv_obj_t * list);
+/* Invalidate and prepare a database binding after its list is rearmed. */
+void library_az_index_rearm(lv_obj_t *list);
 void library_az_index_set_reverse(lv_obj_t *screen, bool reverse);
 void library_az_index_unregister(lv_obj_t * screen);
 /* Clears the library's own (db-backed) registry and visibility-timer state only. Callers preserve the

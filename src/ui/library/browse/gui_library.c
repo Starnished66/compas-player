@@ -620,14 +620,6 @@ static bool az_index_strip_allowed(lv_obj_t * list) {
     return list != albums_list || (effective_album_sort() & ~METADATA_DB_ALBUM_SORT_REVERSE) == METADATA_DB_ALBUM_SORT_NAME;
 }
 
-static bool album_az_index_allowed(void) {
-    return az_index_strip_allowed(albums_list);
-}
-
-static void album_az_index_table(int jump[27]) {
-    metadata_db_get_album_az_table_sorted(effective_album_sort(), jump);
-}
-
 void poll_az_index_drag(lv_timer_t * timer) {
     library_az_index_poll(timer);
 }
@@ -724,6 +716,7 @@ void gui_library_apply_sorting(gui_library_sort_scope_t scope) {
         metadata_db_get_group_counts(&artists, &album_artists, &albums);
         compact_list_set_paged_provider(albums_list, albums_fetch_page, NULL, albums);
         compact_list_scroll_to_index(albums_list, 0);
+        library_az_index_set_reverse(albums_screen, (effective_album_sort() & METADATA_DB_ALBUM_SORT_REVERSE) != 0);
         lv_obj_t * az_strip = library_az_index_strip_for_screen(albums_screen);
         if (az_strip) lv_obj_add_flag(az_strip, LV_OBJ_FLAG_HIDDEN);
     } else if ((scope == GUI_LIBRARY_SORT_ARTIST_ALBUMS ||
@@ -909,6 +902,7 @@ void rearm_library_list(lv_obj_t * list, compact_list_fetch_page_cb_t fetch_page
     if (!list || library_search_is_active_on_list(list)) return;
     int32_t scroll_y = lv_obj_get_scroll_y(list);
     compact_list_set_paged_provider(list, fetch_page, NULL, total_count);
+    library_az_index_rearm(list);
     if (scroll_y > 0) {
         lv_obj_update_layout(list);
         lv_obj_scroll_to_y(list, scroll_y, LV_ANIM_OFF);
@@ -973,7 +967,9 @@ void refresh_library_screens_after_reload(bool clear_thumbnail_cache) {
                                      recently_added_screen, genres_screen };
     gui_navigation_remove_screen_instances(being_replaced, (int)(sizeof(being_replaced) / sizeof(being_replaced[0])));
 
-    library_az_index_unregister(albums_screen);
+    /* Drop every strip binding before its screen goes, so no refresh or
+     * rearm during the rebuild below can touch a deleted strip. */
+    library_az_index_reset_bindings();
     lv_obj_delete(all_songs_screen);
     lv_obj_delete(artists_screen);
     lv_obj_delete(albums_screen);
@@ -994,13 +990,10 @@ void refresh_library_screens_after_reload(bool clear_thumbnail_cache) {
     recently_added_screen = build_recently_added_screen();
     genres_screen = build_genres_screen();
 
-    /* The four old screens' A-Z index bindings (strip/popup/list pointers)
-     * just went dangling along with the lv_obj_delete()s above -- re-register
-     * against the freshly rebuilt screens/lists before anything can poll them. */
-    library_az_index_reset_bindings();
+    /* Re-register the strips against the freshly rebuilt screens/lists. */
     library_az_index_register(artists_screen, artists_list, METADATA_DB_AZ_ARTIST);
-    library_az_index_register_table(albums_screen, albums_list, album_az_index_table,
-                                    album_az_index_allowed);
+    library_az_index_register(albums_screen, albums_list, METADATA_DB_AZ_ALBUM);
+    library_az_index_set_reverse(albums_screen, (effective_album_sort() & METADATA_DB_ALBUM_SORT_REVERSE) != 0);
     library_az_index_register(album_artist_screen, album_artist_list, METADATA_DB_AZ_ALBUM_ARTIST);
     library_az_index_register(all_songs_screen, all_songs_list, METADATA_DB_AZ_ALL_SONGS);
     library_az_index_set_reverse(all_songs_screen, all_songs_title_reversed());
@@ -1443,8 +1436,8 @@ void gui_library_init(void) {
     library_teardown_diag("register_az_index(artists) before");
     library_az_index_register(artists_screen, artists_list, METADATA_DB_AZ_ARTIST);
     library_teardown_diag("register_az_index(albums) before");
-    library_az_index_register_table(albums_screen, albums_list, album_az_index_table,
-                                    album_az_index_allowed);
+    library_az_index_register(albums_screen, albums_list, METADATA_DB_AZ_ALBUM);
+    library_az_index_set_reverse(albums_screen, (effective_album_sort() & METADATA_DB_ALBUM_SORT_REVERSE) != 0);
     library_teardown_diag("register_az_index(album_artist) before");
     library_az_index_register(album_artist_screen, album_artist_list, METADATA_DB_AZ_ALBUM_ARTIST);
     library_teardown_diag("register_az_index(all_songs) before");
