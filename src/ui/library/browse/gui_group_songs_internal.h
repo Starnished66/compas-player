@@ -25,6 +25,7 @@ extern bool group_songs_file_stat_valid;
 extern bool group_songs_edit_mode;
 
 /* gui_library_group_songs.c */
+int group_songs_rating_section(int index);
 void group_play_cb(lv_event_t * e);
 void group_shuffle_cb(lv_event_t * e);
 group_song_entry_t * group_song_entries_take_paths(char ** paths, int count);

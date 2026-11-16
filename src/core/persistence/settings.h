@@ -351,6 +351,8 @@ typedef struct {
     bool file_sort_reverse;
     int album_sort_mode; /* 0 Name, 1 Recently Added, 2 Release Year, 3 Album Artist then Year (oldest first). */
     bool album_sort_reverse;
+    bool all_songs_sort_reverse;
+    int all_songs_sort_mode; /* 0: title, 1: rating. */
     int artist_albums_sort_mode; /* Ordering within an Artist's Albums view. */
     bool artist_albums_sort_reverse;
     int album_artist_albums_sort_mode; /* Ordering within an Album Artist's Albums view. */

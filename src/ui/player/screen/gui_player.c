@@ -1,4 +1,6 @@
 #include "gui_player_internal.h"
+#include "lvgl/src/core/lv_obj_event_private.h"
+#include "lvgl/src/misc/lv_area_private.h"
 #include "../../text/rendering/ui_label_text.h"
 #include <limits.h>
 #include "../../../library/metadata/parsing/metadata.h"
@@ -26,7 +28,7 @@
 #include "../../library/browse/gui_library.h"
 #include "gui_queue.h"
 #include "../../../library/playlists/playlist_files.h"
-#include "../../../library/playlists/favorite_writer.h"
+#include "../../../library/playlists/rating_writer.h"
 #include "../../../library/browser/paths/path_cache.h"
 #include "../../../library/artwork/cache/cover_raster_cache.h"
 #include "../../../library/artwork/prefetch/player_cover_prefetch.h"
@@ -63,6 +65,7 @@
 #include "../../../library/artwork/coordinator/artwork_coordinator.h"
 #include "../../../audio/visualization/waveform.h"
 #include "gui_track_info.h"
+#include "../../widgets/controls/star_rating.h"
 #include "../../settings/gui_settings.h"
 #include "../../network/subsonic/gui_subsonic.h"
 #include "../../settings/lock/gui_lock_screen.h"
@@ -102,7 +105,7 @@ lv_obj_t * quality_pill = NULL;
 lv_obj_t * format_badge_label = NULL;
 static lv_obj_t * order_icon = NULL;
 lv_obj_t * favorite_circle = NULL;
-lv_obj_t * favorite_icon = NULL;
+static lv_obj_t * player_rating_control = NULL;
 lv_obj_t * play_btn = NULL;
 lv_obj_t * prev_btn = NULL;
 lv_obj_t * next_btn = NULL;
@@ -247,7 +250,7 @@ static void player_restore_reload_label_text(void) {
 }
 
 
-extern bool favorite_is_set;
+extern int now_playing_stars;
 
 extern void prev_btn_event_cb(lv_event_t * e);
 extern void play_btn_event_cb(lv_event_t * e);
@@ -771,7 +774,6 @@ static void player_publish_roles(lv_obj_t * scr, player_roles_t * r) {
                             LV_EVENT_CLICKED, (void *) (intptr_t) 1);
     }
     favorite_circle = r->fav_circle;
-    favorite_icon = r->fav_icon;
     quality_pill = r->pill;
     format_badge_label = r->badge;
     pos_label = r->pos;
@@ -830,7 +832,7 @@ static void player_style_custom_layout(lv_obj_t * scr, const player_roles_t * r)
     if (player_play_circle) lv_obj_add_style(player_play_circle, gui_theme_accent_style(), 0);
     if (r->transport_color) {
         lv_color_t color = lv_obj_get_style_text_color(r->transport_color, 0);
-        lv_obj_t * icons[] = { r->order, r->play, r->prev, r->next, r->more, r->fav_icon,
+        lv_obj_t * icons[] = { r->order, r->play, r->prev, r->next, r->more,
                               player_find_role(scr, "lyrics_icon", &lv_image_class),
                               r->lyrics_toggle && lv_obj_check_type(r->lyrics_toggle, &lv_image_class) ? r->lyrics_toggle : NULL };
         for (unsigned i = 0; i < sizeof(icons) / sizeof(icons[0]); ++i) {
@@ -866,7 +868,7 @@ static void player_style_custom_layout(lv_obj_t * scr, const player_roles_t * r)
     lv_obj_add_style(r->progress, gui_theme_accent_style(), LV_PART_INDICATOR);
     lv_obj_add_style(r->progress, gui_theme_accent_knob_style(), LV_PART_KNOB);
     if (r->fav_circle) lv_obj_add_style(r->fav_circle, gui_theme_accent_outline_style(), 0);
-    lv_obj_t * pressable[] = { r->order, r->play, r->more, r->fav_icon };
+    lv_obj_t * pressable[] = { r->order, r->play, r->more };
     for (unsigned i = 0; i < sizeof(pressable) / sizeof(pressable[0]); ++i)
         if (pressable[i]) lv_obj_add_style(pressable[i], &icon_press_style, LV_STATE_PRESSED);
 
@@ -901,6 +903,86 @@ static void player_bind_progress(lv_obj_t * scr, const player_roles_t * r) {
         lv_obj_update_layout(r->progress);
         int32_t extra = (44 - lv_obj_get_height(r->progress) + 1) / 2;
         lv_obj_set_ext_click_area(r->progress, extra > 0 ? extra : 0);
+    }
+}
+
+/* Keep cover taps outside the rating target and let gestures reach the shell. */
+static void player_cover_hit_test(lv_event_t * e) {
+    lv_obj_t * hit = lv_event_get_user_data(e);
+    if (lv_obj_has_flag(hit, LV_OBJ_FLAG_HIDDEN)) return;
+    lv_hit_test_info_t * info = lv_event_get_param(e);
+    lv_area_t area;
+    lv_obj_get_coords(hit, &area);
+    if (lv_area_is_point_on(&area, info->point, 0)) info->res = false;
+}
+
+static int32_t player_rating_hit_size(void) {
+    return LV_MAX(48, BOARD_SCALE_PX(72));
+}
+
+static bool player_rating_intersects(lv_obj_t * obj, const lv_area_t * area) {
+    lv_area_t other, overlap;
+    lv_obj_get_click_area(obj, &other);
+    if (!lv_area_intersect(&overlap, area, &other)) return false;
+    if (!lv_obj_check_type(obj, &lv_arc_class)) return true;
+    /* A seek ring's bounding box includes the usable cover inside it. */
+    for (int32_t y = overlap.y1; y <= overlap.y2; y++)
+        for (int32_t x = overlap.x1; x <= overlap.x2; x++) {
+            lv_point_t point = {x, y};
+            if (lv_obj_hit_test(obj, &point)) return true;
+        }
+    return false;
+}
+
+static bool player_rating_overlaps(lv_obj_t * obj, const lv_area_t * area,
+                                   const player_roles_t * r) {
+    if (obj == r->fav_circle || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) return false;
+    bool target = obj == r->pill || obj == r->count || obj == r->lyrics_toggle;
+    target |= lv_obj_has_flag(obj, LV_OBJ_FLAG_CLICKABLE) && lv_obj_get_child_count(obj) == 0;
+    if (target && obj != r->cover_img && obj != r->cover_card &&
+        player_rating_intersects(obj, area)) return true;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(obj); i++)
+        if (player_rating_overlaps(lv_obj_get_child(obj, i), area, r)) return true;
+    return false;
+}
+
+static void player_rating_avoid_targets(lv_obj_t * scr, const player_roles_t * r) {
+    lv_area_t area, card;
+    lv_obj_get_coords(r->fav_circle, &area);
+    lv_obj_get_coords(r->cover_card, &card);
+    int32_t offset = 0;
+    /* Keep the corner placement unless a layout puts another target there.
+     * Moving up the diagonal also stays inside rounded cover corners. */
+    while (player_rating_overlaps(scr, &area, r) &&
+           area.x1 > card.x1 && area.y1 > card.y1) {
+        area.x1--; area.x2--; area.y1--; area.y2--;
+        offset++;
+    }
+    if (!offset) return;
+    lv_obj_set_x(r->fav_circle, lv_obj_get_style_x(r->fav_circle, 0) - offset);
+    lv_obj_set_y(r->fav_circle, lv_obj_get_style_y(r->fav_circle, 0) - offset);
+    lv_obj_update_layout(scr);
+}
+
+static void player_bind_rating_hit(lv_obj_t * scr, const player_roles_t * r) {
+    if (!player_rating_control) return;
+    lv_obj_update_layout(scr);
+    player_rating_avoid_targets(scr, r);
+    lv_area_t control, card;
+    lv_obj_get_coords(player_rating_control, &control);
+    lv_obj_get_coords(r->cover_card, &card);
+    int32_t size = player_rating_hit_size();
+    int32_t x = LV_CLAMP(card.x1, (control.x1 + control.x2 + 1 - size) / 2, card.x2 + 1 - size);
+    int32_t y = LV_CLAMP(card.y1, (control.y1 + control.y2 + 1 - size) / 2, card.y2 + 1 - size);
+    lv_obj_t * hit = player_hit_rect(scr, x, y, size, size,
+                                    favorite_icon_event_cb, lv_palette_main(LV_PALETTE_PINK));
+    lv_obj_set_name_static(hit, "rating_hit");
+    player_forward_press(hit, player_rating_control);
+    player_inline_lyrics_add_hit_target(hit);
+    lv_obj_t * covers[] = {r->cover_card, r->cover_img};
+    for (unsigned i = 0; i < sizeof(covers) / sizeof(covers[0]); i++) {
+        lv_obj_add_flag(covers[i], LV_OBJ_FLAG_ADV_HITTEST);
+        lv_obj_add_event_cb(covers[i], player_cover_hit_test, LV_EVENT_HIT_TEST, hit);
     }
 }
 
@@ -953,23 +1035,7 @@ static void player_bind_transport_hits(lv_obj_t * scr, const player_roles_t * r)
     (void) order_hit; (void) prev_hit; (void) next_hit; (void) more_hit;
 #endif
 
-    if (r->fav_circle) {
-        lv_area_t favorite_area;
-        lv_obj_get_coords(r->fav_circle, &favorite_area);
-        int32_t fav_w = lv_area_get_width(&favorite_area);
-        int32_t fav_h = lv_area_get_height(&favorite_area);
-        int32_t fav_hit_w = fav_w < 44 ? 44 : fav_w;
-        int32_t fav_hit_h = fav_h < 44 ? 44 : fav_h;
-        lv_obj_t * favorite_hit = player_hit_rect(scr,
-                                                  favorite_area.x1 - (fav_hit_w - fav_w) / 2,
-                                                  favorite_area.y1 - (fav_hit_h - fav_h) / 2,
-                                                  fav_hit_w, fav_hit_h, favorite_icon_event_cb,
-                                                  lv_palette_main(LV_PALETTE_PINK));
-        if (r->fav_icon) {
-            player_forward_press(favorite_hit, r->fav_icon);
-        }
-        player_inline_lyrics_add_hit_target(favorite_hit);
-    }
+    player_bind_rating_hit(scr, r);
 }
 
 static void player_bind_lyrics_pane(lv_obj_t * scr, const player_roles_t * r, player_inline_lyrics_view_t * view) {
@@ -1020,6 +1086,63 @@ static void player_bind_lyrics_pane(lv_obj_t * scr, const player_roles_t * r, pl
     player_lyrics_backdrop_bind(backdrop, r->lyrics_dim, r->lyrics_area,
                                 view->lyrics_open, view->lyrics_close);
     player_inline_lyrics_bind_pane(view);
+}
+
+lv_obj_t * gui_player_rating_control(void) {
+    return player_rating_control;
+}
+
+static void player_rating_sync_colors(lv_obj_t * source) {
+    if (!player_rating_control) return;
+    lv_color_t color;
+    if (source && lv_obj_check_type(source, &lv_label_class))
+        color = lv_obj_get_style_text_color(source, 0);
+    else if (source && lv_obj_get_style_image_recolor_opa(source, 0) == LV_OPA_COVER)
+        color = lv_obj_get_style_image_recolor(source, 0);
+    else {
+        lv_style_value_t text;
+        lv_style_get_prop(gui_player_backdrop_text_style(false), LV_STYLE_TEXT_COLOR, &text);
+        color = text.color;
+    }
+    star_rating_set_colors(player_rating_control, color, color);
+}
+
+static void player_rating_style_changed(lv_event_t * e) {
+    player_rating_sync_colors(lv_event_get_current_target(e));
+}
+
+static int32_t player_rating_inset(lv_obj_t * card) {
+    int32_t radius = lv_obj_get_style_radius(card, 0);
+    radius = LV_MIN(radius, LV_MIN(lv_obj_get_width(card), lv_obj_get_height(card)) / 2);
+    /* At 45 degrees, a rounded corner needs r * (1 - 1/sqrt(2)).
+     * Round upward and retain a small margin inside the visible clip. */
+    return (radius * 293 + 999) / 1000 + BOARD_SCALE_PX(4);
+}
+
+static void player_bind_rating(const player_roles_t * r) {
+    player_rating_control = NULL;
+    if (!r->fav_circle) return;
+    if (r->fav_icon) lv_obj_add_flag(r->fav_icon, LV_OBJ_FLAG_HIDDEN);
+    /* Some plugins put the legacy anchor beside transport. Keep its name
+     * for timelines, but place every rating inside the cover in C. */
+    if (lv_obj_get_parent(r->fav_circle) != r->cover_card)
+        lv_obj_set_parent(r->fav_circle, r->cover_card);
+    lv_obj_remove_flag(r->fav_circle, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    int32_t star_px = LV_MAX(24, BOARD_SCALE_PX(36));
+    player_rating_control = star_rating_create(r->fav_circle, star_px, true);
+    if (!player_rating_control) return;
+    lv_obj_t * source = r->transport_color ? r->transport_color : r->order ? r->order : r->title;
+    player_rating_sync_colors(source);
+    if (source) lv_obj_add_event_cb(source, player_rating_style_changed, LV_EVENT_STYLE_CHANGED, NULL);
+    lv_obj_set_style_text_font(player_rating_control, &app_font_22, 0);
+    lv_obj_set_style_opa(player_rating_control, LV_OPA_60, LV_STATE_PRESSED);
+    lv_obj_update_layout(player_rating_control);
+    int32_t size = player_rating_hit_size();
+    lv_obj_set_size(r->fav_circle, size, size);
+    int32_t inset = player_rating_inset(r->cover_card);
+    lv_obj_align(r->fav_circle, LV_ALIGN_BOTTOM_RIGHT, -inset, -inset);
+    lv_obj_center(player_rating_control);
+    star_rating_set(player_rating_control, now_playing_stars);
 }
 
 /* Returns false with nothing assigned or attached when player_find_roles() rejects the tree. */
@@ -1082,6 +1205,7 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     lv_slider_set_range(r.volume, 0, 100);
     lv_slider_set_value(r.volume, audio_clamp_volume_percent((int32_t) (audio_get_volume() * 100.0f + 0.5f)), LV_ANIM_OFF);
 
+    player_bind_rating(&r);
     player_bind_transport_hits(scr, &r);
     player_bind_lyrics_pane(scr, &r, &inline_view);
 
@@ -1114,7 +1238,7 @@ static void player_reset_widget_globals(void) {
     player_count_row_reset();
     order_icon = NULL;
     favorite_circle = NULL;
-    favorite_icon = NULL;
+    player_rating_control = NULL;
     play_btn = NULL;
     prev_btn = NULL;
     next_btn = NULL;
@@ -1342,8 +1466,8 @@ static void gui_player_init_internal(uint32_t screen_width, uint32_t screen_heig
     if (!reuse_playback_state) {
         track_metadata_worker_start();
         /* Pay thread and stack setup during initialization, not inside the first
-         * favorite tap where it would visibly block the LVGL event callback. */
-        favorite_writer_start();
+         * rating tap where it would visibly block the LVGL event callback. */
+        rating_writer_start();
         player_volume_popup_init();
         build_delete_song_popup();
         gui_track_info_init();
@@ -1521,7 +1645,7 @@ bool gui_player_rebuild_layout(uint32_t screen_width, uint32_t screen_height) {
     /* Restore state before navigation loads the replacement screen, so its
      * first transition snapshot sees the same playback state as the old UI. */
     set_play_button_state(audio_is_playing());
-    show_favorite_state(favorite_is_set);
+    show_now_playing_rating(now_playing_stars);
     if (was_deferred_resume) {
         if (progress_slider) player_seekbar_set_value(progress_slider, deferred_progress_percent);
         displayed_progress_percent = deferred_progress_percent;

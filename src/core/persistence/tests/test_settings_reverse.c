@@ -13,6 +13,7 @@ void subsonic_saved_servers_upsert(const char * url, const char * username,
 }
 
 static void check_reverse(const player_settings_t *settings, bool expected) {
+    assert(settings->all_songs_sort_reverse == expected);
     assert(settings->file_sort_reverse == expected);
     assert(settings->album_sort_reverse == expected);
     assert(settings->artist_albums_sort_reverse == expected);
@@ -30,6 +31,7 @@ int main(void) {
     assert(settings_load(&loaded));
     check_reverse(&loaded, false);
     assert(loaded.album_sort_mode == 2 && loaded.file_sort_mode == 1);
+    settings.all_songs_sort_reverse = true;
     settings.file_sort_reverse = settings.album_sort_reverse = true;
     settings.artist_albums_sort_reverse = settings.album_artist_albums_sort_reverse = true;
     settings_write_file(&settings);

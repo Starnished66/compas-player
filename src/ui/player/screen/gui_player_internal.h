@@ -32,9 +32,9 @@ void request_track_audio_metadata(int index);
 /* Display-label and progress owner in gui_player.c, used by the metadata
  * pipeline in gui_player_metadata.c. */
 extern lv_obj_t * song_count_label;
-extern lv_obj_t * favorite_icon;
+lv_obj_t * gui_player_rating_control(void);
 extern lv_obj_t * progress_slider;
-extern bool favorite_is_set;
+extern int now_playing_stars;
 void player_set_track_display_text(const char * title, const char * artist, const char * album);
 void player_set_format_badge_text(const char * text);
 void player_progress_display_reset(void);
@@ -55,7 +55,7 @@ void player_metadata_request_current_for_init(void);
 void player_metadata_invalidate_queue(void);
 void player_metadata_invalidate_ui(void);
 void player_reset_now_playing_extras(void);
-void show_favorite_state(bool is_favorite);
+void show_now_playing_rating(int stars);
 void maybe_prefetch_next_cover(void);
 void player_next_cover_prefetch_reset(void);
 

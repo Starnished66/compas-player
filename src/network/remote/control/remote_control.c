@@ -317,6 +317,8 @@ static bool handle_extension_route(int cfd, const char * method, const char * pa
     else if (get && strcmp(path_only, "/api/folders") == 0) handle_folder_list_request(cfd, path);
     else if (post && strcmp(path_only, "/api/folders/play") == 0) handle_folder_play_request(cfd, path);
     else if (get && strcmp(path_only, "/api/recent") == 0) handle_recent_request(cfd, path);
+    else if (get && strcmp(path_only, "/api/ratings/state") == 0) handle_rating_state_request(cfd, path);
+    else if (post && strcmp(path_only, "/api/ratings/set") == 0) handle_rating_edit_request(cfd, path);
     else if (get && strcmp(path_only, "/api/favorites/state") == 0) handle_favorite_state_request(cfd, path);
     else if (post && strcmp(path_only, "/api/favorites/add") == 0) handle_favorite_edit_request(cfd, path, true);
     else if (post && strcmp(path_only, "/api/favorites/remove") == 0) handle_favorite_edit_request(cfd, path, false);
@@ -484,7 +486,7 @@ static void handle_capabilities_request(int cfd, bool trusted) {
         "\"transports\":[\"wifi\",\"bluetooth_classic_rfcomm\"],\"features\":["
         "\"status\",\"playback_controls\",\"queue\",\"library_browse\","
         "\"playlists\",\"album_art\",\"screenshots\",\"catalog_sync_v1\","
-        "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"queue_edit\","
+        "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"ratings_edit\",\"queue_edit\","
         "\"playlist_edit\",\"playlist_import\",\"player_accent\",\"device_info\","
         "\"collection_playback\",\"shuffle_modes\",\"library_sorting\","
         "\"wifi_import\",\"wifi_import_files\",\"settings_v1\",\"plugin_store\",\"plugin_management\",\"player_layouts\"],"

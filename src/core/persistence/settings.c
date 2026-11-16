@@ -462,6 +462,8 @@ static void set_defaults(player_settings_t * out) {
     out->file_sort_reverse = false;
     out->album_sort_mode = 0;
     out->album_sort_reverse = false;
+    out->all_songs_sort_mode = 0;
+    out->all_songs_sort_reverse = false;
     out->artist_albums_sort_mode = 0;
     out->artist_albums_sort_reverse = false;
     out->album_artist_albums_sort_mode = 0;
@@ -751,6 +753,10 @@ bool settings_load(player_settings_t * out) {
                                     (strcmp(value, "3") == 0 ? 3 : 0));
         } else if (strcmp(key, "artist_albums_sort_reverse") == 0) {
             out->artist_albums_sort_reverse = strcmp(value, "1") == 0;
+        } else if (strcmp(key, "all_songs_sort_reverse") == 0) {
+            out->all_songs_sort_reverse = strcmp(value, "1") == 0;
+        } else if (strcmp(key, "all_songs_sort_mode") == 0) {
+            out->all_songs_sort_mode = strcmp(value, "1") == 0;
         } else if (strcmp(key, "artist_albums_sort_mode") == 0) {
             out->artist_albums_sort_mode = strcmp(value, "1") == 0 ? 1 : (strcmp(value, "2") == 0 ? 2 : 0);
             artist_albums_sort_seen = true;
@@ -955,6 +961,8 @@ static void settings_write_file(const player_settings_t * settings) {
     fprintf(f, "file_sort_reverse=%d\n", settings->file_sort_reverse ? 1 : 0);
     fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 3 ? settings->album_sort_mode : 0);
     fprintf(f, "album_sort_reverse=%d\n", settings->album_sort_reverse ? 1 : 0);
+    fprintf(f, "all_songs_sort_reverse=%d\n", settings->all_songs_sort_reverse ? 1 : 0);
+    fprintf(f, "all_songs_sort_mode=%d\n", settings->all_songs_sort_mode == 1);
     fprintf(f, "artist_albums_sort_mode=%d\n", settings->artist_albums_sort_mode >= 0 && settings->artist_albums_sort_mode <= 2 ? settings->artist_albums_sort_mode : 0);
     fprintf(f, "artist_albums_sort_reverse=%d\n", settings->artist_albums_sort_reverse ? 1 : 0);
     fprintf(f, "album_artist_albums_sort_mode=%d\n", settings->album_artist_albums_sort_mode >= 0 && settings->album_artist_albums_sort_mode <= 2 ? settings->album_artist_albums_sort_mode : 0);

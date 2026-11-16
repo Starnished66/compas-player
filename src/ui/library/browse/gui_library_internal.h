@@ -251,6 +251,7 @@ extern atomic_int album_orphans;
 void album_prefetch_cancel(void);
 void album_prefetch_start(const group_row_t * group, const char * artist_filter);
 extern songs_bar_t all_songs_bar;
+int songs_title_fetch_page(void *ctx, int offset, int count, compact_list_page_row_t out_rows[]);
 int all_songs_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
 void all_songs_tile_cb(lv_event_t * e);
 int artists_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
@@ -365,3 +366,18 @@ extern gui_popup_t refresh_all_covers_popup;
 extern gui_popup_t refresh_all_metadata_popup;
 void reload_library_on_sd_reinsert(bool announce_loaded);
 void start_library_cover_reload_album(const char * album, const char * album_artist);
+
+void show_favorite_albums(void);
+void group_songs_show_favorites(void);
+void favorite_albums_teardown(void);
+
+bool all_songs_rating_mode(void);
+bool all_songs_rating_active(void);
+int all_songs_rating_rank_at(int row, int *song_pos);
+int all_songs_rating_display_row(int rank);
+/* Worker-safe; -1 requests the ordinary title-order provider. */
+int all_songs_rating_fetch_page(void *ctx, int offset, int count, compact_list_page_row_t rows[]);
+void all_songs_rating_play(int song_pos);
+void all_songs_rating_start(void);
+void all_songs_rearm(void);
+void all_songs_rating_teardown(void);

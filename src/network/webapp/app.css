@@ -135,7 +135,7 @@ svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColo
 .hero-art svg { width: 56px; height: 56px; stroke-width: 1.2; }
 .hero h2 { margin: 10px 0 6px; font-size: 34px; line-height: 1.1; letter-spacing: -0.03em; font-weight: 780; overflow-wrap: anywhere; }
 .hero .sub { color: var(--muted); font-size: 16px; }
-.hero .controls { display: flex; align-items: center; gap: 10px; margin-top: 26px; }
+.hero .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 26px; }
 .hero .seek { margin-top: 26px; max-width: 560px; }
 .play-big { width: 60px; height: 60px; border-radius: 50%; background: var(--accent); color: var(--on-accent); display: grid; place-items: center;
   box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 40%, transparent); transition: transform 0.12s; }
@@ -346,3 +346,8 @@ svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColo
   .app.hero-visible ~ #toast { bottom: 76px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+.rating-controls { display: flex; gap: 0; }
+.rating-controls .icon-btn { width: 30px; height: 38px; }
+.rating-controls svg { width: 20px; height: 20px; }
+.rating-controls .on svg { fill: currentColor; }

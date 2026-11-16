@@ -333,43 +333,68 @@ bool gui_player_play_folder_index(file_browser_index_t *index, unsigned playable
 /* Queue every song of the library in database order (All Songs) or by
  * recency (Recently Added). Recently Added is pinned to the SD queue
  * directory, All Songs follows its snapshot. */
-static void play_lazy_songs(int selected_index, bool recency) {
-    if (!gui_player_local_playback_allowed()) return;
-    int64_t count64 = metadata_db_get_song_count();
-    int count = count64 > 0 ? (int) count64 : 0;
-    if (count <= 0 || selected_index < 0 || selected_index >= count) return;
-
-    char ** new_pl = calloc((size_t) count, sizeof(char *));
-    int * new_order = malloc(sizeof(int) * (size_t) count);
-    if (!new_pl || !new_order) {
-        free(new_pl);
-        free(new_order);
+static void install_lazy_ranks(int *ranks, int count, int selected, bool recency,
+                                metadata_db_snapshot_t *snapshot, bool rating) {
+    if (!gui_player_local_playback_allowed() || count <= 0 || selected < 0 || selected >= count) {
+        metadata_db_snapshot_close(snapshot);
+        free(ranks);
         return;
     }
-
-    metadata_db_snapshot_t * snapshot = metadata_db_snapshot_open(recency);
-    if (!snapshot || metadata_db_snapshot_count(snapshot) != count) {
+    char **paths = calloc((size_t)count, sizeof(*paths));
+    if (!snapshot && paths && !rating) snapshot = metadata_db_snapshot_open(recency);
+    if (!paths || !snapshot || metadata_db_snapshot_count(snapshot) != count) {
         if (snapshot) metadata_db_snapshot_close(snapshot);
-        free(new_pl); free(new_order); return;
+        free(paths);
+        free(ranks);
+        return;
     }
-    for (int i = 0; i < count; i++) new_order[i] = i;
+    if (rating) {
+        clear_player_source();
+        player_source_set_resume(0, "");
+    }
     free_playlist();
-    int queue_dirfd = recency ? open_sd_queue_dir() : open_queue_dir_from_snapshot(snapshot);
-    player_queue_install_t install = player_queue_install_new(new_pl, count);
-    install.lazy_ranks = new_order;
+    player_queue_install_t install = player_queue_install_new(paths, count);
+    install.lazy_ranks = ranks;
     install.lazy_order_is_recency = recency;
     install.snapshot = snapshot;
-    install.queue_sd_dirfd = queue_dirfd;
+    install.queue_sd_dirfd = recency ? open_sd_queue_dir() : open_queue_dir_from_snapshot(snapshot);
     player_queue_model_install_take(install);
-    play_track_at(selected_index);
+    play_track_at(selected);
+}
+
+static void play_lazy_songs(int selected_index, bool recency, bool reverse) {
+    if (!gui_player_local_playback_allowed()) return;
+    int count = (int)metadata_db_get_song_count();
+    if (count <= 0 || selected_index < 0 || selected_index >= count) return;
+    int *ranks = malloc(sizeof(*ranks) * (size_t)count);
+    if (!ranks) return;
+    for (int i = 0; i < count; i++) ranks[i] = title_order_index(i, count, reverse);
+    if (reverse) {
+        int32_t generation = metadata_db_get_generation();
+        on_file_selected_lazy_ranks(ranks, count, selected_index, metadata_db_snapshot_open(false), generation);
+    } else install_lazy_ranks(ranks, count, selected_index, recency, NULL, false);
+}
+
+void on_file_selected_lazy_ranks(int *ranks, int count, int selected_index,
+                                 metadata_db_snapshot_t *snapshot, int32_t generation) {
+    if (metadata_db_get_generation() != generation) {
+        metadata_db_snapshot_close(snapshot);
+        free(ranks);
+        return;
+    }
+    install_lazy_ranks(ranks, count, selected_index, false, snapshot, true);
 }
 
 void on_file_selected_lazy_all_songs(int selected_index) {
-    play_lazy_songs(selected_index, false);
+    play_lazy_songs(selected_index, false, false);
+}
+
+void on_file_selected_lazy_all_songs_reverse(int selected_index) {
+    play_lazy_songs(selected_index, false, true);
 }
 
 void on_file_selected_lazy_recently_added(int selected_index) {
-    play_lazy_songs(selected_index, true);
+    play_lazy_songs(selected_index, true, false);
 }
 
 /* Replace the queue with a collection: forget the old source and queue, and

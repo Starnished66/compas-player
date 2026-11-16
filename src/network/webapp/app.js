@@ -30,7 +30,7 @@ var ICONS = {
   modeRepeat: '<path d="M17 3.5 20 6.5l-3 3"/><path d="M4 11.5v-1a4 4 0 0 1 4-4h12"/><path d="m7 20.5-3-3 3-3"/><path d="M20 12.5v1a4 4 0 0 1-4 4H4"/>',
   modeRepeatOne: '<path d="M17 3.5 20 6.5l-3 3"/><path d="M4 11.5v-1a4 4 0 0 1 4-4h12"/><path d="m7 20.5-3-3 3-3"/><path d="M20 12.5v1a4 4 0 0 1-4 4H4"/><path d="M11.5 10.5 12.5 10v4.5"/>',
   modeShuffle: '<path d="M4 7h3.5c2 0 3.2 1 4.3 2.7l1.4 2.6c1.1 1.7 2.3 2.7 4.3 2.7H20"/><path d="m17 12 3 3-3 3"/><path d="M4 17h3.5c1.2 0 2.1-.4 2.9-1.1"/><path d="M14.1 8.1c.8-.7 1.7-1.1 2.9-1.1H20"/><path d="m17 4 3 3-3 3"/>',
-  heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
+  star: '<path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z"/>',
   volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   more: '<circle cx="5.5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="18.5" cy="12" r="1.2" fill="currentColor"/>',
@@ -312,7 +312,7 @@ function renderStatus() {
   $all('[data-np-sub]').forEach(function (el) { el.textContent = dacMode ? (s.playing ? 'Receiving ' + receivingName : 'Waiting for ' + receivingName) : [s.artist, s.album].filter(Boolean).join(' — '); });
   $all('[data-np-format]').forEach(function (el) { var f = audioFormat(s); el.textContent = f; el.style.display = f ? '' : 'none'; });
   $all('[data-play]').forEach(function (el) { el.innerHTML = icon(s.playing ? 'pause' : 'play'); el.setAttribute('aria-label', s.playing ? 'Pause' : 'Play'); });
-  $all('#modeBtn, [data-mode], [data-fav], [data-seek]').forEach(function (el) { el.disabled = dacMode; el.setAttribute('aria-disabled', String(dacMode)); });
+  $all('#modeBtn, [data-mode], [data-rating], [data-seek]').forEach(function (el) { el.disabled = dacMode; el.setAttribute('aria-disabled', String(dacMode)); });
   var mode = MODES[s.play_mode | 0] || MODES[0];
   $all('#modeBtn, [data-mode]').forEach(function (el) {
     el.innerHTML = icon(mode.icon);
@@ -320,10 +320,12 @@ function renderStatus() {
     el.setAttribute('aria-label', 'Playback mode: ' + mode.label);
     el.title = mode.label;
   });
-  $all('[data-fav]').forEach(function (el) {
-    el.classList.toggle('on', !!s.favorite);
-    el.innerHTML = s.favorite ? icon('heart').replace('<svg ', '<svg style="fill:currentColor" ') : icon('heart');
-    el.setAttribute('aria-label', s.favorite ? 'Remove from favorites' : 'Add to favorites');
+  $all('[data-rating]').forEach(function (el) {
+    var rating = Number(el.dataset.rating);
+    var lit = rating <= (s.rating | 0);
+    el.classList.toggle('on', lit);
+    el.setAttribute('aria-pressed', String(rating === (s.rating | 0)));
+    el.setAttribute('aria-label', rating === s.rating ? 'Clear rating' : 'Rate ' + rating + ' stars');
   });
   if (!seekDragging) {
     var pct = s.duration_seconds > 0 ? s.position_seconds / s.duration_seconds : 0;
@@ -391,10 +393,19 @@ function command(name) {
   return post('/api/playback/' + name).then(function () { setTimeout(poll, 250); });
 }
 
-function toggleFavorite() {
+function setRating(stars) {
   if (!player || !player.title) return;
-  post('/api/favorites/' + (player.favorite ? 'remove' : 'add') + '?current=1', player.favorite ? 'Removed from favorites' : 'Added to favorites')
+  var rating = player.rating === stars ? 0 : stars;
+  post('/api/ratings/set?current=1&rating=' + rating, rating ? 'Rating saved' : 'Rating cleared')
     .then(function () { setTimeout(poll, 250); });
+}
+
+function ratingControls() {
+  return h('div.rating-controls', { role: 'group', 'aria-label': 'Song rating' },
+    [1, 2, 3, 4, 5].map(function (stars) {
+      return h('button.icon-btn', { 'data-rating': stars, html: icon('star'),
+        'aria-label': 'Rate ' + stars + ' stars', onclick: function () { setRating(stars); } });
+    }));
 }
 
 /* ---------- Router ---------- */
@@ -561,7 +572,7 @@ routes.home = function (root) {
         h('button.icon-btn', { 'aria-label': 'Previous track', html: icon('prev'), onclick: function () { command('prev'); } }),
         h('button.play-big', { 'data-play': '', onclick: function () { command('toggle'); } }),
         h('button.icon-btn', { 'aria-label': 'Next track', html: icon('next'), onclick: function () { command('next'); } }),
-        h('button.icon-btn', { 'data-fav': '', onclick: toggleFavorite })))));
+        ratingControls()))));
 
   watchHero($('.hero .controls', root));
   var upNext = h('div.list', skeleton(4));

@@ -44,7 +44,7 @@
 #endif
 
 lv_obj_t * stream_media_screen;
-bool favorite_is_set = false;
+int now_playing_stars = 0;
 
 /* Set when gui_release_memory_for_external_session() dropped the snapshots,
  * so the resume rebuilds them only after a session that freed them. */

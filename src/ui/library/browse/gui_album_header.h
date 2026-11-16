@@ -26,7 +26,7 @@ typedef struct {
 
 /* Worker thread (or any thread): remembers year, genre and track numbers of an
  * album's songs, which must be in the same order as the group entries. */
-void gui_album_header_record(const song_row_t * songs, int count);
+void gui_album_header_record(const song_row_t * songs, int count, const char *artist, const char *album);
 
 /* UI thread. Builds the header as the first child of `list`. */
 void gui_album_header_build(lv_obj_t * list, const gui_album_header_params_t * p);
@@ -60,3 +60,7 @@ void gui_album_header_shutdown(int64_t deadline_ms);
 /* Cover decoration, driven by the shared thumbnail pipeline. */
 void gui_album_header_refresh_cover(lv_obj_t * list);
 bool gui_album_header_detach_cover(const lv_image_dsc_t * dsc);
+
+void gui_album_header_note_rating(const char *artist, const char *album, int stars);
+
+bool gui_album_header_rating(const char *artist, const char *album, int *stars);

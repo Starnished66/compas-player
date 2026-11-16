@@ -68,7 +68,7 @@ bool query_required_number(const char * path, const char * key, uint64_t max_val
 /* Status and request state (remote_control_state.c) */
 bool remote_state_now_playing_path(char * out, size_t size);
 void remote_state_post_folder_play(const char * abs_path);
-void remote_state_favorite_written(const char * song_path, bool is_favorite);
+void remote_state_rating_written(const char * song_path, int stars);
 void handle_queue_edit_request(int cfd, const char * path, bool move);
 void handle_library_sorting_route(int fd, const char *method, const char *path);
 void handle_scoped_albums_route(int fd, const char *method, const char *path);
@@ -89,6 +89,8 @@ void handle_folder_roots_request(int cfd);
 void handle_folder_list_request(int cfd, const char * path);
 void handle_folder_play_request(int cfd, const char * path);
 void handle_recent_request(int cfd, const char * path);
+void handle_rating_state_request(int cfd, const char * path);
+void handle_rating_edit_request(int cfd, const char * path);
 void handle_favorite_state_request(int cfd, const char * path);
 void handle_favorite_edit_request(int cfd, const char * path, bool is_favorite);
 bool handle_group_list_request(int cfd, const char * path_only);

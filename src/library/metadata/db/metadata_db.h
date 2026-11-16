@@ -313,6 +313,7 @@ typedef enum {
     METADATA_DB_AZ_ALBUM,
     METADATA_DB_AZ_ALL_SONGS
 } metadata_db_az_kind_t;
+void metadata_db_get_az_table_sorted(metadata_db_az_kind_t kind, bool reverse, int out_table[27]);
 void metadata_db_get_album_az_table_sorted(metadata_db_album_sort_t sort, int out_table[27]);
 void metadata_db_get_az_table(metadata_db_az_kind_t kind, int out_table[27]);
 
@@ -433,22 +434,23 @@ int metadata_db_get_albums_for_group_sorted(metadata_db_group_kind_t kind, const
                                             metadata_db_album_sort_t sort, int offset, int max_rows,
                                             group_row_t * out_rows);
 
-/* Per-song favorite flag, keyed by path. Local scan rows store this as the
- * Rockbox rating tag. Paths that are not tagcache rows (remote:// plugin
+/* Per-song rating in stars (0..5), keyed by path. Unknown paths return 0.
+ * Local scan rows use the rating tag with the encoding in song_rating.h. Paths that are not tagcache rows (remote:// plugin
  * tracks, Subsonic stream URLs, unscanned files) persist in a sidecar so
- * the heart and play count accumulate across plays. Favorites / Most Played
+ * ratings and play counts persist across plays. Favorites / Most Played
  * screens still list only rows present in the local library. */
-bool metadata_db_song_favorite_is_set(const char * path);
-void metadata_db_song_favorite_set(const char * path, bool is_favorite);
+int metadata_db_song_rating_get(const char * path);
+void metadata_db_song_rating_set(const char * path, int stars);
 /* Same write, but returns only after it is on disk: the tagcache numeric
  * flush for library rows (waited for outside the database lock), the
  * sidecar save otherwise. False when it did not persist. Slower; for
  * callers that must confirm the write. */
-bool metadata_db_song_favorite_set_durable(const char * path, bool is_favorite);
+bool metadata_db_song_rating_set_durable(const char * path, int stars);
 
-/* Enumerates every favorited path that's also still in the current media
- * cache, alphabetically. */
-void metadata_db_load_favorite_songs(char *** out_paths, int * out_count);
+/* Enumerates songs rated 3 stars or more in the local library, ordered by stars
+ * descending, then path. */
+/* Optional owned stars array, parallel to the returned paths. */
+void metadata_db_load_favorite_songs(char *** out_paths, int * out_count, int ** out_stars);
 
 /* Bumps path's play count by one and stamps last_played. Local library
  * rows update tagcache; any other path creates/updates a sidecar row with
@@ -531,5 +533,16 @@ typedef struct {
     bool verify_tls;
 } subsonic_server_row_t;
 void metadata_db_load_subsonic_servers(subsonic_server_row_t ** out_rows, int * out_count);
+
+
+/* The rating order needs indexed title ranks; a legacy catalog has them after
+ * its next scan, as with the album sorts. Never waits: false while the
+ * database is busy too, so UI callers retry later. */
+bool metadata_db_try_rating_order_available(void);
+/* Rating buckets in descending order, title ranks stable within each bucket. */
+bool metadata_db_load_rating_order(int **out_ranks, int out_sections[6],
+                                   int *out_count, int32_t *out_generation);
+int metadata_db_get_songs_at_title_ranks(const int *ranks, int count,
+                                        song_row_t *out_rows);
 
 #endif /* METADATA_DB_H */

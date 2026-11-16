@@ -1,6 +1,8 @@
 #include "gui_album_header_internal.h"
 #include "gui_album_facts.h"
 #include "gui_album_cover.h"
+#include "../../widgets/controls/star_rating.h"
+#include "../../../library/metadata/db/album_rating.h"
 #include "../library_thumbnails.h"
 #include "../../text/i18n/i18n.h"
 #include "../../appearance/gui_theme.h"
@@ -13,6 +15,55 @@
 #include <limits.h>
 #include <unistd.h>
 
+
+static lv_obj_t *rating_control;
+static char rating_artist[128], rating_album[128];
+static int pending_rating = -1;
+
+void gui_album_header_note_rating(const char *artist, const char *album, int stars) {
+    if (strcmp(artist, rating_artist) || strcmp(album, rating_album)) return;
+    pending_rating = A.have_record ? -1 : stars;
+    gui_album_facts_note_rating(A.key, stars);
+    if (rating_control) star_rating_set(rating_control, stars);
+}
+
+static void rating_changed(int stars, void *data) {
+    (void)data;
+    metadata_db_album_rating_set(rating_artist, rating_album, stars);
+    gui_album_header_note_rating(rating_artist, rating_album, stars);
+}
+
+static int displayed_rating(void) {
+    return pending_rating >= 0 ? pending_rating : gui_album_facts_rating(A.key);
+}
+
+bool gui_album_header_rating(const char *artist, const char *album, int *stars) {
+    if (!rating_control || lv_obj_get_screen(rating_control) != lv_screen_active() ||
+        strcmp(artist, rating_artist) || strcmp(album, rating_album)) return false;
+    if (!A.have_record && pending_rating < 0) return false;
+    *stars = displayed_rating();
+    return true;
+}
+
+static void build_rating(const gui_album_header_params_t *p) {
+    if (strcmp(rating_artist, p->album_artist ? p->album_artist : "") ||
+        strcmp(rating_album, p->album ? p->album : "")) pending_rating = -1;
+    if (pending_rating >= 0 && A.have_record) {
+        gui_album_facts_note_rating(A.key, pending_rating);
+        pending_rating = -1;
+    }
+    snprintf(rating_artist, sizeof(rating_artist), "%s", p->album_artist ? p->album_artist : "");
+    snprintf(rating_album, sizeof(rating_album), "%s", p->album ? p->album : "");
+    int px = lv_font_get_line_height(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
+    rating_control = star_rating_create(A.view.info, px, false);
+    if (!rating_control) return;
+    lv_obj_add_style(A.view.info, &style_theme_text_primary, 0);
+    lv_obj_move_to_index(rating_control, rating_artist[0] ? 2 : 1);
+    star_rating_set(rating_control, displayed_rating());
+    char key[ALBUM_RATING_KEY_SIZE];
+    if (album_rating_key(rating_artist, rating_album, key, sizeof(key)))
+        star_rating_set_on_change(rating_control, rating_changed, NULL);
+}
 
 static void load_record(void) {
     free(A.track);
@@ -86,6 +137,7 @@ void gui_album_header_build(lv_obj_t * list, const gui_album_header_params_t * p
         .show_buttons = p->show_buttons, .play_cb = p->play_cb, .shuffle_cb = p->shuffle_cb,
     };
     gui_album_view_build(&A.view, list, &view);
+    build_rating(p);
     A.view.num_w = gui_album_view_number_width(widest_track_number());
     A.chip_format[0] = A.chip_total[0] = 0;
     A.chip_hires = false;
@@ -96,6 +148,7 @@ void gui_album_header_build(lv_obj_t * list, const gui_album_header_params_t * p
 void gui_album_header_release_cover(void) { gui_album_cover_release(); }
 
 void gui_album_header_forget(void) {
+    rating_control = NULL;
     A.view.root = A.view.info = A.view.chips = A.view.cover_img = NULL;
 }
 
@@ -147,6 +200,8 @@ void gui_album_header_row_set_duration(lv_obj_t * row, unsigned seconds) {
 bool gui_album_header_poll(bool visible, bool allowed) {
     if (gui_album_cover_poll(visible) && A.view.root) show_sharp_cover();
     album_probe_poll(allowed);
+    int stars = displayed_rating();
+    if (rating_control && star_rating_get(rating_control) != stars) star_rating_set(rating_control, stars);
     if (!A.dirty || !A.view.root) return false;
     A.dirty = false;
     return update_chips();

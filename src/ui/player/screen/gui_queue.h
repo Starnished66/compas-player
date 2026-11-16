@@ -19,7 +19,7 @@ void open_song_context_menu_with_rows(const char * path, unsigned int capabiliti
 enum {
     SONG_MENU_PLAYBACK = 1u << 0,
     SONG_MENU_PLAYLIST = 1u << 1,
-    SONG_MENU_FAVORITE = 1u << 2,
+    SONG_MENU_RATING = 1u << 2,
     SONG_MENU_NAVIGATION = 1u << 3,
     SONG_MENU_INFORMATION = 1u << 4,
     SONG_MENU_REFRESH = 1u << 5,

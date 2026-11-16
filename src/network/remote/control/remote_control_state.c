@@ -27,7 +27,7 @@ static int status_position_seconds = 0;
 static int status_duration_seconds = 0;
 static float status_volume = 0;
 static int status_play_mode = 0;
-static bool status_favorite = false;
+static int status_rating = 0;
 static bool status_accent_valid = false;
 static uint32_t status_accent_rgb = 0;
 static int status_library_sorting[3] = {0, 0, 0};
@@ -175,18 +175,17 @@ void remote_state_post_folder_play(const char * abs_path) {
     pthread_mutex_unlock(&status_mutex);
 }
 
-/* A favorite flag was written for song_path: the UI reloads its now-playing
- * heart, and the status snapshot follows when it is the playing track. */
-void remote_state_favorite_written(const char * song_path, bool is_favorite) {
+/* Reload the UI rating and update the matching status snapshot. */
+void remote_state_rating_written(const char * song_path, int stars) {
     pthread_mutex_lock(&status_mutex);
     request_favorite_changed = true;
-    if (strcmp(status_path, song_path) == 0) status_favorite = is_favorite;
+    if (strcmp(status_path, song_path) == 0) status_rating = stars;
     pthread_mutex_unlock(&status_mutex);
 }
 
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
-                                   int duration_seconds, float volume, int play_mode, bool favorite,
+                                   int duration_seconds, float volume, int play_mode, int stars,
                                    uint32_t accent_rgb, remote_dac_mode_t dac_mode) {
     /* Take the audio snapshot before status_mutex. Match its copied path
      * against this now-playing snapshot so a track transition cannot publish
@@ -206,14 +205,14 @@ void remote_control_notify_status(bool playing, bool paused, const char * title,
         paused = false;
         title = artist = album = path = "";
         position_seconds = duration_seconds = 0;
-        favorite = false;
+        stars = 0;
     } else if (dac_mode == REMOTE_DAC_USB) {
         usb_dac_bridge_get_stream_info(&usb_stream);
         playing = usb_stream.streaming;
         paused = false;
         title = artist = album = path = "";
         position_seconds = duration_seconds = 0;
-        favorite = false;
+        stars = 0;
     }
     pthread_mutex_lock(&status_mutex);
     status_dac_mode = dac_mode;
@@ -227,7 +226,7 @@ void remote_control_notify_status(bool playing, bool paused, const char * title,
     status_duration_seconds = duration_seconds;
     status_volume = volume;
     status_play_mode = play_mode;
-    status_favorite = favorite;
+    status_rating = stars;
     status_accent_rgb = accent_rgb & 0xFFFFFF;
     status_accent_valid = true;
     snprintf(status_codec, sizeof(status_codec), "%s",
@@ -476,7 +475,7 @@ static void status_format(char * out, size_t out_size, const char * revision_jso
              "\"position_seconds\":%d,\"duration_seconds\":%d,\"volume\":%.2f,\"play_mode\":%d,"
              "\"codec\":\"%s\",\"source_bit_depth\":%u,\"source_sample_rate\":%u,"
              "\"catalog_revision\":%s,\"features\":{\"plugin_store\":true,\"plugin_management\":true,\"player_layouts\":true},"
-             "\"bluetooth_audio_output\":%s,\"dac_mode\":\"%s\",\"bluetooth_dac_mode\":%s,\"favorite\":%s,\"accent_color\":%s,"
+             "\"bluetooth_audio_output\":%s,\"dac_mode\":\"%s\",\"bluetooth_dac_mode\":%s,\"favorite\":%s,\"rating\":%d,\"accent_color\":%s,"
              "\"device_model\":\"%s\",\"player_version\":\"%s\",\"settingsRevision\":%u,\"settingsEpoch\":%u,"
              "\"sort_modes\":[%d,%d,%d],\"collection_job\":{\"id\":%u,\"state\":\"%s\",\"error\":\"%s\"}}",
              status_playing ? "true" : "false", status_paused ? "true" : "false", title_esc, artist_esc, album_esc,
@@ -484,7 +483,7 @@ static void status_format(char * out, size_t out_size, const char * revision_jso
              status_codec, status_source_bit_depth, status_source_sample_rate, revision_json,
              bluetooth_audio_output ? "true" : "false",
              status_dac_mode == REMOTE_DAC_USB ? "usb" : status_dac_mode == REMOTE_DAC_BLUETOOTH ? "bluetooth" : "none",
-             status_dac_mode == REMOTE_DAC_BLUETOOTH ? "true" : "false", status_favorite ? "true" : "false", accent_json,
+             status_dac_mode == REMOTE_DAC_BLUETOOTH ? "true" : "false", status_rating > 0 ? "true" : "false", status_rating, accent_json,
              model_esc, version_esc, settings_revision, settings_epoch, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
              collection_job_id, collection_job_busy ? "pending" : collection_job_failed ? "error" : collection_job_id ? "done" : "idle", job_error);
     pthread_mutex_unlock(&status_mutex);

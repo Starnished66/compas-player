@@ -1,3 +1,4 @@
+#include "../controls/star_rating.h"
 #include "../builders/screen_builders.h"
 #include "../builders/screen_builders_internal.h"
 #include "../builders/gui_play_bar.h"
@@ -69,6 +70,7 @@ typedef struct {
     lv_obj_t * subtitle_labels[COMPACT_LIST_POOL_SIZE];
     lv_obj_t * action_circles[COMPACT_LIST_POOL_SIZE];
     bool row_is_section_header[COMPACT_LIST_POOL_SIZE];
+    lv_obj_t *section_ratings[COMPACT_LIST_POOL_SIZE];
     void * row_ctx[COMPACT_LIST_POOL_SIZE]; /* opaque to this struct, freed alongside it -- see compact_list_row_ctx_t below */
     int row_logical_index[COMPACT_LIST_POOL_SIZE]; /* item currently represented by each recycled slot; -1 when unused */
     uint64_t row_artwork_key[COMPACT_LIST_POOL_SIZE]; /* artwork key of the item in each slot; 0 when none */
@@ -603,6 +605,25 @@ static uint32_t compact_list_hash_str(uint32_t h, const char * str) {
     return (h ^ 0xffu) * 16777619u;
 }
 
+static void compact_list_section_rating(compact_list_virtual_data_t *data, int slot, int stars) {
+    lv_obj_t *control = data->section_ratings[slot];
+    if (!stars) {
+        if (control) lv_obj_add_flag(control, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (!control) {
+        control = star_rating_create(data->rows[slot], BOARD_SCALE_PX(28), false);
+        if (!control) return;
+        data->section_ratings[slot] = control;
+        lv_obj_set_name(control, "rating_section");
+        star_rating_set_filled_only(control);
+    }
+    star_rating_set_lit_color(control, lv_color_hex(gui_theme_accent_rgb()));
+    star_rating_set(control, stars);
+    lv_obj_remove_flag(control, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(control, LV_ALIGN_LEFT_MID, 0, 0);
+}
+
 static uint32_t compact_list_row_hash(const char * label, int64_t identity, const char * trailing,
                                       const char * subtitle, bool is_action, bool is_section_header,
                                       uint64_t artwork_key, const char * artwork_name,
@@ -672,6 +693,7 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
         const char * subtitle = NULL;
         bool is_action = false;
         bool is_section_header = false;
+        int section_stars = 0;
         uint64_t artwork_key = 0;
         const char * artwork_name = NULL;
         if (data->fetch_page) {
@@ -693,6 +715,7 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
             subtitle = info->subtitle[0] ? info->subtitle : NULL;
             is_action = info->is_action;
             is_section_header = info->is_section_header;
+            section_stars = info->section_stars;
             artwork_key = info->artwork_key;
             artwork_name = info->artwork_name[0] ? info->artwork_name : NULL;
         } else {
@@ -702,13 +725,14 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
             subtitle = data->items[index].subtitle;
             is_action = data->items[index].is_action;
             is_section_header = data->items[index].is_section_header;
+            section_stars = data->items[index].section_stars;
             artwork_key = data->items[index].artwork_key;
             artwork_name = data->items[index].artwork_name;
         }
         uint32_t content_hash = compact_list_row_hash(label, identity, trailing_asset, subtitle,
                                                       is_action, is_section_header, artwork_key, artwork_name,
                                                       (const void *) data->row_decorator,
-                                                      data->row_decorator_ctx);
+                                                      data->row_decorator_ctx) ^ (uint32_t)section_stars;
         /* A landed fetch repaints the whole window, but a row that already
          * shows this exact item would only be relabelled to the same text. */
         if (data->landing_rebind && !lv_obj_has_flag(row, LV_OBJ_FLAG_HIDDEN) &&
@@ -776,12 +800,14 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
          * correction likewise cancels list_row_style's asymmetric text
          * padding so both images remain vertically centred in the card. */
         compact_list_align_row_decoration(data, slot, is_action);
+        compact_list_section_rating(data, slot, is_section_header ? section_stars : 0);
     }
     ui_marquee_list_changed(list);
     bool any_visible = false;
     for (int slot = 0; slot < COMPACT_LIST_POOL_SIZE; ++slot)
         if (!lv_obj_has_flag(data->rows[slot], LV_OBJ_FLAG_HIDDEN)) any_visible = true;
-    if (any_visible) lv_obj_add_flag(data->message, LV_OBJ_FLAG_HIDDEN);
+    bool empty_hidden = data->item_count == 0 && data->empty_heading && !data->empty_heading[0];
+    if (any_visible || empty_hidden) lv_obj_add_flag(data->message, LV_OBJ_FLAG_HIDDEN);
     else {
         const char * heading = data->item_count == 0 ? (data->empty_heading ? data->empty_heading : TR("No items")) :
                                data->pending_job ? TR("Loading...") : TR("Unable to load items");
@@ -789,7 +815,7 @@ static void compact_list_update_window(lv_obj_t * list, compact_list_virtual_dat
                               data->pending_job ? TR("Your library is being loaded.") : TR("Leave this view and try again.");
         lv_label_set_text(lv_obj_get_child(data->message, 0), heading);
         lv_label_set_text(lv_obj_get_child(data->message, 1), detail);
-        lv_obj_set_y(data->message, lv_obj_get_scroll_y(list) + COMPACT_LIST_TOP_PAD);
+        lv_obj_set_y(data->message, lv_obj_get_scroll_y(list) + COMPACT_LIST_TOP_PAD + data->top_offset);
         lv_obj_remove_flag(data->message, LV_OBJ_FLAG_HIDDEN);
     }
 #ifdef UI_PERF_TRACE
@@ -950,6 +976,15 @@ void compact_list_dispatch_ready(void) {
         if (d->pending_job && d->poll_timer && !lv_timer_get_paused(d->poll_timer) &&
             d->pending_job->result_count >= 0)
             lv_timer_ready(d->poll_timer);
+}
+
+/* Accent changes only recolour existing section stars; rows keep their binding. */
+void compact_list_recolor_section_ratings(void) {
+    lv_color_t accent = lv_color_hex(gui_theme_accent_rgb());
+    for (compact_list_virtual_data_t * d = s_live_compact_lists; d;
+         d = (compact_list_virtual_data_t *) d->next_live)
+        for (int slot = 0; slot < COMPACT_LIST_POOL_SIZE; slot++)
+            if (d->section_ratings[slot]) star_rating_set_lit_color(d->section_ratings[slot], accent);
 }
 
 void compact_list_refresh_all(void) {

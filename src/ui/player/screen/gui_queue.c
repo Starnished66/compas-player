@@ -555,10 +555,10 @@ static void song_context_menu_refresh_metadata_cb(lv_event_t * e) {
     start_library_metadata_refresh_paths(paths, 1);
 }
 
-static void song_context_menu_favorite_cb(lv_event_t * e) {
+static void song_context_menu_rating_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || !song_context_menu_target_path[0]) return;
     hide_song_context_menu_popup();
-    (void) gui_player_toggle_favorite_path(song_context_menu_target_path);
+    gui_player_open_rating_popup(song_context_menu_target_path);
 }
 
 static void song_context_menu_album_cb(lv_event_t * e) {
@@ -654,10 +654,8 @@ static void build_song_context_menu_popup(void) {
     }
     if (song_context_menu_capabilities & SONG_MENU_PLAYLIST)
         rows[count++] = (menu_popup_row_t) { TR("Add to playlist"), song_context_menu_add_to_playlist_cb, false };
-    if (song_context_menu_capabilities & SONG_MENU_FAVORITE) {
-        bool favorite = gui_player_favorite_path_is_set(song_context_menu_target_path);
-        rows[count++] = (menu_popup_row_t) { TR(favorite ? "Remove from favorites" : "Add to favorites"), song_context_menu_favorite_cb, false };
-    }
+    if (song_context_menu_capabilities & SONG_MENU_RATING)
+        rows[count++] = (menu_popup_row_t) { TR("Rate song"), song_context_menu_rating_cb, false };
     if (song_context_menu_capabilities & SONG_MENU_NAVIGATION) {
         rows[count++] = (menu_popup_row_t) { TR("Go to album"), song_context_menu_album_cb, false };
         rows[count++] = (menu_popup_row_t) { TR("Go to artist"), song_context_menu_artist_cb, false };

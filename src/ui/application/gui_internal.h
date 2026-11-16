@@ -28,8 +28,8 @@ void media_button_timer_cb(lv_timer_t * timer);
 bool shutdown_background_work_active(void);
 screen_poll_result_t poll_screen_power(void);
 
-/* gui.c: whether the current track is a favorite, published to external controls. */
-extern bool favorite_is_set;
+/* gui.c: current track rating, from 0 to 5, published to external controls. */
+extern int now_playing_stars;
 
 /* gui_control_poll.c: the update and player timers and the per-tick polls. */
 void gui_control_poll_start_timers(void);

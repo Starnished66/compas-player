@@ -12,3 +12,6 @@ uint64_t gui_album_facts_add(uint64_t hash, const char * path);
  * tag is absent). False when nothing matching was recorded. */
 bool gui_album_facts_lookup(uint64_t key, int count, int * year, char * genre, size_t genre_size,
                             int ** track);
+
+int gui_album_facts_rating(uint64_t key);
+void gui_album_facts_note_rating(uint64_t key, int stars);

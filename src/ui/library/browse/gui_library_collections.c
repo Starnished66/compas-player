@@ -101,7 +101,7 @@ static bool remote_collection_load_paths(remote_collection_job_t *job) {
     const remote_collection_play_request_t *request = &job->request;
     switch (request->scope) {
         case REMOTE_COLLECTION_FAVORITES:
-            metadata_db_load_favorite_songs(&job->paths, &job->count);
+            metadata_db_load_favorite_songs(&job->paths, &job->count, NULL);
             break;
         case REMOTE_COLLECTION_RECENTLY_ADDED:
             metadata_db_load_recently_added_songs(RECENTLY_ADDED_LIMIT, &job->paths, &job->count);
@@ -310,9 +310,9 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
         int count = 0;
         bool loaded = false;
         if (strcmp(playlist_name, "@favorites") == 0 || strcmp(playlist_name, "Favorites") == 0) {
-            metadata_db_load_favorite_songs(&paths, &count);
+            metadata_db_load_favorite_songs(&paths, &count, NULL);
             loaded = true;
-            snprintf(scoped_title, sizeof(scoped_title), "%s", TR("Favorites"));
+            snprintf(scoped_title, sizeof(scoped_title), "%s", TR("Top rated"));
         } else if (strcmp(playlist_name, "@most_played") == 0 || strcmp(playlist_name, "Most Played") == 0) {
             metadata_db_load_top_played_songs(MOST_PLAYED_LIMIT, &paths, &count);
             loaded = true;
@@ -405,15 +405,7 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
 }
 
 static void show_favorites(void) {
-    char ** paths;
-    int count;
-    metadata_db_load_favorite_songs(&paths, &count);
-
-    group_song_entry_t * entries = build_group_song_entries_from_paths(paths, count);
-    if (entries) show_group_songs(TR("Favorites"), entries, count);
-    free_group_song_entries(entries, count);
-    for (int i = 0; i < count; i++) free(paths[i]);
-    free(paths);
+    group_songs_show_favorites();
 }
 
 static void show_most_played(void) {
@@ -464,6 +456,7 @@ void library_playlist_open_row(gui_playlist_row_kind_t kind, const char * name,
                                       const char * path, char ** songs, int count) {
     switch (kind) {
         case GUI_PLAYLIST_ROW_FAVORITES: show_favorites(); break;
+        case GUI_PLAYLIST_ROW_FAVORITE_ALBUMS: show_favorite_albums(); break;
         case GUI_PLAYLIST_ROW_MOST_PLAYED: show_most_played(); break;
         case GUI_PLAYLIST_ROW_QUEUE: open_queue_screen(); break;
         case GUI_PLAYLIST_ROW_RECENTLY_ADDED: open_recently_added_screen(); break;

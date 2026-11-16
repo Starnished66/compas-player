@@ -6,7 +6,7 @@
 #include "../metadata/parsing/metadata.h"
 #include "../../audio/engine/audio.h"
 
-enum { TRACK_METADATA_CURRENT, TRACK_METADATA_NEXT, TRACK_METADATA_FAVORITE, TRACK_METADATA_LANES };
+enum { TRACK_METADATA_CURRENT, TRACK_METADATA_NEXT, TRACK_METADATA_RATING, TRACK_METADATA_POPUP, TRACK_METADATA_LANES };
 typedef struct {
     uint64_t token;
     char path[PATH_MAX];
@@ -19,8 +19,8 @@ typedef struct {
 typedef struct {
     track_metadata_request_t request;
     bool display_hint;       /* Catalog preview only; fresh tags still follow. */
-    bool enrichment_pending; /* Favorite/probe are not available yet. */
-    bool favorite;
+    bool enrichment_pending; /* Rating/probe are not available yet. */
+    int stars;
     bool has_probe;
     audio_current_format_info_t probe;
 } track_metadata_result_t;

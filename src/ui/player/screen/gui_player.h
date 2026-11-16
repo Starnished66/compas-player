@@ -7,6 +7,7 @@
 #include "../../../core/persistence/settings.h"
 #include "../../../audio/engine/audio.h"
 
+typedef struct tagcache_snapshot metadata_db_snapshot_t;
 typedef struct file_browser_index file_browser_index_t;
 
 
@@ -119,10 +120,11 @@ bool gui_player_play_folder_track(const char * track_path);
  * ownership of index on every return path. */
 bool gui_player_play_folder_index(file_browser_index_t * index, unsigned playable_count,
                                   int play_mode);
-/* Reloads the now-playing heart after Remote Control changed a favorite. */
-void gui_player_refresh_favorite(void);
-bool gui_player_favorite_path_is_set(const char * path);
-bool gui_player_toggle_favorite_path(const char * path);
+/* Reloads the now-playing rating after a Remote Control edit. */
+void gui_player_refresh_rating(void);
+void gui_player_open_rating_popup(const char * path);
+int gui_player_rating_path(const char * path);
+void gui_player_set_rating_path(const char * path, int stars);
 bool gui_player_queue_edit(uint64_t revision, int from, int to);
 bool gui_player_queue_select(uint64_t revision, int index);
 void gui_player_queue_clear_all(void);
@@ -162,6 +164,7 @@ void on_file_selected(char ** new_playlist, int count, int selected_index);
 void on_file_selected_stay(char ** new_playlist, int count, int selected_index);
 void on_file_selected_at(char ** new_playlist, int count, int selected_index, double start_seconds);
 void on_file_selected_lazy_all_songs(int selected_index);
+void on_file_selected_lazy_all_songs_reverse(int selected_index);
 void on_file_selected_lazy_recently_added(int selected_index);
 void on_file_browser_selected(char ** new_playlist, int count, int selected_index);
 void on_track_auto_advanced(int index);
@@ -244,3 +247,7 @@ void gui_player_refresh_font_geometry(void);
 lv_obj_t * gui_player_get_dismiss_btn(void);
 /* UI-thread accessor; optional generation identifies pixel replacements. */
 const lv_image_dsc_t * gui_player_get_current_cover_dsc(uint64_t * generation);
+
+/* Takes ownership of the title ranks and the tap-time snapshot; rejects a stale generation. */
+void on_file_selected_lazy_ranks(int *ranks, int count, int selected_index,
+                                 metadata_db_snapshot_t *snapshot, int32_t generation);

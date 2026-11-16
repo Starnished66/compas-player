@@ -144,10 +144,10 @@ void more_icon_event_cb(lv_event_t * e) {
     if (path && !is_http_url(path) && !remote_track_path_is_remote(path)) /* only files can be deleted */
         rows[row_count++] = (menu_popup_row_t) { TR("Delete"), more_menu_delete_cb, true };
     hide_more_menu_popup();
-    /* The shared song menu keeps Favorites and library navigation consistent
+    /* The shared song menu keeps rating and library navigation consistent
      * with the menus opened from library rows. */
     open_song_context_menu_with_rows(path,
-        SONG_MENU_PLAYLIST | SONG_MENU_FAVORITE | SONG_MENU_NAVIGATION |
+        SONG_MENU_PLAYLIST | SONG_MENU_RATING | SONG_MENU_NAVIGATION |
         SONG_MENU_INFORMATION, rows, row_count);
 }
 

@@ -303,6 +303,8 @@ bool tagcache_song_at_recency_rank(int32_t rank, tagcache_song_t *out) {
 
 int tagcache_group_count(int kind) { return db_open && kind >= 0 && kind < 3 ? (reader_legacy_active ? legacy_group_count(kind) : reader_group_n[kind]) : 0; }
 bool tagcache_group_at(int kind, int index, tagcache_group_t *out) { return db_open && reader_group_at(kind, index, out); }
+bool tagcache_title_ranks_indexed(void) { return db_open && !reader_legacy_active; }
+
 bool tagcache_album_sort_available(int sort) {
     sort &= ~TAGCACHE_ALBUM_SORT_REVERSE;
     if (!db_open) return false;

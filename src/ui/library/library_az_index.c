@@ -18,6 +18,7 @@ typedef struct {
     lv_obj_t * strip;
     lv_obj_t * popup;
     lv_obj_t * popup_label;
+    bool reverse;
     metadata_db_az_kind_t db_kind;
     library_az_index_table_t table; /* set for an in-memory list, which has no db_kind */
     library_az_index_allowed_t allowed; /* optional, for a table list */
@@ -158,7 +159,6 @@ static bool register_strip(lv_obj_t * screen, lv_obj_t * list, metadata_db_az_ki
      * transparent -- only its glyph pixels paint anything) sidesteps this
      * entirely and needs no chroma-key support this LVGL build doesn't have. */
     lv_obj_t * strip = lv_label_create(screen);
-    lv_label_set_text(strip, "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\nN\nO\nP\nQ\nR\nS\nT\nU\nV\nW\nX\nY\nZ\n#");
     int32_t top = STATUS_BAR_CLEARANCE + TITLE_ROW_HEIGHT;
     int32_t display_h = lv_display_get_vertical_resolution(lv_display_get_default());
     int32_t available_h = display_h - top - HOME_INDICATOR_CONTENT_INSET;
@@ -210,7 +210,9 @@ static bool register_strip(lv_obj_t * screen, lv_obj_t * list, metadata_db_az_ki
     lv_obj_t * popup = library_az_index_bubble_create(screen, &popup_label);
 
     az_index_bindings[az_index_registered_count++] =
-        (az_index_binding_t){ screen, list, strip, popup, popup_label, db_kind, table, allowed };
+        (az_index_binding_t){ .screen = screen, .list = list, .strip = strip, .popup = popup,
+            .popup_label = popup_label, .db_kind = db_kind, .table = table, .allowed = allowed };
+    library_az_index_set_reverse(screen, false);
     lv_obj_add_event_cb(list, az_index_scroll_visibility_cb, LV_EVENT_SCROLL_BEGIN, NULL);
     lv_obj_add_event_cb(list, az_index_scroll_visibility_cb, LV_EVENT_SCROLL, NULL);
     lv_obj_add_event_cb(list, az_index_scroll_visibility_cb, LV_EVENT_SCROLL_END, NULL);
@@ -229,6 +231,15 @@ bool library_az_index_register_table(lv_obj_t * screen, lv_obj_t * list, library
 lv_obj_t * library_az_index_strip_for_screen(lv_obj_t * screen) {
     az_index_binding_t * binding = find_az_binding_for_screen(screen);
     return binding ? binding->strip : NULL;
+}
+
+void library_az_index_set_reverse(lv_obj_t *screen, bool reverse) {
+    az_index_binding_t *b = find_az_binding_for_screen(screen);
+    if (!b) return;
+    b->reverse = reverse;
+    lv_label_set_text(b->strip, reverse
+        ? "Z\nY\nX\nW\nV\nU\nT\nS\nR\nQ\nP\nO\nN\nM\nL\nK\nJ\nI\nH\nG\nF\nE\nD\nC\nB\nA\n#"
+        : "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\nN\nO\nP\nQ\nR\nS\nT\nU\nV\nW\nX\nY\nZ\n#");
 }
 
 bool library_az_index_overlay_visible(void) {
@@ -289,7 +300,7 @@ void library_az_index_poll(lv_timer_t * timer) {
          * on every touch-down from the already-sorted in-memory index
          * (metadata_db_get_az_table()). */
         if (b->table) b->table(az_index_jump_table);
-        else metadata_db_get_az_table(b->db_kind, az_index_jump_table);
+        else metadata_db_get_az_table_sorted(b->db_kind, b->reverse, az_index_jump_table);
         lv_obj_remove_flag(b->popup, LV_OBJ_FLAG_HIDDEN);
     } else if (!pressed) {
         lv_obj_add_flag(az_index_active_binding->popup, LV_OBJ_FLAG_HIDDEN);
@@ -310,6 +321,7 @@ void library_az_index_poll(lv_timer_t * timer) {
     int letter_idx = (int) ((int64_t) rel_y * 27 / (h > 0 ? h : 1));
     if (letter_idx > 26) letter_idx = 26;
 
+    if (b->reverse && letter_idx < 26) letter_idx = 25 - letter_idx;
     int target = az_index_jump_table[letter_idx];
     if (target >= 0) compact_list_scroll_to_index(b->list, target);
 

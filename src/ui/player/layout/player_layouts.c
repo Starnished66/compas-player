@@ -141,6 +141,7 @@ typedef struct {
 
 static const layout_image_t layout_images[] = {
     { "default_cover", "playing_plane/default_cover_565.png" },
+    /* The player replaces this image with the rating control at runtime. */
     { "collect_out", "playing_plane/collect_out.png" },
     { "collect_in", "playing_plane/collect_in.png" },
     { "quality_waveform", "playing_plane/quality_waveform.png" },

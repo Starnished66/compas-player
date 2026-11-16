@@ -3,7 +3,7 @@
 #include "../../../library/metadata/parsing/metadata.h"
 #include "../../../library/browser/files/file_browser.h"
 #include "../../../library/artwork/support/library_endian.h"
-#include "../../../library/playlists/favorite_writer.h"
+#include "../../../library/playlists/rating_writer.h"
 #include "../../../library/browser/paths/library_paths.h"
 #include "../../../core/storage/storage_roots.h"
 #include "../../../ui/library/browse/gui_library.h" /* sd_card_root_is_mounted() */
@@ -411,123 +411,154 @@ void handle_recent_request(int cfd, const char * path) {
     free(rows); free(played); free(json_buf);
 }
 
-/* ---- Favorites ---- */
+/* ---- Ratings and compatibility aliases ---- */
 
-#define FAVORITE_STATE_MAX_IDS 100
+#define RATING_STATE_MAX_IDS 100
 
-/* GET /api/favorites/state?ids=1,2,3 */
-void handle_favorite_state_request(int cfd, const char * path) {
-    char ids_text[FAVORITE_STATE_MAX_IDS * 12];
-    int64_t ids[FAVORITE_STATE_MAX_IDS];
+static int song_state_ids(const char * path, int64_t * ids) {
+    char text[RATING_STATE_MAX_IDS * 12];
     int count = 0;
-    if (query_decoded(path, "ids", ids_text, sizeof(ids_text)) != 1 || !ids_text[0]) {
-        send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_ids");
+    if (query_decoded(path, "ids", text, sizeof(text)) != 1 || !text[0]) return -1;
+    for (char * p = text; *p;) {
+        char * end = NULL;
+        if (*p < '0' || *p > '9') return -1;
+        errno = 0;
+        long long value = strtoll(p, &end, 10);
+        if (value <= 0 || errno == ERANGE || value > INT32_MAX ||
+            (*end != ',' && *end != '\0') || count >= RATING_STATE_MAX_IDS) return -1;
+        ids[count++] = value;
+        p = *end ? end + 1 : end;
+        if (*end == ',' && !*p) return -1;
+    }
+    return count;
+}
+
+static void send_song_state(int cfd, const char * path, bool favorites) {
+    const char * family = favorites ? "favorite_error" : "rating_error";
+    int64_t ids[RATING_STATE_MAX_IDS];
+    int count = song_state_ids(path, ids);
+    if (count < 0) {
+        send_api_error(cfd, "400 Bad Request", family, "invalid_ids");
         return;
     }
-    for (char * p = ids_text; *p;) {
-        char * end = NULL;
-        errno = 0;
-        long long v = (*p >= '0' && *p <= '9') ? strtoll(p, &end, 10) : -1;
-        if (v <= 0 || errno == ERANGE || v > INT32_MAX || (*end != ',' && *end != '\0') ||
-            count >= FAVORITE_STATE_MAX_IDS) {
-            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_ids");
-            return;
-        }
-        ids[count++] = (int64_t) v;
-        p = *end ? end + 1 : end;
-        if (*end == ',' && !*p) {
-            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_ids");
-            return;
-        }
-    }
     song_row_t * rows = calloc((size_t) count, sizeof(*rows));
-    char * json_buf = malloc(8192);
-    if (!rows || !json_buf) {
-        free(rows); free(json_buf);
-        send_api_error(cfd, "503 Service Unavailable", "favorite_error", "temporary_unavailable");
+    char * buffer = malloc(8192);
+    if (!rows || !buffer) {
+        free(rows); free(buffer);
+        send_api_error(cfd, "503 Service Unavailable", family, "temporary_unavailable");
         return;
     }
     metadata_db_get_songs_by_ids(ids, count, rows);
     json_builder_t json;
-    json_builder_init(&json, json_buf, 8192);
+    json_builder_init(&json, buffer, 8192);
     json_builder_appendf(&json, "{\"songs\":[");
     for (int i = 0; i < count; i++) {
         bool found = rows[i].id >= 0;
-        bool favorite = found && metadata_db_song_favorite_is_set(rows[i].path);
-        json_builder_appendf(&json, "%s{\"index\":%lld,\"found\":%s,\"favorite\":%s}", i ? "," : "",
-                             (long long) ids[i], found ? "true" : "false", favorite ? "true" : "false");
+        int stars = found ? rating_writer_stars(rows[i].path) : 0;
+        json_builder_appendf(&json, "%s{\"index\":%lld,\"found\":%s,\"rating\":%d",
+                             i ? "," : "", (long long) ids[i], found ? "true" : "false", stars);
+        if (favorites) json_builder_appendf(&json, ",\"favorite\":%s", stars > 0 ? "true" : "false");
+        json_builder_appendf(&json, "}");
     }
     json_builder_appendf(&json, "]}");
-    send_response(cfd, "200 OK", "application/json", json_buf);
-    free(rows);
-    free(json_buf);
+    send_response(cfd, "200 OK", "application/json", buffer);
+    free(rows); free(buffer);
 }
 
-/* POST /api/favorites/add or /remove with index=ID (optional
- * catalog_revision) or current=1 for the now-playing file. Favorites are the
- * library's rating flag, which also backs the @favorites playlist, so that
- * playlist follows without a separate write. */
-void handle_favorite_edit_request(int cfd, const char * path, bool is_favorite) {
+void handle_favorite_state_request(int cfd, const char * path) {
+    send_song_state(cfd, path, true);
+}
+
+void handle_rating_state_request(int cfd, const char * path) {
+    send_song_state(cfd, path, false);
+}
+
+static bool resolve_index_edit_target(int cfd, const char * path, const char * family, song_row_t * row) {
+    uint64_t id = 0;
+    char revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
+    if (!query_required_number(path, "index", INT32_MAX, &id) || id == 0 ||
+        !catalog_query_revision_named(path, "catalog_revision", false, revision)) {
+        send_api_error(cfd, "400 Bad Request", family, "invalid_index");
+        return false;
+    }
+    metadata_db_catalog_result_t lookup = METADATA_DB_CATALOG_OK;
+    bool found;
+    if (revision[0]) {
+        lookup = metadata_db_catalog_get_song_revision(revision, (int64_t) id, row);
+        found = lookup == METADATA_DB_CATALOG_OK;
+    } else {
+        found = metadata_db_get_song_by_id((int64_t) id, row);
+    }
+    if (lookup == METADATA_DB_CATALOG_STALE)
+        send_api_error(cfd, "409 Conflict", family, "revision_mismatch");
+    else if (lookup == METADATA_DB_CATALOG_UNAVAILABLE)
+        send_api_error(cfd, "503 Service Unavailable", family, "temporary_unavailable");
+    else if (!found)
+        send_api_error(cfd, "404 Not Found", family, "song_not_found");
+    else return true;
+    return false;
+}
+
+static bool resolve_song_edit_target(int cfd, const char * path, const char * family,
+                                     char * song_path, size_t size, int64_t * index) {
     bool current = query_param_present(path, "current");
-    bool have_index = query_param_present(path, "index");
-    if (current == have_index) {
-        send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_target");
-        return;
+    if (current == query_param_present(path, "index")) {
+        send_api_error(cfd, "400 Bad Request", family, "invalid_target");
+        return false;
     }
     song_row_t row;
-    char song_path[REMOTE_CONTROL_PATH_MAX] = {0};
-    int64_t index = -1;
+    *index = -1;
     if (current) {
         uint64_t flag = 0;
         if (!catalog_query_number(path, "current", 0, 1, &flag) || flag != 1) {
-            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_target");
-            return;
+            send_api_error(cfd, "400 Bad Request", family, "invalid_target");
+            return false;
         }
-        if (!remote_state_now_playing_path(song_path, sizeof(song_path))) {
-            send_api_error(cfd, "404 Not Found", "favorite_error", "nothing_playing");
-            return;
+        if (!remote_state_now_playing_path(song_path, size)) {
+            send_api_error(cfd, "404 Not Found", family, "nothing_playing");
+            return false;
         }
-        if (metadata_db_get_song_by_path(song_path, &row)) index = row.id;
+        if (metadata_db_get_song_by_path(song_path, &row)) *index = row.id;
     } else {
-        uint64_t id = 0;
-        char revision[METADATA_DB_CATALOG_REVISION_SIZE] = {0};
-        if (!query_required_number(path, "index", INT32_MAX, &id) || id == 0 ||
-            !catalog_query_revision_named(path, "catalog_revision", false, revision)) {
-            send_api_error(cfd, "400 Bad Request", "favorite_error", "invalid_index");
-            return;
-        }
-        metadata_db_catalog_result_t lookup = METADATA_DB_CATALOG_OK;
-        bool found;
-        if (revision[0]) {
-            lookup = metadata_db_catalog_get_song_revision(revision, (int64_t) id, &row);
-            found = lookup == METADATA_DB_CATALOG_OK;
-        } else {
-            found = metadata_db_get_song_by_id((int64_t) id, &row);
-        }
-        if (lookup == METADATA_DB_CATALOG_STALE) {
-            send_api_error(cfd, "409 Conflict", "favorite_error", "revision_mismatch");
-            return;
-        }
-        if (lookup == METADATA_DB_CATALOG_UNAVAILABLE) {
-            send_api_error(cfd, "503 Service Unavailable", "favorite_error", "temporary_unavailable");
-            return;
-        }
-        if (!found) {
-            send_api_error(cfd, "404 Not Found", "favorite_error", "song_not_found");
-            return;
-        }
-        index = row.id;
-        snprintf(song_path, sizeof(song_path), "%s", row.path);
+        if (!resolve_index_edit_target(cfd, path, family, &row)) return false;
+        *index = row.id;
+        snprintf(song_path, size, "%s", row.path);
     }
-    /* Ordered with the player's own heart taps, and confirmed on disk. */
-    if (!favorite_writer_write_now(song_path, is_favorite)) {
-        send_api_error(cfd, "503 Service Unavailable", "favorite_error", "write_failed");
+    return true;
+}
+
+static void write_song_rating(int cfd, const char * path, int stars, bool favorites) {
+    const char * family = favorites ? "favorite_error" : "rating_error";
+    char song_path[REMOTE_CONTROL_PATH_MAX] = {0};
+    int64_t index;
+    if (!resolve_song_edit_target(cfd, path, family, song_path, sizeof(song_path), &index)) return;
+    /* Confirm persistence before publishing the new value. */
+    if (!rating_writer_write_now(song_path, stars)) {
+        send_api_error(cfd, "503 Service Unavailable", family, "write_failed");
         return;
     }
-    remote_state_favorite_written(song_path, is_favorite);
-    char json[96];
-    snprintf(json, sizeof(json), "{\"index\":%lld,\"favorite\":%s}", (long long) index, is_favorite ? "true" : "false");
+    remote_state_rating_written(song_path, stars);
+    char json[128];
+    json_builder_t reply;
+    json_builder_init(&reply, json, sizeof(json));
+    json_builder_appendf(&reply, "{\"index\":%lld,\"favorite\":%s", (long long) index, stars > 0 ? "true" : "false");
+    if (!favorites) json_builder_appendf(&reply, ",\"rating\":%d", stars);
+    json_builder_appendf(&reply, "}");
     send_response(cfd, "200 OK", "application/json", json);
+}
+
+void handle_rating_edit_request(int cfd, const char * path) {
+    uint64_t stars;
+    if (!query_required_number(path, "rating", 5, &stars)) {
+        send_api_error(cfd, "400 Bad Request", "rating_error", "invalid_rating");
+        return;
+    }
+    write_song_rating(cfd, path, (int) stars, false);
+}
+
+/* Favorites aliases set five stars or clear the rating. */
+void handle_favorite_edit_request(int cfd, const char * path, bool is_favorite) {
+    write_song_rating(cfd, path, is_favorite ? 5 : 0, true);
 }
 
 /* GET /api/library/artists, /album_artists and /genres. Returns false for

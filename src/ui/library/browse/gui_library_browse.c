@@ -34,32 +34,54 @@ static void fill_song_page_rows(compact_list_page_row_t out_rows[], const song_r
                                 int offset, selection_snapshot_source_t source,
                                 bool cacheable, int32_t generation) {
     for (int i = 0; i < n; i++) {
+        memset(&out_rows[i], 0, sizeof(out_rows[i]));
         fill_song_page_visual(&out_rows[i], &rows[i]);
         if (cacheable)
             library_selection_snapshot_store(&rows[i], source, offset + i, generation);
     }
 }
 
-int all_songs_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]) {
-    (void) ctx;
-    if (count <= 0) return 0;
+bool all_songs_title_reversed(void) {
+    return current_settings.all_songs_sort_mode == 0 && current_settings.all_songs_sort_reverse;
+}
+
+static int title_fetch_page(int offset, int count, compact_list_page_row_t out_rows[], bool reverse) {
+    int total = (int)metadata_db_get_song_count();
+    if (offset < 0 || offset >= total || count <= 0) return 0;
+    if (count > total - offset) count = total - offset;
+    int first = title_order_index(reverse ? offset + count - 1 : offset, total, reverse);
     int32_t generation_before = 0, generation_after = 0;
     bool cacheable = metadata_db_try_get_generation(&generation_before);
-    song_row_t * rows = malloc(sizeof(song_row_t) * (size_t) count);
-    int n = rows ? metadata_db_get_songs_filtered_page(NULL, NULL, NULL, NULL, NULL, offset, count, rows) : 0;
+    song_row_t *rows = malloc(sizeof(*rows) * (size_t)count);
+    int n = rows ? metadata_db_get_songs_filtered_page(NULL, NULL, NULL, NULL, NULL, first, count, rows) : 0;
     if (cacheable)
         cacheable = metadata_db_try_get_generation(&generation_after) && generation_before == generation_after;
-    fill_song_page_rows(out_rows, rows, n, offset, SELECTION_SNAPSHOT_ALL_SONGS,
-                        cacheable, generation_before);
+    if (reverse && n != count) n = 0;
+    for (int i = 0; i < n; i++) {
+        int rank = title_order_index(offset + i, total, reverse);
+        fill_song_page_rows(&out_rows[i], &rows[reverse ? n - 1 - i : i], 1, rank,
+                            SELECTION_SNAPSHOT_ALL_SONGS, cacheable, generation_before);
+    }
     free(rows);
     return n;
+}
+
+int all_songs_fetch_page(void *ctx, int offset, int count, compact_list_page_row_t out_rows[]) {
+    int rated = all_songs_rating_fetch_page(ctx, offset, count, out_rows);
+    return rated >= 0 ? rated : title_fetch_page(offset, count, out_rows, all_songs_title_reversed());
+}
+
+int songs_title_fetch_page(void *ctx, int offset, int count, compact_list_page_row_t out_rows[]) {
+    (void)ctx;
+    return title_fetch_page(offset, count, out_rows, false);
 }
 
 /* A tapped All Songs row as a position in the title order. */
 static int all_songs_song_index(int display_index) {
     if (library_search_showing_results(SEARCH_BINDING_ALL_SONGS))
         return search_remap_index(SEARCH_BINDING_ALL_SONGS, display_index);
-    return display_index;
+    return all_songs_rating_active() ? all_songs_rating_rank_at(display_index, NULL) :
+        title_order_index(display_index, (int)metadata_db_get_song_count(), all_songs_title_reversed());
 }
 
 /* Resolves one All-Songs display position to a real path -- for the
@@ -77,16 +99,21 @@ static bool all_songs_resolve_path_at(int display_index, char * out, size_t out_
 
 static void all_songs_row_click_cb(int display_index) {
     if (library_rescan_active) return;
+    if (!library_search_showing_results(SEARCH_BINDING_ALL_SONGS) && all_songs_rating_active()) {
+        int pos;
+        if (all_songs_rating_rank_at(display_index, &pos) >= 0) all_songs_rating_play(pos);
+        return;
+    }
     display_index = all_songs_song_index(display_index);
     if (display_index < 0) return;
-    /* on_file_selected_lazy_all_songs() builds the queue lazily, identity-
-     * mapped into the DB's own title-sorted order (the same display order
-     * this screen's paged provider uses) instead of eagerly strdup'ing
-     * every one of the library's paths on every tap -- see its own
-     * comment. Tap-to-play from All Songs is DB-driven end to end now. */
     library_selection_snapshot_seed(SELECTION_SNAPSHOT_ALL_SONGS, display_index, 0, NULL);
-    set_player_source_all_songs(display_index);
-    on_file_selected_lazy_all_songs(display_index);
+    if (all_songs_title_reversed())
+        on_file_selected_lazy_all_songs_reverse(title_order_index(display_index,
+            (int)metadata_db_get_song_count(), true));
+    else {
+        set_player_source_all_songs(display_index);
+        on_file_selected_lazy_all_songs(display_index);
+    }
 }
 
 static void all_songs_row_long_press_cb(int display_index) {
@@ -99,16 +126,26 @@ static void all_songs_row_long_press_cb(int display_index) {
 
 songs_bar_t all_songs_bar, recent_bar;
 
+static void all_songs_sort_cb(lv_event_t *e) {
+    (void)e;
+    gui_settings_open_sorting(GUI_LIBRARY_SORT_ALL_SONGS);
+}
+
 /* Builds the "All songs" screen with a paged provider
  * (compact_list_set_paged_provider()) so items are loaded incrementally
  * on scroll rather than materializing the full library in memory. */
 lv_obj_t * build_all_songs_screen(void) {
+    lv_obj_t *title;
     lv_obj_t * scr = build_compact_list_screen(TR("All songs"), generic_back_cb, NULL, 0, all_songs_row_click_cb,
-                                                all_songs_row_long_press_cb, &all_songs_list, NULL,
+                                                all_songs_row_long_press_cb, &all_songs_list, &title,
                                                 LIST_ROW_WIDTH_WIDE, true, gui_theme_accent_style());
+    lv_obj_t *sort = build_top_right_icon_button(scr, asset_path("breeze_rows/library_sorting.png"), all_songs_sort_cb);
+    lv_obj_set_name(sort, "all_songs_sort_btn");
+    lv_obj_align(sort, LV_ALIGN_TOP_RIGHT, -HEADER_BUTTON_WIDTH,
+                 STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
+    reserve_title_width_before(title, sort);
     compact_list_set_row_height(all_songs_list, MUSIC_LIST_ROW_HEIGHT);
-    compact_list_set_paged_provider(all_songs_list, all_songs_fetch_page, NULL,
-                                     (int) metadata_db_get_song_count());
+    all_songs_rearm();
     library_thumbnails_bind_list(scr, all_songs_list, LIBRARY_THUMB_LIST_ALL_SONGS);
     songs_play_bar_refresh(all_songs_list, &all_songs_bar, PLAY_ALL_SOURCE_ALL_SONGS);
     finalize_screen_navigation(scr);
@@ -232,8 +269,9 @@ void songs_play_bar_refresh(lv_obj_t * list, songs_bar_t * bar, int source) {
     compact_list_set_paged_header(list, bar->obj, lv_obj_get_height(bar->obj));
 }
 
-/* Accent change: the long-lived All Songs / Recently Added bars recolour their Play label. */
+/* Recolour live and cached rating headers as well as the long-lived Play labels. */
 void gui_library_accent_changed(void) {
+    compact_list_recolor_section_ratings();
     if (all_songs_bar.obj) gui_play_bar_restyle(all_songs_bar.obj);
     if (recent_bar.obj) gui_play_bar_restyle(recent_bar.obj);
 }
@@ -392,7 +430,7 @@ group_song_entry_t * load_album_entries_filtered(const char * name, const char *
         }
     }
     set_album_disc_headers(songs, n, multi_disc, entries);
-    gui_album_header_record(songs, n);
+    gui_album_header_record(songs, n, album_artist, name);
     free(songs);
     *out_count = n;
     return entries;
@@ -819,7 +857,7 @@ lv_obj_t * build_artists_screen(void) {
 
 static void albums_sort_cb(lv_event_t * e) {
     (void)e;
-    gui_settings_open_sorting(false);
+    gui_settings_open_sorting(GUI_LIBRARY_SORT_ALBUMS);
 }
 
 lv_obj_t * build_albums_screen(void) {

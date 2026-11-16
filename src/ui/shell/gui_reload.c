@@ -1,3 +1,4 @@
+#include "../widgets/controls/gui_rating_popup.h"
 /* See gui_reload.h for what this does and does not touch.
  *
  * gui_soft_reload()'s sequence, and why the order matters:
@@ -193,6 +194,7 @@ static void gui_soft_reload_with_artwork(bool preserve_artwork,
     gui_apps_teardown();
     reload_diag("gui_queue_teardown: before");
     gui_queue_teardown();
+    gui_rating_popup_teardown();
     if (cover_flow_shutdown) cover_flow_shutdown();
     reload_diag("gui_plugins_teardown: before");
     gui_plugins_teardown();

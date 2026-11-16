@@ -8,6 +8,10 @@
 #include "../../settings/power/gui_power_hub.h"
 #include "../../widgets/lists/compact_list.h"
 #include "../../../library/metadata/scan/library_scan_storage.h"
+#include "../../../library/title_order.h"
+
+/* True when All songs shows titles Z-A; always false in rating order. */
+bool all_songs_title_reversed(void);
 
 typedef struct group_song_entry_s {
     char * path;
@@ -48,6 +52,7 @@ void gui_library_refresh_music_screen(void);
 void gui_library_accent_changed(void);
 void gui_library_set_artist_images_enabled(bool enabled);
 typedef enum {
+    GUI_LIBRARY_SORT_ALL_SONGS,
     GUI_LIBRARY_SORT_FILES,
     GUI_LIBRARY_SORT_ALBUMS,
     GUI_LIBRARY_SORT_ARTIST_ALBUMS,
@@ -147,3 +152,5 @@ bool gui_library_scan_active(void);
 /* Shared song detail line and source-format badge. */
 void gui_song_format_detail(char * out, size_t size, int seconds, const char * format);
 const char * gui_song_quality_asset(const char * suffix);
+
+int all_songs_paged_total(void);

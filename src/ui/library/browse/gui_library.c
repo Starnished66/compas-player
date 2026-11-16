@@ -386,7 +386,7 @@ static bool files_options_wanted(void) {
 
 static void files_sort_cb(lv_event_t * e) {
     (void)e;
-    gui_settings_open_sorting(true);
+    gui_settings_open_sorting(GUI_LIBRARY_SORT_FILES);
 }
 
 static lv_obj_t * build_files_screen(void) {
@@ -616,6 +616,7 @@ typedef const char * (*az_index_name_of_t)(int display_index);
  * library_az_index. This GUI supplies active-list policy and the shared raw
  * pointer-indev lookup. Keep this wrapper for the existing public callback. */
 static bool az_index_strip_allowed(lv_obj_t * list) {
+    if (list == all_songs_list && all_songs_rating_mode()) return false;
     return list != albums_list || (effective_album_sort() & ~METADATA_DB_ALBUM_SORT_REVERSE) == METADATA_DB_ALBUM_SORT_NAME;
 }
 
@@ -703,7 +704,17 @@ void gui_library_group_songs_list_changed(void) {
 }
 
 void gui_library_apply_sorting(gui_library_sort_scope_t scope) {
-    if (scope == GUI_LIBRARY_SORT_FILES) {
+    if (scope == GUI_LIBRARY_SORT_ALL_SONGS) {
+        search_close_if_active_for_screen(all_songs_screen);
+        /* Rebind in every mode: until a rating order lands, rows must show the
+         * same A-Z fallback that taps and Play use, never the old direction. */
+        all_songs_rearm();
+        lv_obj_update_layout(all_songs_list);
+        lv_obj_scroll_to_y(all_songs_list, 0, LV_ANIM_OFF);
+        library_az_index_set_reverse(all_songs_screen, all_songs_title_reversed());
+        lv_obj_t *strip = library_az_index_strip_for_screen(all_songs_screen);
+        if (strip) lv_obj_add_flag(strip, LV_OBJ_FLAG_HIDDEN);
+    } else if (scope == GUI_LIBRARY_SORT_FILES) {
         if (library_search_is_active(SEARCH_BINDING_FILES)) search_close_if_active_for_screen(files_screen);
         file_browser_set_sort_reverse(current_settings.file_sort_reverse);
         file_browser_set_sort_mode((file_browser_sort_mode_t) current_settings.file_sort_mode);
@@ -775,6 +786,9 @@ static void apply_now_playing_indicator_result(const now_playing_lookup_result_t
     int album_sorted_row = result->album_sorted_row;
     int album_artist_row = result->album_artist_row;
     int all_songs_row = result->all_songs_row;
+    if (!library_search_showing_results(SEARCH_BINDING_ALL_SONGS))
+        all_songs_row = all_songs_rating_active() ? all_songs_rating_display_row(all_songs_row) :
+            title_order_index(all_songs_row, (int)metadata_db_get_song_count(), all_songs_title_reversed());
     int recently_added_row = result->recently_added_row;
     if (artists_list) compact_list_set_now_playing(artists_list, now_playing_list_row(SEARCH_BINDING_ARTISTS, artist_row, 0));
     if (albums_list) {
@@ -907,7 +921,7 @@ void refresh_library_lists_in_place(void) {
     metadata_db_get_group_counts(&artist_count, &album_artist_count, &album_count);
     library_thumbnails_resize_alias_cache();
     int song_count = (int) metadata_db_get_song_count();
-    rearm_library_list(all_songs_list, all_songs_fetch_page, song_count);
+    all_songs_rearm();
     songs_play_bar_refresh(all_songs_list, &all_songs_bar, PLAY_ALL_SOURCE_ALL_SONGS);
     rearm_library_list(artists_list, artists_fetch_page, artist_count);
     rearm_library_list(albums_list, albums_fetch_page, album_count);
@@ -989,6 +1003,7 @@ void refresh_library_screens_after_reload(bool clear_thumbnail_cache) {
                                     album_az_index_allowed);
     library_az_index_register(album_artist_screen, album_artist_list, METADATA_DB_AZ_ALBUM_ARTIST);
     library_az_index_register(all_songs_screen, all_songs_list, METADATA_DB_AZ_ALL_SONGS);
+    library_az_index_set_reverse(all_songs_screen, all_songs_title_reversed());
 
     register_search(SEARCH_BINDING_ARTISTS, artists_screen, artists_list, NULL, NULL, false,
                      true, METADATA_DB_AZ_ARTIST, artists_fetch_page);
@@ -1434,6 +1449,7 @@ void gui_library_init(void) {
     library_az_index_register(album_artist_screen, album_artist_list, METADATA_DB_AZ_ALBUM_ARTIST);
     library_teardown_diag("register_az_index(all_songs) before");
     library_az_index_register(all_songs_screen, all_songs_list, METADATA_DB_AZ_ALL_SONGS);
+    library_az_index_set_reverse(all_songs_screen, all_songs_title_reversed());
 
     library_teardown_diag("register_search(artists) before");
     register_search(SEARCH_BINDING_ARTISTS, artists_screen, artists_list, NULL, NULL, false,
@@ -1463,7 +1479,7 @@ void gui_library_init(void) {
 
     library_teardown_diag("register_search(files) before");
     register_search(SEARCH_BINDING_FILES, files_screen, files_search_list, NULL, NULL, true,
-                     true, METADATA_DB_AZ_ALL_SONGS, all_songs_fetch_page);
+                     true, METADATA_DB_AZ_ALL_SONGS, songs_title_fetch_page);
     files_search_registered = true;
     files_storage_list_cb(!files_options_wanted()); /* the browser was built before Search */
 
@@ -1545,6 +1561,7 @@ static void library_teardown_diag_end(void) {
 }
 
 void gui_library_teardown(void) {
+    favorite_albums_teardown();
     pthread_mutex_lock(&now_playing_lookup_mutex);
     library_ui_live = false;
     now_playing_lookup_lifetime++;
@@ -1631,6 +1648,7 @@ void gui_library_teardown(void) {
      * clearing them; the component never dereferences them here. */
     library_thumbnails_forget_list(files_search_list);
     library_thumbnails_forget_list(group_songs_search_list);
+    all_songs_rating_teardown();
     library_thumbnails_forget_list(all_songs_list);
     library_thumbnails_forget_list(recently_added_list);
     library_thumbnails_forget_list(artists_list);

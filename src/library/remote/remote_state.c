@@ -4,6 +4,7 @@
 
 #include <fcntl.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +30,15 @@ static rs_entry_t * entries;
 static int entry_n;
 static int entry_cap;
 static bool loaded;
+static atomic_uint revision;
+
+void remote_state_note_rating_change(void) {
+    atomic_fetch_add_explicit(&revision, 1, memory_order_relaxed);
+}
+
+unsigned remote_state_revision(void) {
+    return atomic_load_explicit(&revision, memory_order_relaxed);
+}
 
 static int find_index(const char * path) {
     if (!path) return -1;
@@ -138,6 +148,7 @@ void remote_state_drop(void) {
     pthread_mutex_lock(&mu);
     free_all();
     loaded = false;
+    remote_state_note_rating_change();
     pthread_mutex_unlock(&mu);
 }
 
@@ -163,6 +174,7 @@ bool remote_state_set_rating(const char * path, int32_t rating) {
     if (e) {
         e->rating = rating;
         saved = save_file();
+        remote_state_note_rating_change();
     }
     pthread_mutex_unlock(&mu);
     return saved;
@@ -197,4 +209,19 @@ bool remote_state_take(const char * path, int32_t * rating, int32_t * playcount,
     save_file();
     pthread_mutex_unlock(&mu);
     return true;
+}
+
+remote_state_rating_t *remote_state_list_prefix(const char *prefix, int *count) {
+    *count = 0;
+    if (!prefix) return NULL;
+    pthread_mutex_lock(&mu);
+    ensure_loaded();
+    remote_state_rating_t *rows = entry_n ? calloc((size_t)entry_n, sizeof(*rows)) : NULL;
+    for (int i = 0; rows && i < entry_n; i++) {
+        if (strncmp(entries[i].path, prefix, strlen(prefix))) continue;
+        char *path = strdup(entries[i].path);
+        if (path) rows[(*count)++] = (remote_state_rating_t){path, entries[i].rating};
+    }
+    pthread_mutex_unlock(&mu);
+    return rows;
 }

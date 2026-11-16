@@ -1,4 +1,4 @@
-#include "favorite_writer.h"
+#include "rating_writer.h"
 #include "../metadata/db/metadata_db.h"
 
 #include <pthread.h>
@@ -8,36 +8,36 @@
 #include <time.h>
 #include <sys/prctl.h>
 
-/* Favorite persistence may take global metadata locks, update tagcache, or
+/* Ratings persistence may take global metadata locks, update tagcache, or
  * rewrite and fsync() the remote-state sidecar, so the player's heart never
  * writes on the LVGL thread. A long-lived worker persists queued requests;
- * taps on one path within FAVORITE_DEBOUNCE_MS collapse into the final
+ * taps on one path within RATING_DEBOUNCE_MS collapse into the final
  * state, and distinct paths keep independent entries with owned copies. */
-#define FAVORITE_QUEUE_INITIAL_CAPACITY 8
-#define FAVORITE_DEBOUNCE_MS 150
-#define FAVORITE_WORKER_STACK_SIZE (128 * 1024)
+#define RATING_QUEUE_INITIAL_CAPACITY 8
+#define RATING_DEBOUNCE_MS 150
+#define RATING_WORKER_STACK_SIZE (128 * 1024)
 /* The worker plus the Wi-Fi and Bluetooth request threads. */
-#define FAVORITE_INFLIGHT_MAX 4
+#define RATING_INFLIGHT_MAX 4
 
 /* Every request takes the next sequence number; for one path a higher
  * number is a later request and wins. */
 typedef struct {
     char * path;
-    bool is_favorite;
+    int stars;
     struct timespec deadline;
     unsigned long long seq;
-} favorite_req_t;
+} rating_req_t;
 
 /* A synchronous write that is waiting for its turn on a path. */
 typedef struct {
     const char * path; /* the caller's string, valid while it waits */
     unsigned long long seq;
-} favorite_waiter_t;
+} rating_waiter_t;
 
 typedef struct {
     const char * path; /* owned by the writing thread for the write's duration */
-    bool is_favorite;
-} favorite_inflight_t;
+    int stars;
+} rating_inflight_t;
 
 static pthread_t worker_thread;
 static pthread_mutex_t writer_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -46,12 +46,12 @@ static pthread_once_t writer_once = PTHREAD_ONCE_INIT;
 static bool cond_ready = false;
 static bool worker_ready = false;
 
-static favorite_req_t * queue = NULL;
+static rating_req_t * queue = NULL;
 static int queue_count = 0;
 static int queue_capacity = 0;
-static favorite_inflight_t inflight[FAVORITE_INFLIGHT_MAX];
+static rating_inflight_t inflight[RATING_INFLIGHT_MAX];
 static int inflight_count = 0;
-static favorite_waiter_t waiters[FAVORITE_INFLIGHT_MAX];
+static rating_waiter_t waiters[RATING_INFLIGHT_MAX];
 static int waiter_count = 0;
 static unsigned long long next_seq = 1;
 
@@ -111,7 +111,7 @@ static bool deadline_before(const struct timespec * a, const struct timespec * b
 }
 
 static void * worker_main(void * unused) {
-    (void) prctl(PR_SET_NAME, "favorites");
+    (void) prctl(PR_SET_NAME, "ratings");
     (void) unused;
     pthread_mutex_lock(&writer_mutex);
     for (;;) {
@@ -122,7 +122,7 @@ static void * worker_main(void * unused) {
             if (inflight_find(queue[i].path) >= 0 || older_waiter(queue[i].path, queue[i].seq)) continue;
             if (next < 0 || deadline_before(&queue[i].deadline, &queue[next].deadline)) next = i;
         }
-        if (next < 0 || inflight_count >= FAVORITE_INFLIGHT_MAX) {
+        if (next < 0 || inflight_count >= RATING_INFLIGHT_MAX) {
             pthread_cond_wait(&writer_cond, &writer_mutex);
             continue;
         }
@@ -134,13 +134,13 @@ static void * worker_main(void * unused) {
             continue; /* re-evaluate: the queue or in-flight set may have changed */
         }
         char * path = queue[next].path;
-        bool is_favorite = queue[next].is_favorite;
+        int stars = queue[next].stars;
         memmove(&queue[next], &queue[next + 1], sizeof(*queue) * (size_t) (queue_count - next - 1));
         queue_count--;
-        inflight[inflight_count++] = (favorite_inflight_t) { path, is_favorite };
+        inflight[inflight_count++] = (rating_inflight_t) { path, stars };
         pthread_mutex_unlock(&writer_mutex);
 
-        metadata_db_song_favorite_set(path, is_favorite);
+        metadata_db_song_rating_set(path, stars);
 
         pthread_mutex_lock(&writer_mutex);
         inflight_remove(path);
@@ -152,56 +152,79 @@ static void * worker_main(void * unused) {
 static void writer_init(void) {
     pthread_condattr_t cattr;
     if (pthread_condattr_init(&cattr) != 0) {
-        fprintf(stderr, "favorite_writer: failed to initialize condition variable\n");
+        fprintf(stderr, "rating_writer: failed to initialize condition variable\n");
         return;
     }
     if (pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC) != 0 ||
         pthread_cond_init(&writer_cond, &cattr) != 0) {
-        fprintf(stderr, "favorite_writer: failed to initialize condition variable\n");
+        fprintf(stderr, "rating_writer: failed to initialize condition variable\n");
         pthread_condattr_destroy(&cattr);
         return;
     }
     pthread_condattr_destroy(&cattr);
     cond_ready = true;
 
-    queue = calloc(FAVORITE_QUEUE_INITIAL_CAPACITY, sizeof(*queue));
+    queue = calloc(RATING_QUEUE_INITIAL_CAPACITY, sizeof(*queue));
     if (!queue) {
-        fprintf(stderr, "favorite_writer: failed to allocate queue\n");
+        fprintf(stderr, "rating_writer: failed to allocate queue\n");
         return;
     }
-    queue_capacity = FAVORITE_QUEUE_INITIAL_CAPACITY;
+    queue_capacity = RATING_QUEUE_INITIAL_CAPACITY;
 
     pthread_attr_t attr;
     bool attr_initialized = pthread_attr_init(&attr) == 0;
-    if (attr_initialized) pthread_attr_setstacksize(&attr, FAVORITE_WORKER_STACK_SIZE);
+    if (attr_initialized) pthread_attr_setstacksize(&attr, RATING_WORKER_STACK_SIZE);
     int create_rc = pthread_create(&worker_thread, attr_initialized ? &attr : NULL, worker_main, NULL);
     if (attr_initialized) pthread_attr_destroy(&attr);
     if (create_rc == 0) {
         pthread_detach(worker_thread);
         worker_ready = true;
     } else {
-        fprintf(stderr, "favorite_writer: failed to spawn worker thread\n");
+        fprintf(stderr, "rating_writer: failed to spawn worker thread\n");
         free(queue);
         queue = NULL;
         queue_capacity = 0;
     }
 }
 
-void favorite_writer_start(void) {
+void rating_writer_start(void) {
     pthread_once(&writer_once, writer_init);
 }
 
-void favorite_writer_submit(const char * path, bool is_favorite) {
+/* Caller holds writer_mutex. */
+static void queue_append(const char * path, int stars, struct timespec deadline, unsigned long long seq) {
+    char * path_copy = strdup(path);
+    if (!path_copy) {
+        fprintf(stderr, "rating_writer: strdup failed for rating path '%s'\n", path);
+        return;
+    }
+    /* Grow only for distinct tracks, so the LVGL thread never waits on slow
+     * metadata or SD-card I/O and an acknowledged change is never evicted. */
+    if (queue_count >= queue_capacity) {
+        int new_capacity = queue_capacity * 2;
+        rating_req_t * grown = realloc(queue, sizeof(*queue) * (size_t) new_capacity);
+        if (!grown) {
+            fprintf(stderr, "rating_writer: failed to grow queue\n");
+            free(path_copy);
+            return;
+        }
+        queue = grown;
+        queue_capacity = new_capacity;
+    }
+    queue[queue_count++] = (rating_req_t) { path_copy, stars, deadline, seq };
+}
+
+void rating_writer_submit(const char * path, int stars) {
     if (!path) return;
     pthread_once(&writer_once, writer_init);
     if (!worker_ready) {
-        fprintf(stderr, "favorite_writer: worker not ready; dropping async persistence\n");
+        fprintf(stderr, "rating_writer: worker not ready; dropping async persistence\n");
         return;
     }
 
     struct timespec deadline;
     clock_gettime(CLOCK_MONOTONIC, &deadline);
-    deadline.tv_nsec += (long) FAVORITE_DEBOUNCE_MS * 1000000L;
+    deadline.tv_nsec += (long) RATING_DEBOUNCE_MS * 1000000L;
     if (deadline.tv_nsec >= 1000000000L) {
         deadline.tv_sec += deadline.tv_nsec / 1000000000L;
         deadline.tv_nsec %= 1000000000L;
@@ -211,51 +234,31 @@ void favorite_writer_submit(const char * path, bool is_favorite) {
     unsigned long long seq = next_seq++;
     int existing = queue_find(path);
     if (existing >= 0) {
-        queue[existing].is_favorite = is_favorite;
+        queue[existing].stars = stars;
         queue[existing].deadline = deadline;
         queue[existing].seq = seq;
         pthread_cond_broadcast(&writer_cond);
         pthread_mutex_unlock(&writer_mutex);
         return;
     }
-    char * path_copy = strdup(path);
-    if (!path_copy) {
-        fprintf(stderr, "favorite_writer: strdup failed for favorite path '%s'\n", path);
-        pthread_mutex_unlock(&writer_mutex);
-        return;
-    }
-    /* Grow only for distinct tracks, so the LVGL thread never waits on slow
-     * metadata or SD-card I/O and an acknowledged change is never evicted. */
-    if (queue_count >= queue_capacity) {
-        int new_capacity = queue_capacity * 2;
-        favorite_req_t * grown = realloc(queue, sizeof(*queue) * (size_t) new_capacity);
-        if (!grown) {
-            fprintf(stderr, "favorite_writer: failed to grow queue\n");
-            free(path_copy);
-            pthread_mutex_unlock(&writer_mutex);
-            return;
-        }
-        queue = grown;
-        queue_capacity = new_capacity;
-    }
-    queue[queue_count++] = (favorite_req_t) { path_copy, is_favorite, deadline, seq };
+    queue_append(path, stars, deadline, seq);
     pthread_cond_broadcast(&writer_cond);
     pthread_mutex_unlock(&writer_mutex);
 }
 
-bool favorite_writer_write_now(const char * path, bool is_favorite) {
+bool rating_writer_write_now(const char * path, int stars) {
     if (!path) return false;
     pthread_once(&writer_once, writer_init);
     if (!cond_ready) return false;
     pthread_mutex_lock(&writer_mutex);
-    while (waiter_count >= FAVORITE_INFLIGHT_MAX) pthread_cond_wait(&writer_cond, &writer_mutex);
+    while (waiter_count >= RATING_INFLIGHT_MAX) pthread_cond_wait(&writer_cond, &writer_mutex);
     unsigned long long seq = next_seq++;
     int pending = queue_find(path);
     if (pending >= 0) queue_remove_at(pending); /* this write is the later one */
     /* Registered in request order before waiting, so a newer heart tap
      * cannot be written ahead of it and then overwritten by it. */
-    waiters[waiter_count++] = (favorite_waiter_t) { path, seq };
-    while (inflight_find(path) >= 0 || older_waiter(path, seq) || inflight_count >= FAVORITE_INFLIGHT_MAX)
+    waiters[waiter_count++] = (rating_waiter_t) { path, seq };
+    while (inflight_find(path) >= 0 || older_waiter(path, seq) || inflight_count >= RATING_INFLIGHT_MAX)
         pthread_cond_wait(&writer_cond, &writer_mutex);
     waiter_remove(seq);
     if (newer_request(path, seq)) {
@@ -264,10 +267,10 @@ bool favorite_writer_write_now(const char * path, bool is_favorite) {
         pthread_mutex_unlock(&writer_mutex);
         return true;
     }
-    inflight[inflight_count++] = (favorite_inflight_t) { path, is_favorite };
+    inflight[inflight_count++] = (rating_inflight_t) { path, stars };
     pthread_mutex_unlock(&writer_mutex);
 
-    bool saved = metadata_db_song_favorite_set_durable(path, is_favorite);
+    bool saved = metadata_db_song_rating_set_durable(path, stars);
 
     pthread_mutex_lock(&writer_mutex);
     inflight_remove(path);
@@ -275,13 +278,13 @@ bool favorite_writer_write_now(const char * path, bool is_favorite) {
     return saved;
 }
 
-bool favorite_writer_is_set(const char * path) {
-    if (!path) return false;
+int rating_writer_stars(const char * path) {
+    if (!path) return 0;
     pthread_mutex_lock(&writer_mutex);
     int queued = queue_find(path);
     int writing = queued < 0 ? inflight_find(path) : -1;
     bool known = queued >= 0 || writing >= 0;
-    bool value = queued >= 0 ? queue[queued].is_favorite : writing >= 0 && inflight[writing].is_favorite;
+    int value = queued >= 0 ? queue[queued].stars : writing >= 0 ? inflight[writing].stars : 0;
     pthread_mutex_unlock(&writer_mutex);
-    return known ? value : metadata_db_song_favorite_is_set(path);
+    return known ? value : metadata_db_song_rating_get(path);
 }

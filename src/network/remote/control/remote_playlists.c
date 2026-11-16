@@ -133,7 +133,7 @@ void handle_playlist_songs_request(int cfd, const char * path) {
     bool loaded = false;
     bool user_playlist = false;
     if (strcmp(name, "@favorites") == 0 || strcmp(name, "Favorites") == 0) {
-        metadata_db_load_favorite_songs(&paths, &count);
+        metadata_db_load_favorite_songs(&paths, &count, NULL);
         loaded = true; /* an empty built-in playlist is valid */
     } else if (strcmp(name, "@most_played") == 0 || strcmp(name, "Most Played") == 0) {
         metadata_db_load_top_played_songs(20, &paths, &count);

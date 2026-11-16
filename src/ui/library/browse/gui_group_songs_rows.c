@@ -123,6 +123,11 @@ static void group_compact_populate(int page_end, bool album_layout, bool restore
         group_compact_add(items, GROUP_COMPACT_PREV, nav, NULL, -1);
     }
     for (int i = start; i < page_end; ++i) {
+        int stars = group_songs_rating_section(i);
+        if (stars) {
+            group_compact_add(items, GROUP_COMPACT_DISC, "", NULL, -1);
+            items[group_compact_count - 1].section_stars = stars;
+        }
         if (group_songs_entries[i].show_disc_header) {
             char disc[32]; snprintf(disc, sizeof(disc), TR("Disc %d"), group_songs_entries[i].disc_number);
             group_compact_add(items, GROUP_COMPACT_DISC, disc, NULL, -1);
@@ -354,6 +359,7 @@ static void group_songs_rows_detach(void) {
     group_songs_forget_row_objects();
     gui_album_header_forget();
     if (group_songs_compact_mode) {
+        compact_list_set_header(group_songs_list, NULL, 0);
         if (group_compact_header) lv_obj_delete(group_compact_header);
         group_compact_header = NULL;
         compact_list_set_items(group_songs_list, NULL, 0);
@@ -378,9 +384,23 @@ static void group_songs_ensure_list_mode(bool compact) {
     group_songs_populated_page_start = -1;
 }
 
-/* The header of the page: edit actions, search button, album header or play bar, select-all row, empty message. */
-static void group_songs_rows_header(bool editing, bool album_layout) {
-    lv_obj_t * target = group_songs_list;
+static void group_songs_empty_message(lv_obj_t *target) {
+    if (group_songs_count == 0) {
+        if (group_songs_loading)
+            build_list_message(target, TR("Loading tracks…"), NULL);
+        else if (group_songs_edit_m3u_path)
+            build_list_message(target, TR("Playlist is empty"), TR("Add songs from a song menu."));
+        else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_FAVORITES)
+            build_list_message(target, TR("Top rated"), TR("No songs rated 3 stars or more yet."));
+        else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_MOST_PLAYED)
+            build_list_message(target, TR("No plays yet"), TR("Songs you play most will appear here."));
+        else
+            build_list_message(target, TR("No tracks found"), TR("Refresh the music database to update this list."));
+    }
+}
+
+static lv_obj_t *group_songs_header_target(void) {
+    lv_obj_t *target = group_songs_list;
     if (group_songs_compact_mode) {
         group_compact_header = lv_obj_create(group_songs_list);
         lv_obj_remove_style_all(group_compact_header);
@@ -392,6 +412,31 @@ static void group_songs_rows_header(bool editing, bool album_layout) {
         lv_obj_remove_flag(group_compact_header, LV_OBJ_FLAG_SCROLLABLE);
         target = group_compact_header;
     }
+    return target;
+}
+
+static void group_songs_header_play_bar(lv_obj_t *target, bool album_layout, bool show_bar) {
+    if (album_layout) {
+        /* Albums get a header with Play and Shuffle. */
+        gui_album_header_params_t header = {
+            .album = group_songs_source_title, .album_artist = group_songs_refresh_album_artist,
+            .entries = group_songs_entries, .count = group_songs_count,
+            .show_buttons = !group_songs_loading && group_songs_count > 0,
+            .play_cb = group_play_cb, .shuffle_cb = group_shuffle_cb,
+            .quality_asset = song_quality_asset_for_path,
+        };
+        gui_album_header_build(target, &header);
+    } else if (show_bar) {
+        /* The track count above a Play / Shuffle pill pair (the same buttons as an album page). */
+        gui_album_view_play_bar_build(target, LIST_ROW_WIDTH, group_songs_count,
+                                      group_play_cb, group_shuffle_cb);
+    }
+}
+
+/* The header of the page: edit actions, search button, album header or play bar, select-all row, empty message. */
+static void group_songs_rows_header(bool editing, bool album_layout) {
+    lv_obj_t * target = group_songs_header_target();
+    if (group_songs_compact_mode) compact_list_set_empty_heading(group_songs_list, "");
     bool editable = group_songs_edit_m3u_path != NULL;
     if (editable) {
         group_songs_update_edit_header();
@@ -408,47 +453,14 @@ static void group_songs_rows_header(bool editing, bool album_layout) {
      * depend on the bar, so M3U Edit / Done does not shift the cards. */
     if (!group_songs_compact_mode)
         lv_obj_set_style_pad_hor(group_songs_list, GUI_LIST_SIDE_MARGIN, 0);
-    if (album_layout) {
-        /* Albums get a header with Play and Shuffle. */
-        gui_album_header_params_t header = {
-            .album = group_songs_source_title, .album_artist = group_songs_refresh_album_artist,
-            .entries = group_songs_entries, .count = group_songs_count,
-            .show_buttons = !group_songs_loading && group_songs_count > 0,
-            .play_cb = group_play_cb, .shuffle_cb = group_shuffle_cb,
-            .quality_asset = song_quality_asset_for_path,
-        };
-        gui_album_header_build(target, &header);
-    } else if (show_bar) {
-        /* The track count above a Play / Shuffle pill pair (the same buttons as an album page). */
-        gui_album_view_play_bar_build(target, LIST_ROW_WIDTH, group_songs_count,
-                                      group_play_cb, group_shuffle_cb);
-    }
+    group_songs_header_play_bar(target, album_layout, show_bar);
     if (editing) {
         add_group_songs_select_all_row();
         group_songs_update_edit_header();
     }
 
-    if (group_songs_count == 0) {
-        if (group_songs_loading)
-            build_list_message(target, TR("Loading tracks…"), NULL);
-        else if (group_songs_edit_m3u_path)
-            build_list_message(target, TR("Playlist is empty"), TR("Add songs from a song menu."));
-        else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_FAVORITES)
-            build_list_message(target, TR("No favorites yet"), TR("Tap the heart on a song to keep it here."));
-        else if (group_songs_refresh_source == GROUP_SONGS_REFRESH_MOST_PLAYED)
-            build_list_message(target, TR("No plays yet"), TR("Songs you play most will appear here."));
-        else
-            build_list_message(target, TR("No tracks found"), TR("Refresh the music database to update this list."));
-    }
-    if (group_songs_compact_mode) {
-        lv_obj_update_layout(group_compact_header);
-        int32_t h = 0;
-        for (uint32_t i = 0; i < lv_obj_get_child_count(group_compact_header); ++i)
-            h += lv_obj_get_height(lv_obj_get_child(group_compact_header, (int32_t)i));
-        if (h > 0) h += GUI_ROW_GAP;
-        lv_obj_set_height(group_compact_header, h);
-        compact_list_set_header(group_songs_list, group_compact_header, h);
-    }
+    group_songs_empty_message(target);
+    if (group_songs_compact_mode) group_songs_compact_header_refresh();
 }
 
 void group_songs_compact_header_refresh(void) {
@@ -457,7 +469,8 @@ void group_songs_compact_header_refresh(void) {
     int32_t height = 0;
     for (uint32_t i = 0; i < lv_obj_get_child_count(group_compact_header); ++i)
         height += lv_obj_get_height(lv_obj_get_child(group_compact_header, (int32_t)i));
-    if (height > 0) height += GUI_ROW_GAP;
+    uint32_t children = lv_obj_get_child_count(group_compact_header);
+    if (height > 0) height += (int32_t)(children > 1 ? children - 1 : 1) * GUI_ROW_GAP;
     lv_obj_set_height(group_compact_header, height);
     compact_list_set_header(group_songs_list, group_compact_header, height);
 }

@@ -524,7 +524,7 @@ static void update_timer_cb(lv_timer_t * timer) {
 
     if (current_settings.remote_control_enabled) {
         gui_player_sync_remote_queue();
-        gui_external_controls_publish_status(favorite_is_set);
+        gui_external_controls_publish_status(now_playing_stars);
     }
 
     poll_background_jobs();

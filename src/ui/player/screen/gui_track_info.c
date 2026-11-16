@@ -1,3 +1,6 @@
+#include "gui_player.h"
+#include "../../application/gui_internal.h"
+#include "../../../library/playlists/rating_writer.h"
 #include "gui_track_info.h"
 #include "../../text/i18n/i18n.h"
 
@@ -29,6 +32,9 @@ static uint64_t context_generation;
 static uint64_t rendered_context_generation;
 static audio_current_format_info_t rendered_runtime;
 static bool rendered_runtime_valid;
+static int rendered_stars;
+static int local_stars;
+static bool local_stars_noted;
 
 static uint64_t local_facts_generation;
 static bool local_stat_ok;
@@ -164,15 +170,28 @@ typedef struct {
     bool stat_ok;
     uint64_t file_size;
     double file_duration;
+    int stars;
     atomic_bool done;
 } info_job_t;
 
 static info_job_t * info_job;
 static pthread_t info_thread;
 
-static void * load_local_facts(void * arg) {
-    worker_lower_priority(WORKER_NICE_BACKGROUND);
-    info_job_t * job = arg;
+static void load_file_format(info_job_t * job, const char * path, double cue_start, double cue_end) {
+    gui_track_info_context_t * ctx = &job->context;
+    audio_current_format_info_t format;
+    if (audio_probe_file_format(path, &format)) {
+        ctx->declared_codec = format.codec;
+        ctx->declared_sample_rate = format.source_sample_rate;
+        ctx->declared_bit_depth = format.source_bit_depth;
+        ctx->declared_channels = format.channels;
+        ctx->declared_bitrate_kbps = format.bitrate_kbps;
+        job->file_duration = format.duration_seconds;
+        ctx->declared_duration_seconds = (cue_end >= 0 ? cue_end : format.duration_seconds) - cue_start;
+    }
+}
+
+static void load_file_facts(info_job_t * job) {
     gui_track_info_context_t * ctx = &job->context;
     char path[sizeof(ctx->path)];
     snprintf(path, sizeof(path), "%s", ctx->path);
@@ -181,7 +200,7 @@ static void * load_local_facts(void * arg) {
     if (cue_reference_is(path)) {
         cue_sheet_t sheet;
         unsigned ordinal;
-        if (!cue_reference_resolve(path, &sheet, &ordinal)) goto done;
+        if (!cue_reference_resolve(path, &sheet, &ordinal)) return;
         cue_track_t * track = &sheet.tracks[ordinal - 1];
         snprintf(path, sizeof(path), "%s", track->audio_path);
         cue_start = track->start_seconds;
@@ -198,25 +217,37 @@ static void * load_local_facts(void * arg) {
         job->stat_ok = true;
         job->file_size = (uint64_t) st.st_size;
     }
-    audio_current_format_info_t format;
-    if (audio_probe_file_format(path, &format)) {
-        ctx->declared_codec = format.codec;
-        ctx->declared_sample_rate = format.source_sample_rate;
-        ctx->declared_bit_depth = format.source_bit_depth;
-        ctx->declared_channels = format.channels;
-        ctx->declared_bitrate_kbps = format.bitrate_kbps;
-        job->file_duration = format.duration_seconds;
-        ctx->declared_duration_seconds = (cue_end >= 0 ? cue_end : format.duration_seconds) - cue_start;
-    }
+    load_file_format(job, path, cue_start, cue_end);
     ctx->track_number = meta.track_number;
     ctx->disc_number = meta.disc_number;
     ctx->has_track_number = meta.has_track_number;
     ctx->has_disc_number = meta.has_disc_number;
     free(meta.picture_data);
     free(meta.lyrics);
-done:
+}
+
+static void * load_local_facts(void * arg) {
+    worker_lower_priority(WORKER_NICE_BACKGROUND);
+    info_job_t * job = arg;
+    job->stars = rating_writer_stars(job->context.path);
+    if (job->context.source == GUI_TRACK_SOURCE_LOCAL) load_file_facts(job);
     atomic_store_explicit(&job->done, true, memory_order_release);
     return NULL;
+}
+
+static bool info_is_current_track(void) {
+    const char * path = gui_player_get_current_track_path();
+    return gui_player_has_active_track() && path && strcmp(path, current_context.path) == 0;
+}
+
+void gui_track_info_note_current_rating(int stars) {
+    if (!info_is_current_track()) return;
+    local_stars = stars;
+    local_stars_noted = true;
+}
+
+static int info_stars(void) {
+    return info_is_current_track() ? now_playing_stars : local_stars;
 }
 
 static void poll_local_facts(bool load) {
@@ -224,6 +255,7 @@ static void poll_local_facts(bool load) {
         pthread_join(info_thread, NULL);
         if (info_job->generation == context_generation) {
             current_context = info_job->context;
+            if (!local_stars_noted) local_stars = info_job->stars;
             local_stat_ok = info_job->stat_ok;
             local_file_size = info_job->file_size;
             local_file_duration = info_job->file_duration;
@@ -233,11 +265,12 @@ static void poll_local_facts(bool load) {
         info_job = NULL;
     }
     if (!load || local_facts_generation == context_generation) return;
+    local_stars = 0;
     local_stat_ok = false;
     local_file_size = 0;
     local_file_duration = 0;
     if (info_job) return;
-    if (current_context.source != GUI_TRACK_SOURCE_LOCAL || !current_context.path[0]) return;
+    if (!current_context.path[0]) return;
     info_job_t * job = calloc(1, sizeof(*job));
     if (!job) return;
     job->context = current_context;
@@ -245,6 +278,7 @@ static void poll_local_facts(bool load) {
     atomic_init(&job->done, false);
     if (worker_thread_create(&info_thread, 512 * 1024, load_local_facts, job) != 0) { free(job); return; }
     info_job = job;
+    local_stars_noted = false;
     local_facts_generation = context_generation;
 }
 
@@ -258,6 +292,14 @@ static bool current_runtime(audio_current_format_info_t * out) {
      * presented as information for the new one. */
     if (!current_context.path[0]) return true;
     return strcmp(out->path, current_context.path) == 0;
+}
+
+static void add_rating_line(void) {
+    int stars = info_stars();
+    if (stars <= 0) return;
+    char value[16];
+    snprintf(value, sizeof(value), "%d/5", stars);
+    add_info_line(TR("Rating"), value);
 }
 
 static void rebuild_info_text(const audio_current_format_info_t * runtime, bool runtime_valid) {
@@ -341,6 +383,7 @@ static void rebuild_info_text(const audio_current_format_info_t * runtime, bool 
     }
 
     add_info_section(TR("Track"));
+    add_rating_line();
     value[0] = '\0';
     if (current_context.has_disc_number && current_context.has_track_number)
         snprintf(value, sizeof(value), TR("Disc %d / Track %d"), current_context.disc_number,
@@ -483,6 +526,7 @@ void gui_track_info_open(void) {
     audio_current_format_info_t runtime;
     bool valid = current_runtime(&runtime);
     rebuild_info_text(valid ? &runtime : NULL, valid);
+    rendered_stars = info_stars();
     rendered_context_generation = context_generation;
     rendered_runtime_valid = valid;
     if (valid) rendered_runtime = runtime;
@@ -511,9 +555,11 @@ void gui_track_info_poll(void) {
     previous.generation = 0;
     bool runtime_changed = valid != rendered_runtime_valid ||
         (valid && memcmp(&runtime, &previous, sizeof(runtime)) != 0);
-    if (rendered_context_generation == context_generation && !runtime_changed) return;
+    if (rendered_context_generation == context_generation && !runtime_changed &&
+        rendered_stars == info_stars()) return;
 
     rebuild_info_text(valid ? &runtime : NULL, valid);
+    rendered_stars = info_stars();
     rendered_context_generation = context_generation;
     rendered_runtime_valid = valid;
     if (valid) rendered_runtime = runtime;

@@ -1,6 +1,7 @@
 #pragma once
 #include <lvgl/lvgl.h>
 #include <stdbool.h>
+#include "../library/browse/gui_library.h"
 
 /* Screen accessors */
 lv_obj_t * gui_settings_get_screen(void);
@@ -50,5 +51,5 @@ void gui_display_apply_rotation(bool upside_down);
 
 void gui_settings_sleep_timer_row_cb(lv_event_t * e);
 
-/* Shared order popup for the Files and Albums header buttons. */
-void gui_settings_open_sorting(bool files);
+/* Shared order popup for the library header buttons. */
+void gui_settings_open_sorting(gui_library_sort_scope_t scope);

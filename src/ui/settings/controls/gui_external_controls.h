@@ -7,6 +7,6 @@
 void gui_external_controls_poll(void);
 
 /* UI thread only */
-void gui_external_controls_publish_status(bool favorite);
+void gui_external_controls_publish_status(int stars);
 
 #endif /* GUI_EXTERNAL_CONTROLS_H */

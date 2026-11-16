@@ -44,7 +44,7 @@ typedef struct {
     int32_t first_seen;
     int32_t playcount;
     int32_t last_played;
-    int32_t rating; /* 1 = favorite, matching Rockbox's rating tag */
+    int32_t rating; /* see song_rating.h, matching Rockbox's rating tag */
     int32_t track_number;
     int32_t disc_number;
     int32_t release_year; /* -1 when absent; 0 for legacy rows not yet rescanned */
@@ -192,6 +192,8 @@ int tagcache_album_group_sorted_offset(int sort, const char *album, const char *
 /* Inverse lookup for a known canonical album-group rank, including reverse. */
 bool tagcache_album_group_sorted_rank(int sort, int canonical_rank, int *sorted_rank_out);
 bool tagcache_album_sort_available(int sort);
+/* False on the legacy reader, where reaching a far title rank rescans the catalog. */
+bool tagcache_title_ranks_indexed(void);
 
 int tagcache_group_count(int kind);
 bool tagcache_group_at(int kind, int index, tagcache_group_t * out);

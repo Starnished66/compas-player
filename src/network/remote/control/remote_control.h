@@ -70,13 +70,13 @@ typedef enum {
  * path is the currently-playing file on disk. play_mode is gui.c's play_mode_t
  * cast to int (0=Sequential, 1=Repeat All, 2=Repeat One,
  * 3=Shuffle with repeat, 4=Shuffle once).
- * favorite is the player's cached heart state for that track. accent_rgb is
+ * stars is the player's cached rating for that track. accent_rgb is
  * the effective UI accent copied by the UI-thread caller; the network thread
  * only reads its published snapshot. dac_mode identifies the receiver that
  * owns playback; its cached stream replaces local track state. */
 void remote_control_notify_status(bool playing, bool paused, const char * title, const char * artist,
                                    const char * album, const char * path, int position_seconds,
-                                   int duration_seconds, float volume, int play_mode, bool favorite,
+                                   int duration_seconds, float volume, int play_mode, int stars,
                                    uint32_t accent_rgb, remote_dac_mode_t dac_mode);
 void remote_control_notify_library_sorting(int albums, int artists, int album_artists);
 bool remote_control_consume_library_sorting(int *scope, int *mode);
@@ -113,8 +113,7 @@ bool remote_control_consume_queue_play(int * out_offset, uint64_t * out_revision
 /* POST /api/folders/play: absolute path of a playable file to play with its
  * folder as the queue. */
 bool remote_control_consume_folder_play(char * out_path, size_t path_size);
-/* A favorites request changed some song's flag; the UI reloads its
- * now-playing heart. */
+/* A rating or favorites request changed a song; reload its now-playing rating. */
 bool remote_control_consume_favorite_changed(void);
 
 /* Snapshot the live playback queue for GET /api/queue. */

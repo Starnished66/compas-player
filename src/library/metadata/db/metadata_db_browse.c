@@ -1,4 +1,5 @@
 #include "metadata_db_internal.h"
+#include "../../title_order.h"
 
 #include "../../../core/text/utf8_util.h"
 
@@ -347,8 +348,6 @@ int64_t metadata_db_get_group_offset(metadata_db_group_kind_t kind, const char *
     return idx >= 0 ? idx : -1;
 }
 
-/* First byte of the name (group) or title (song) at index, ASCII-lowered;
- * false when the row cannot be read. group_kind < 0 means title order. */
 static bool az_first_char(int group_kind, int index, unsigned char * out) {
     unsigned char first;
     if (group_kind >= 0) {
@@ -399,42 +398,48 @@ void metadata_db_get_az_table(metadata_db_az_kind_t kind, int out_table[27]) {
     }
 }
 
-void metadata_db_get_album_az_table_sorted(metadata_db_album_sort_t sort, int out_table[27]) {
+void metadata_db_get_az_table_sorted(metadata_db_az_kind_t kind, bool reverse, int out_table[27]) {
     METADATA_DB_GUARD;
-    if (!(sort & METADATA_DB_ALBUM_SORT_REVERSE)) {
-        metadata_db_get_az_table(METADATA_DB_AZ_ALBUM, out_table);
+    if (!reverse) {
+        metadata_db_get_az_table(kind, out_table);
         return;
     }
     for (int i = 0; i < 27; i++) out_table[i] = -1;
     if (!metadata_db_db_ready) return;
-    int count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    int group_kind = az_kind_to_group(kind);
+    int count = group_kind >= 0 ? tagcache_group_count(group_kind) : tagcache_live_count();
     for (int letter = 0; letter < 26; letter++) {
         int lo = 0, hi = count;
         unsigned char target = (unsigned char)('a' + letter), first;
         while (lo < hi) {
             int mid = lo + (hi - lo) / 2;
-            if (!az_first_char(TAGCACHE_GROUP_ALBUM, mid, &first)) break;
+            if (!az_first_char(group_kind, mid, &first)) break;
             if (first <= target) lo = mid + 1; else hi = mid;
         }
-        out_table[letter] = lo > 0 && az_first_char(TAGCACHE_GROUP_ALBUM, lo - 1, &first) && first == target
-            ? count - lo : -1;
+        out_table[letter] = lo > 0 && az_first_char(group_kind, lo - 1, &first) && first == target
+            ? title_order_index(lo - 1, count, true) : -1;
     }
     for (int i = 1; i < 26; i++)
         if (out_table[i] < 0) out_table[i] = out_table[i - 1];
     out_table[26] = -1;
     unsigned char first;
-    if (count > 0 && az_first_char(TAGCACHE_GROUP_ALBUM, count - 1, &first) &&
+    if (count > 0 && az_first_char(group_kind, count - 1, &first) &&
         (first < 'a' || first > 'z')) {
         out_table[26] = 0;
-    } else if (count > 0 && az_first_char(TAGCACHE_GROUP_ALBUM, 0, &first) && first < 'a') {
+    } else if (count > 0 && az_first_char(group_kind, 0, &first) && first < 'a') {
         int lo = 0, hi = count;
         while (lo < hi) {
             int mid = lo + (hi - lo) / 2;
-            if (!az_first_char(TAGCACHE_GROUP_ALBUM, mid, &first)) return;
+            if (!az_first_char(group_kind, mid, &first)) return;
             if (first < 'a') lo = mid + 1; else hi = mid;
         }
-        out_table[26] = count - lo;
+        out_table[26] = title_order_index(lo - 1, count, true);
     }
+}
+
+void metadata_db_get_album_az_table_sorted(metadata_db_album_sort_t sort, int out_table[27]) {
+    metadata_db_get_az_table_sorted(METADATA_DB_AZ_ALBUM,
+                                  (sort & METADATA_DB_ALBUM_SORT_REVERSE) != 0, out_table);
 }
 
 int metadata_db_search_names(metadata_db_az_kind_t kind, const char *needle, int max_rows,
@@ -1029,4 +1034,15 @@ bool metadata_db_walk_group_songs(metadata_db_group_kind_t kind, const char * na
     free(mtimes);
     free(batch);
     return ok;
+}
+
+int metadata_db_get_songs_at_title_ranks(const int *ranks, int count, song_row_t *out_rows) {
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready || !ranks || !out_rows) return 0;
+    for (int i = 0; i < count; i++) {
+        tagcache_song_t song;
+        if (!tagcache_song_at_title_rank(ranks[i], &song)) return 0;
+        metadata_db_copy_song(&song, &out_rows[i]);
+    }
+    return count;
 }

@@ -212,7 +212,7 @@ static void add_user_playlist_row(int i) {
         lv_obj_add_flag(lv_obj_get_child(row, 1), LV_OBJ_FLAG_FLOATING);
     }
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_SHORT_CLICKED, (void *) (intptr_t) (4 + i));
+    lv_obj_add_event_cb(row, playlist_row_click_cb, LV_EVENT_SHORT_CLICKED, (void *) (intptr_t) (GUI_PLAYLIST_SYSTEM_COUNT + i));
     lv_obj_add_event_cb(row, playlist_row_long_press_cb, LV_EVENT_LONG_PRESSED, (void *) (intptr_t) i);
 }
 
@@ -232,7 +232,8 @@ static void populate_playlists_screen(void) {
     lv_obj_add_event_cb(create, new_playlist_row_cb, LV_EVENT_CLICKED, (void *) 1);
     build_list_section(playlists_list, TR("System playlists"));
 
-    add_system_playlist_row(TR("Favorites"), 0);
+    add_system_playlist_row(TR("Top rated"), GUI_PLAYLIST_ROW_FAVORITES);
+    add_system_playlist_row(TR("Top rated albums"), GUI_PLAYLIST_ROW_FAVORITE_ALBUMS);
     add_system_playlist_row(TR("Most played"), 1);
     add_system_playlist_row(TR("Queue"), 2);
     add_system_playlist_row(TR("Recently added"), 3);
@@ -397,11 +398,11 @@ static void playlist_row_click_cb(lv_event_t *event) {
     if (code != LV_EVENT_CLICKED && code != LV_EVENT_SHORT_CLICKED) return;
     int index = (int)(intptr_t)lv_event_get_user_data(event);
     if (index < 0) return;
-    if (index < 4) {
+    if (index < GUI_PLAYLIST_SYSTEM_COUNT) {
         if (open_row_cb) open_row_cb((gui_playlist_row_kind_t)index, NULL, NULL, NULL, 0);
         return;
     }
-    int i = index - 4;
+    int i = index - GUI_PLAYLIST_SYSTEM_COUNT;
     if (i < 0 || i >= playlists_m3u_count) return;
     (void)open_saved_playlist_path(playlists_m3u_paths[i]);
 }

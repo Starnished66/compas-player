@@ -17,9 +17,13 @@ void metadata_db_mutex_init(void) {
 static const char * const *names;
 static int count, reads;
 int tagcache_group_count(int kind) { (void)kind; return count; }
-int32_t tagcache_live_count(void) { return 0; }
+int32_t tagcache_live_count(void) { return count; }
 bool tagcache_song_fields_at_title_rank(int32_t rank, unsigned fields, tagcache_song_t *out) {
-    (void)rank; (void)fields; (void)out; return false;
+    (void)fields;
+    if (rank < 0 || rank >= count) return false;
+    reads++;
+    out->title = names[rank];
+    return true;
 }
 bool tagcache_group_at(int kind, int row, tagcache_group_t *out) {
     (void)kind;
@@ -33,6 +37,9 @@ static void check(const char * const *rows, int n, int a, int z, int other) {
     int jump[27];
     metadata_db_get_album_az_table_sorted(METADATA_DB_ALBUM_SORT_REVERSE, jump);
     assert(jump[0] == a && jump[25] == z && jump[26] == other);
+    int songs[27];
+    metadata_db_get_az_table_sorted(METADATA_DB_AZ_ALL_SONGS, true, songs);
+    assert(!memcmp(jump, songs, sizeof(jump)));
 }
 int main(void) {
     const char *mixed[] = { "10cc", "20cc", "Abba", "Another", "Zappa" };

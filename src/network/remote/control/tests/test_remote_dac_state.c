@@ -20,6 +20,7 @@
 
 extern const luaL_Reg plugin_playback_funcs[];
 extern void handle_status_get(int fd);
+extern void handle_rating_edit_request(int fd, const char * path);
 
 static bool owns_output;
 static bool usb_owns_output;
@@ -32,10 +33,11 @@ bool __wrap_gui_shell_bt_dac_owns_output(void) { return owns_output; }
 bool __wrap_gui_shell_usb_dac_owns_output(void) { return usb_owns_output; }
 
 /* Synchronous response avoids the unrelated HTTP timeout integration tests. */
-static cJSON * status_json(void) {
+static cJSON * response_json(const char * rating_path) {
     int sv[2];
     assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
-    handle_status_get(sv[1]);
+    if (rating_path) handle_rating_edit_request(sv[1], rating_path);
+    else handle_status_get(sv[1]);
     close(sv[1]);
     char response[8192] = {0};
     size_t used = 0;
@@ -48,6 +50,27 @@ static cJSON * status_json(void) {
     cJSON *json = cJSON_Parse(body + 4);
     assert(json);
     return json;
+}
+
+static cJSON * status_json(void) {
+    return response_json(NULL);
+}
+
+static void assert_rating_queries(void) {
+    const char * values[] = {"0", "1", "2", "3", "4", "5", "6", "-1", "", "1.5", "abc"};
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+        char path[128];
+        snprintf(path, sizeof(path), "/api/ratings/set?rating=%s", values[i]);
+        cJSON * json = response_json(path);
+        assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "error")), "rating_error") == 0);
+        /* Valid ratings reach target validation without writing a song. */
+        assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "code")),
+                      i < 6 ? "invalid_target" : "invalid_rating") == 0);
+        cJSON_Delete(json);
+    }
+    cJSON * json = response_json("/api/ratings/set?current=1");
+    assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "code")), "invalid_rating") == 0);
+    cJSON_Delete(json);
 }
 
 static void assert_local_starts_refused(void) {
@@ -73,6 +96,7 @@ static void assert_local_starts_refused(void) {
 }
 
 int main(void) {
+    assert_rating_queries();
     lv_init();
     assert(ui_fonts_init());
     assert(lv_sdl_window_create(360, 640));
@@ -105,7 +129,7 @@ int main(void) {
     cJSON_Delete(json);
     for (int mode = 0; mode < 2; mode++) {
         remote_control_notify_status(true, true, "Local", "Artist", "Album", "music/test.wav",
-                                     12, 60, 0.5, 0, true, 0, mode ? REMOTE_DAC_BLUETOOTH : REMOTE_DAC_NONE);
+                                     12, 60, 0.5, 0, 3, 0, mode ? REMOTE_DAC_BLUETOOTH : REMOTE_DAC_NONE);
         json = status_json();
         assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "dac_mode")), mode ? "bluetooth" : "none") == 0);
         assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "bluetooth_dac_mode")) == mode);
@@ -115,21 +139,23 @@ int main(void) {
         assert(cJSON_GetObjectItem(json, "position_seconds")->valueint == (mode ? 0 : 12));
         assert(cJSON_GetObjectItem(json, "duration_seconds")->valueint == (mode ? 0 : 60));
         assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "favorite")) == !mode);
+        assert(cJSON_GetObjectItem(json, "rating")->valueint == (mode ? 0 : 3));
         cJSON_Delete(json);
     }
     remote_control_notify_status(true, false, "Local", "Artist", "Album", "music/test.wav",
-                                 12, 60, 0.5, 0, true, 0, REMOTE_DAC_USB);
+                                 12, 60, 0.5, 0, 3, 0, REMOTE_DAC_USB);
     json = status_json();
     assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "dac_mode")), "usb") == 0);
     assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "bluetooth_dac_mode")));
     assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "playing")));
     assert(cJSON_IsFalse(cJSON_GetObjectItem(json, "favorite")));
+    assert(cJSON_GetObjectItem(json, "rating")->valueint == 0);
     assert(cJSON_GetObjectItem(json, "position_seconds")->valueint == 0);
     assert(strcmp(cJSON_GetStringValue(cJSON_GetObjectItem(json, "title")), "") == 0);
     cJSON_Delete(json);
     usb_streaming = true;
     remote_control_notify_status(true, false, "Local", "Artist", "Album", "music/test.wav",
-                                 12, 60, 0.5, 0, true, 0, REMOTE_DAC_USB);
+                                 12, 60, 0.5, 0, 3, 0, REMOTE_DAC_USB);
     json = status_json();
     assert(cJSON_IsTrue(cJSON_GetObjectItem(json, "playing")));
     assert(cJSON_GetObjectItem(json, "source_sample_rate")->valueint == 96000);

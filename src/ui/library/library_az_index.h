@@ -29,6 +29,7 @@ bool library_az_index_register_table(lv_obj_t * screen, lv_obj_t * list, library
                                      library_az_index_allowed_t allowed);
 /* Whether the strip of this list may show now (true for a list with no strip). */
 bool library_az_index_list_allowed(lv_obj_t * list);
+void library_az_index_set_reverse(lv_obj_t *screen, bool reverse);
 void library_az_index_unregister(lv_obj_t * screen);
 /* Clears the library's own (db-backed) registry and visibility-timer state only. Callers preserve the
  * existing screen deletion/re-registration order; drag state/timer are not

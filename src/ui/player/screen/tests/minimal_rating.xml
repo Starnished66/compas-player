@@ -1,0 +1,11 @@
+<component>
+    <view extends="lv_obj" width="#screen_w" height="#screen_h">
+        <lv_obj name="cover_card" width="100" height="100">
+            <lv_image name="cover_img" src="default_cover" />
+        </lv_obj>
+        <lv_label name="title" text="Minimal rating" />
+        <lv_image name="play_btn" src="btn_play" />
+        <lv_slider name="progress_slider" width="100" />
+        <lv_obj name="favorite_circle" width="80" height="44" style_pad_all="0" />
+    </view>
+</component>

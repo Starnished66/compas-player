@@ -1,4 +1,5 @@
 #include "metadata_db_internal.h"
+#include "song_rating.h"
 
 #include "../../browser/paths/path_cache.h"
 #include "../../remote/remote_state.h"
@@ -14,12 +15,6 @@
 static void free_paths(char ** paths, int n) {
     for (int i = 0; i < n; i++) free(paths[i]);
     free(paths);
-}
-
-static int cmp_path_ptr(const void * a, const void * b) {
-    const char * const * pa = a;
-    const char * const * pb = b;
-    return tagcache_cmp_ascii(*pa, *pb);
 }
 
 typedef struct {
@@ -157,82 +152,107 @@ static void played_hits_to_paths(const played_hit_t * hits, int n, char *** out_
     *out_count = w;
 }
 
-bool metadata_db_song_favorite_is_set(const char * path) {
+int metadata_db_song_rating_get(const char * path) {
     METADATA_DB_GUARD;
-    if (!metadata_db_db_ready || !path) return false;
+    if (!metadata_db_db_ready || !path) return 0;
     tagcache_song_t song;
-    if (tagcache_song_by_path(path, &song)) return song.rating != 0;
+    if (tagcache_song_by_path(path, &song)) return song_rating_stars(song.rating);
     int32_t rating = 0;
-    if (!remote_state_get(path, &rating, NULL, NULL)) return false;
-    return rating != 0;
+    if (!remote_state_get(path, &rating, NULL, NULL)) return 0;
+    return song_rating_stars(rating);
 }
 
-void metadata_db_song_favorite_set(const char * path, bool is_favorite) {
+void metadata_db_song_rating_set(const char * path, int stars) {
     METADATA_DB_GUARD;
     if (!metadata_db_db_ready || !path) return;
-    if (tagcache_song_by_path(path, NULL)) tagcache_set_rating(path, is_favorite ? 1 : 0);
-    else remote_state_set_rating(path, is_favorite ? 1 : 0);
+    if (tagcache_song_by_path(path, NULL)) {
+        tagcache_set_rating(path, song_rating_stored(stars));
+        remote_state_note_rating_change();
+    }
+    else remote_state_set_rating(path, song_rating_stored(stars));
 }
 
-/* How long a confirmed favorite write waits for the card. */
-#define FAVORITE_DURABLE_TIMEOUT_MS 10000
+/* How long a confirmed rating write waits for the card. */
+#define RATING_DURABLE_TIMEOUT_MS 10000
 
-bool metadata_db_song_favorite_set_durable(const char * path, bool is_favorite) {
+bool metadata_db_song_rating_set_durable(const char * path, int stars) {
     int waiter;
     {
         METADATA_DB_GUARD;
         if (!metadata_db_db_ready || !path) return false;
-        /* The sidecar stays under the lock, as in metadata_db_song_favorite_set(),
+        /* The sidecar stays under the lock, as in metadata_db_song_rating_set(),
          * so a concurrent scan cannot migrate the row between check and write. */
-        if (!tagcache_song_by_path(path, NULL)) return remote_state_set_rating(path, is_favorite ? 1 : 0);
-        waiter = tagcache_set_rating_durable_begin(path, is_favorite ? 1 : 0);
+        if (!tagcache_song_by_path(path, NULL)) return remote_state_set_rating(path, song_rating_stored(stars));
+        waiter = tagcache_set_rating_durable_begin(path, song_rating_stored(stars));
+        if (waiter) remote_state_note_rating_change();
     }
     /* The flush and fdatasync wait happens outside the database lock, which
      * the UI thread takes every tick. */
-    return waiter && tagcache_numeric_wait_durable(waiter, FAVORITE_DURABLE_TIMEOUT_MS);
+    return waiter && tagcache_numeric_wait_durable(waiter, RATING_DURABLE_TIMEOUT_MS);
 }
 
-void metadata_db_load_favorite_songs(char *** out_paths, int * out_count) {
+typedef struct {
+    char * path;
+    int stars;
+} rated_path_t;
+
+static int cmp_rated_path(const void * a, const void * b) {
+    const rated_path_t * pa = a;
+    const rated_path_t * pb = b;
+    if (pa->stars != pb->stars) return pb->stars - pa->stars;
+    return tagcache_cmp_ascii(pa->path, pb->path);
+}
+
+/* Caller holds METADATA_DB_GUARD. Legacy stored 1 decodes to 5 stars. */
+static bool collect_rated_paths(rated_path_t ** hits, int * count) {
+    int cap = 0;
+    int32_t slots = tagcache_slot_count();
+    for (int32_t i = 0; i < slots; i++) {
+        tagcache_song_t song;
+        if (!tagcache_song_fields_by_id(i + 1, 0, &song)) continue;
+        if (song_rating_stars(song.rating) < 3) continue;
+        if (*count >= cap) {
+            if (cap > INT_MAX / 2) return false;
+            int next = cap ? cap * 2 : 16;
+            if ((size_t) next > SIZE_MAX / sizeof(**hits)) return false;
+            rated_path_t * grown = realloc(*hits, sizeof(*grown) * (size_t) next);
+            if (!grown) return false;
+            *hits = grown;
+            cap = next;
+        }
+        if (!tagcache_song_fields_by_id(i + 1, TAGCACHE_FIELD_PATH, &song)) return false;
+        char * path = strdup(song.path);
+        if (!path) return false;
+        (*hits)[(*count)++] = (rated_path_t) { path, song_rating_stars(song.rating) };
+    }
+    return true;
+}
+
+void metadata_db_load_favorite_songs(char *** out_paths, int * out_count, int ** out_stars) {
+    if (out_stars) *out_stars = NULL;
     METADATA_DB_GUARD;
     *out_paths = NULL;
     *out_count = 0;
     if (!metadata_db_db_ready) return;
-    int32_t slots = tagcache_slot_count();
-    char ** paths = NULL;
-    int n = 0, cap = 0;
-    bool ok = true;
-    for (int32_t i = 0; i < slots; i++) {
-        tagcache_song_t song;
-        if (!tagcache_song_fields_by_id(i + 1, 0, &song)) continue;
-        if (song.rating == 0) continue;
-        if (n >= cap) {
-            int next = cap ? cap * 2 : 16;
-            char ** p = realloc(paths, sizeof(*p) * (size_t) next);
-            if (!p) {
-                ok = false;
-                break;
-            }
-            paths = p;
-            cap = next;
+    rated_path_t * hits = NULL;
+    int n = 0;
+    bool ok = collect_rated_paths(&hits, &n);
+    char ** paths = ok && n > 0 ? malloc(sizeof(*paths) * (size_t) n) : NULL;
+    int * stars = out_stars && paths ? malloc(sizeof(*stars) * (size_t)n) : NULL;
+    if (out_stars && !stars) { free(paths); paths = NULL; }
+    if (paths) {
+        qsort(hits, (size_t) n, sizeof(*hits), cmp_rated_path);
+        for (int i = 0; i < n; i++) {
+            paths[i] = hits[i].path;
+            if (stars) stars[i] = hits[i].stars;
         }
-        if (!tagcache_song_fields_by_id(i + 1, TAGCACHE_FIELD_PATH, &song)) {
-            ok = false;
-            break;
-        }
-        paths[n] = strdup(song.path);
-        if (!paths[n]) {
-            ok = false;
-            break;
-        }
-        n++;
+        if (out_stars) *out_stars = stars;
+        *out_paths = paths;
+        *out_count = n;
+    } else {
+        for (int i = 0; i < n; i++) free(hits[i].path);
     }
-    if (!ok || n == 0) {
-        free_paths(paths, n);
-        return;
-    }
-    qsort(paths, (size_t) n, sizeof(*paths), cmp_path_ptr);
-    *out_paths = paths;
-    *out_count = n;
+    free(hits);
 }
 
 void metadata_db_song_play_count_increment(const char * path) {
@@ -442,4 +462,72 @@ bool metadata_db_walk_song_identities(bool (*visit)(const char * path, int32_t m
     }
     free(paths);
     return ok;
+}
+
+/* Ranks read per guard hold, so UI page queries never wait for the whole scan. */
+#define RATING_ORDER_BATCH 64
+
+static bool rating_bucket_page(uint8_t *stars, int first, int end, int sections[6],
+                                int32_t generation) {
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready || tagcache_generation() != generation) return false;
+    for (int rank = first; rank < end; rank++) {
+        tagcache_song_t song;
+        if (!tagcache_song_fields_at_title_rank(rank, 0, &song)) return false;
+        stars[rank] = song_rating_stars(song.rating);
+        sections[stars[rank]]++;
+    }
+    return true;
+}
+
+bool metadata_db_try_rating_order_available(void) {
+    if (!metadata_db_query_try_lock()) return false;
+    bool available = metadata_db_db_ready && tagcache_title_ranks_indexed();
+    metadata_db_query_unlock();
+    return available;
+}
+
+static bool rating_order_size(int *count, int32_t *generation) {
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready || !tagcache_title_ranks_indexed()) return false;
+    *count = tagcache_live_count();
+    *generation = tagcache_generation();
+    return true;
+}
+
+static void rating_ranks(const uint8_t *stars, int count, const int sections[6], int *ranks) {
+    int positions[6], offset = 0;
+    for (int s = 5; s >= 0; s--) {
+        positions[s] = offset;
+        offset += sections[s];
+    }
+    for (int rank = 0; rank < count; rank++) ranks[positions[stars[rank]]++] = rank;
+}
+
+bool metadata_db_load_rating_order(int **out_ranks, int out_sections[6],
+                                   int *out_count, int32_t *out_generation) {
+    *out_ranks = NULL;
+    *out_count = 0;
+    memset(out_sections, 0, sizeof(int) * 6);
+    int count;
+    if (!rating_order_size(&count, out_generation)) return false;
+    if (count <= 0) return true;
+    int *ranks = malloc(sizeof(*ranks) * (size_t)count);
+    uint8_t *stars = malloc((size_t)count);
+    bool valid = ranks && stars;
+    for (int first = 0; valid && first < count; first += RATING_ORDER_BATCH) {
+        int end = count - first > RATING_ORDER_BATCH ? first + RATING_ORDER_BATCH : count;
+        valid = rating_bucket_page(stars, first, end, out_sections, *out_generation);
+    }
+    if (!valid) {
+        free(ranks);
+        free(stars);
+        memset(out_sections, 0, sizeof(int) * 6);
+        return false;
+    }
+    rating_ranks(stars, count, out_sections, ranks);
+    free(stars);
+    *out_ranks = ranks;
+    *out_count = count;
+    return true;
 }

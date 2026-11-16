@@ -1,4 +1,5 @@
 #include "metadata_db_internal.h"
+#include "album_rating.h"
 
 #include "../../browser/paths/path_cache.h"
 #include "../../../core/persistence/storage_paths.h"
@@ -547,6 +548,9 @@ bool metadata_db_put(const char * path, int64_t mtime, int64_t size, const cache
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
     if (!metadata_db_db_ready || !tags) return true;
+    /* Single production entry point for tagcache upserts.
+     * album:// is never a scanned file path or a migration candidate. */
+    if (path && !strncmp(path, ALBUM_RATING_PREFIX, sizeof(ALBUM_RATING_PREFIX) - 1)) return false;
     display_song_cache_invalidate();
     bool tags_changed = true;
     tagcache_upsert_year_changed(path, clamp_i32(mtime), clamp_i32(size), tags->title, tags->artist, tags->album,

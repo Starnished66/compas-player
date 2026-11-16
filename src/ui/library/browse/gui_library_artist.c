@@ -3,6 +3,9 @@
 #include "gui_library_internal.h"
 #include "gui_artist_data.h"
 #include "gui_artist_page.h"
+#include "gui_album_header.h"
+#include "../../../library/metadata/db/album_rating.h"
+#include "../../widgets/controls/gui_rating_popup.h"
 #include "../../../core/process/worker_thread.h"
 #include "../../diagnostics/ui_frame_trace.h"
 #include "../library_thumbnails.h"
@@ -743,6 +746,13 @@ static void show_collection_menu(bool album) {
     lv_obj_t * popup = album ? album_collection_menu_popup : collection_menu_popup;
     lv_obj_t * backdrop = album ? album_collection_menu_backdrop : collection_menu_backdrop;
     if (!popup || !backdrop) return;
+    if (album) {
+        char key[ALBUM_RATING_KEY_SIZE];
+        lv_obj_t *row = build_menu_popup_row(popup, 0);
+        bool valid = album_rating_key(collection_menu_album_artist, collection_menu_name, key, sizeof(key));
+        if (valid) lv_obj_remove_state(row, LV_STATE_DISABLED);
+        else lv_obj_add_state(row, LV_STATE_DISABLED);
+    }
     gui_popup_backdrop_show(backdrop);
     lv_obj_remove_flag(popup, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1026,6 +1036,27 @@ static void artist_page_menu_cb(void) {
     open_artist_collection_menu(&group, artist_albums_current_kind);
 }
 
+static char rating_menu_artist[128], rating_menu_album[128];
+
+static void collection_rating_changed(int stars, void *data) {
+    (void)data;
+    metadata_db_album_rating_set(rating_menu_artist, rating_menu_album, stars);
+    gui_album_header_note_rating(rating_menu_artist, rating_menu_album, stars);
+}
+
+static void collection_rate_album_cb(lv_event_t *e) {
+    if (library_rescan_active || lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    snprintf(rating_menu_artist, sizeof(rating_menu_artist), "%s", collection_menu_album_artist);
+    snprintf(rating_menu_album, sizeof(rating_menu_album), "%s", collection_menu_name);
+    hide_collection_menu();
+    int stars = 0;
+    bool cached = gui_album_header_rating(rating_menu_artist, rating_menu_album, &stars);
+    gui_rating_popup_open(TR("Rate album"), stars, collection_rating_changed, NULL);
+    char key[ALBUM_RATING_KEY_SIZE];
+    if (!cached && album_rating_key(rating_menu_artist, rating_menu_album, key, sizeof(key)))
+        gui_rating_popup_load_stars(key);
+}
+
 void build_collection_menus(void) {
     const menu_popup_row_t rows[] = {
         { TR("Play all shuffled"), collection_play_shuffled_cb, false },
@@ -1035,6 +1066,7 @@ void build_collection_menus(void) {
         { TR("Cancel"), collection_menu_backdrop_cb, false, true },
     };
     const menu_popup_row_t album_rows[] = {
+        { TR("Rate album"), collection_rate_album_cb, false },
         { TR("Play all shuffled"), collection_play_shuffled_cb, false },
         { TR("Play sequentially"), collection_play_sequential_cb, false },
         { TR("Add a random song to queue"), collection_add_random_cb, false },

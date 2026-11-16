@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gui_group_songs_internal.h"
+#include "../../../library/remote/remote_state.h"
+#include <pthread.h>
+#include <stdatomic.h>
 
 static void refresh_group_songs_search_now_playing(void);
 static int group_probe_page_start;
@@ -115,6 +118,100 @@ static void set_group_songs_entries(const group_song_entry_t * entries, int coun
     group_songs_entries_generation++;
     group_songs_entries = NULL;
     group_songs_count = copy_group_song_entries(&group_songs_entries, entries, count) ? count : 0;
+}
+
+static int *favorite_stars;
+static unsigned favorite_generation, favorite_revision;
+static lv_timer_t *favorite_timer;
+typedef struct {
+    pthread_t thread;
+    atomic_bool done;
+    unsigned generation, revision;
+    group_song_entry_t *entries;
+    int *stars, count;
+} group_favorites_job_t;
+static group_favorites_job_t *favorite_job;
+static void group_favorites_schedule(void);
+
+static void group_favorites_clear(void) {
+    ++favorite_generation;
+    if (favorite_timer) lv_timer_delete(favorite_timer);
+    favorite_timer = NULL;
+    free(favorite_stars);
+    favorite_stars = NULL;
+}
+
+static void *group_favorites_load(void *data) {
+    group_favorites_job_t *job = data;
+    char **paths = NULL;
+    metadata_db_load_favorite_songs(&paths, &job->count, &job->stars);
+    job->entries = group_song_entries_take_paths(paths, job->count);
+    if (!job->entries) job->count = 0;
+    atomic_store_explicit(&job->done, true, memory_order_release);
+    return NULL;
+}
+
+/* A new list or teardown invalidates the result without blocking the UI. */
+static void group_favorites_job_poll(lv_timer_t *timer) {
+    group_favorites_job_t *job = favorite_job;
+    if (!atomic_load_explicit(&job->done, memory_order_acquire)) return;
+    pthread_join(job->thread, NULL);
+    if (group_songs_screen && job->generation == favorite_generation &&
+        group_songs_refresh_source == GROUP_SONGS_REFRESH_FAVORITES) {
+        free(favorite_stars);
+        favorite_stars = job->stars;
+        favorite_revision = job->revision;
+        cancel_group_song_probes();
+        group_songs_page_start = 0;
+        group_songs_anchor_pending = false;
+        set_group_songs_entries_owned(job->entries, job->count);
+        job->entries = NULL;
+        job->stars = NULL;
+        populate_group_songs_rows();
+    }
+    free_group_song_entries(job->entries, job->count);
+    free(job->stars);
+    free(job);
+    favorite_job = NULL;
+    lv_timer_delete(timer);
+}
+
+static void group_favorites_schedule(void) {
+    if (favorite_job) return;
+    group_favorites_job_t *job = calloc(1, sizeof(*job));
+    if (!job) return;
+    atomic_init(&job->done, false);
+    job->generation = favorite_generation;
+    job->revision = remote_state_revision();
+    lv_timer_t *timer = lv_timer_create(group_favorites_job_poll, 25, NULL);
+    if (!timer) { free(job); return; }
+    if (pthread_create(&job->thread, NULL, group_favorites_load, job)) {
+        lv_timer_delete(timer);
+        free(job);
+        return;
+    }
+    favorite_job = job;
+}
+
+static void group_favorites_poll(lv_timer_t *timer) {
+    (void)timer;
+    if (lv_screen_active() == group_songs_screen &&
+        favorite_revision != remote_state_revision()) group_favorites_schedule();
+}
+
+void group_songs_show_favorites(void) {
+    group_favorites_clear();
+    favorite_revision = remote_state_revision() - 1;
+    show_group_songs(TR("Top rated"), NULL, 0);
+    favorite_timer = lv_timer_create(group_favorites_poll, 250, NULL);
+    group_favorites_schedule();
+}
+
+int group_songs_rating_section(int index) {
+    if (group_songs_refresh_source != GROUP_SONGS_REFRESH_FAVORITES ||
+        !favorite_stars || index < 0 || index >= group_songs_count) return 0;
+    return index == group_songs_page_start || favorite_stars[index] != favorite_stars[index - 1]
+        ? favorite_stars[index] : 0;
 }
 
 /* Sibling to set_group_songs_entries() that takes ownership of an already
@@ -224,6 +321,10 @@ void playlist_start_selected(bool shuffle) {
     if (playlist_start_source == PLAY_ALL_SOURCE_RECENTLY_ADDED) {
         set_player_source_recently_added(index);
         on_file_selected_lazy_recently_added(index);
+    } else if (playlist_start_source == PLAY_ALL_SOURCE_ALL_SONGS && all_songs_rating_active()) {
+        all_songs_rating_play(index);
+    } else if (playlist_start_source == PLAY_ALL_SOURCE_ALL_SONGS && all_songs_title_reversed()) {
+        on_file_selected_lazy_all_songs_reverse(index);
     } else if (playlist_start_source == PLAY_ALL_SOURCE_ALL_SONGS) {
         set_player_source_all_songs(index);
         on_file_selected_lazy_all_songs(index);
@@ -443,6 +544,7 @@ void group_songs_place_now_playing_bar(bool laid_out) {
 static void group_songs_screen_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_DELETE) {
+        group_favorites_clear();
         gui_album_header_forget();
         gui_album_header_release_cover();
         library_thumbnails_forget_list(group_songs_list);
@@ -491,6 +593,7 @@ static void show_group_songs_editable_impl(const char * name, const group_song_e
         show_error_toast(TR("Out of memory"));
         return;
     }
+    if (group_songs_refresh_source != GROUP_SONGS_REFRESH_FAVORITES) group_favorites_clear();
     album_load_bump_generation();
     group_songs_source_is_album = group_songs_refresh_source == GROUP_SONGS_REFRESH_ALBUM;
     group_songs_music_submenu = music_submenu;
@@ -521,7 +624,7 @@ void show_group_songs_editable(const char * name, const group_song_entry_t * ent
 
 void show_group_songs(const char * name, const group_song_entry_t * entries, int count) {
     /* The title arrives already translated (show_favorites()/show_most_played()). */
-    group_songs_refresh_source = name && strcmp(name, TR("Favorites")) == 0 ? GROUP_SONGS_REFRESH_FAVORITES
+    group_songs_refresh_source = name && strcmp(name, TR("Top rated")) == 0 ? GROUP_SONGS_REFRESH_FAVORITES
                                 : name && strcmp(name, TR("Most played")) == 0 ? GROUP_SONGS_REFRESH_MOST_PLAYED
                                 : GROUP_SONGS_REFRESH_NONE;
     show_group_songs_editable(name, entries, count, NULL, false);
@@ -551,6 +654,7 @@ void show_group_songs_take_ownership(const char * name, group_song_entry_t * ent
         show_error_toast(TR("Out of memory"));
         return;
     }
+    if (group_songs_refresh_source != GROUP_SONGS_REFRESH_FAVORITES) group_favorites_clear();
     album_load_bump_generation();
     group_songs_source_is_album = false;
     group_songs_music_submenu = true;
@@ -644,6 +748,7 @@ void library_thumbnail_show_busy(library_thumbnail_cover_scope_t scope) {
 /* Called after list deletion: unregistering is pointer identity only, so it never
  * touches a freed LVGL object. */
 void forget_deleted_library_lists(void) {
+    all_songs_rating_teardown();
     lv_obj_t *dead[] = { all_songs_list, artists_list, albums_list, album_artist_list,
                          recently_added_list, genres_list };
     for (size_t i = 0; i < sizeof(dead) / sizeof(dead[0]); ++i)
@@ -754,14 +859,13 @@ void refresh_group_songs_from_database(void) {
         return;
     group_songs_page_start = 0;
     switch (group_songs_refresh_source) {
-        case GROUP_SONGS_REFRESH_FAVORITES: {
-            char ** paths = NULL;
-            int count = 0;
-            metadata_db_load_favorite_songs(&paths, &count);
-            group_songs_set_from_paths(paths, count);
-            populate_group_songs_rows();
+        case GROUP_SONGS_REFRESH_FAVORITES:
+            /* A load already running may predate this refresh: drop its result and
+             * leave the revision stale so the poll schedules a fresh one. */
+            ++favorite_generation;
+            favorite_revision = remote_state_revision() - 1;
+            group_favorites_schedule();
             break;
-        }
         case GROUP_SONGS_REFRESH_MOST_PLAYED: {
             char ** paths = NULL;
             int count = 0;

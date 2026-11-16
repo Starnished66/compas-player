@@ -1,6 +1,6 @@
 #include "track_metadata_worker.h"
 #include "../metadata/db/metadata_db.h"
-#include "../playlists/favorite_writer.h"
+#include "../playlists/rating_writer.h"
 #include "../../core/ui/display/ui_wake.h"
 #include <pthread.h>
 #include <stdio.h>
@@ -67,12 +67,13 @@ static void * worker(void * unused) {
     (void) unused;
     for (;;) {
         pthread_mutex_lock(&mutex);
-        while (!pending_valid[0] && !pending_valid[1] && !pending_valid[2] && !play_count)
+        while (!pending_valid[0] && !pending_valid[1] && !pending_valid[2] && !pending_valid[3] && !play_count)
             pthread_cond_wait(&cond, &mutex);
         /* Manual CURRENT display work goes first; NEXT remains independently queued. */
         int lane = pending_valid[TRACK_METADATA_CURRENT] ? TRACK_METADATA_CURRENT :
                    pending_valid[TRACK_METADATA_NEXT] ? TRACK_METADATA_NEXT :
-                   pending_valid[TRACK_METADATA_FAVORITE] ? TRACK_METADATA_FAVORITE : -1;
+                   pending_valid[TRACK_METADATA_RATING] ? TRACK_METADATA_RATING :
+                   pending_valid[TRACK_METADATA_POPUP] ? TRACK_METADATA_POPUP : -1;
         if (play_count && (lane < 0 || (serviced_metadata && lane != TRACK_METADATA_NEXT))) {
             serviced_metadata = false;
             char * path = play_events[play_head];
@@ -132,7 +133,7 @@ static void * worker(void * unused) {
             if (provisional_published) ui_wake_notify();
         }
         if (!obsolete && lane != TRACK_METADATA_NEXT) {
-            result.favorite = favorite_writer_is_set(result.request.path);
+            result.stars = rating_writer_stars(result.request.path);
             if (result.request.probe)
                 result.has_probe = audio_probe_file_format(result.request.path, &result.probe);
         }

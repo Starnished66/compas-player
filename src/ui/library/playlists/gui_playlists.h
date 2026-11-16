@@ -8,8 +8,11 @@ typedef enum {
     GUI_PLAYLIST_ROW_MOST_PLAYED = 1,
     GUI_PLAYLIST_ROW_QUEUE = 2,
     GUI_PLAYLIST_ROW_RECENTLY_ADDED = 3,
+    GUI_PLAYLIST_ROW_FAVORITE_ALBUMS = 4,
     GUI_PLAYLIST_ROW_SAVED_M3U = -1
 } gui_playlist_row_kind_t;
+
+#define GUI_PLAYLIST_SYSTEM_COUNT 5
 
 /* For SAVED_M3U, name/path/songs are borrowed only for the synchronous call;
  * the playlist owner frees songs immediately after the callback returns. */

@@ -4,13 +4,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Path-keyed sidecar for favorite/play-count state of tracks that are not
- * tagcache rows: remote:// plugin keys, Subsonic stream URLs, and local
- * files played before they are scanned. Local-library screens still list
- * only tagcache rows; this file is the invisible persistence those docs
- * describe. When a path is later upserted into tagcache, take() migrates
- * the row across. */
+/* Path-keyed ratings/play counts for remote tracks and unscanned files,
+ * plus album:// rating rows. Scanning migrates file rows into tagcache;
+ * synthetic album rows stay in this sidecar. */
 
+typedef struct { char *path; int32_t rating; } remote_state_rating_t;
+/* Caller frees each copied path and the array. */
+remote_state_rating_t *remote_state_list_prefix(const char *prefix, int *count);
+/* Cheap change token for refreshing visible rating lists. */
+unsigned remote_state_revision(void);
+/* Publish a rating change stored outside the sidecar (tagcache). */
+void remote_state_note_rating_change(void);
 /* Drops the in-RAM sidecar so the next access rereads the file on the
  * currently mounted SD card. */
 void remote_state_drop(void);
