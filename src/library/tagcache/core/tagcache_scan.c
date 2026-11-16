@@ -3,6 +3,11 @@
 #include "tagcache_scan_intern.h"
 #include <strings.h>
 
+static _Atomic uint32_t stats_revision;
+
+uint32_t tagcache_stats_revision(void) { return atomic_load(&stats_revision); }
+void tagcache_stats_changed(void) { atomic_fetch_add(&stats_revision, 1); }
+
 bool updating;
 _Atomic bool update_failed;
 /* A scan starts as a read-only view.  Bits are set by lookups and are only
@@ -559,7 +564,7 @@ static void set_song_stats(const char *path, int mode, int32_t rating, int32_t c
         struct index_entry idx;
         if (slot >= 0 && reader_index(slot, &idx) && !(idx.flag & FLAG_DELETED)) {
             update_stats(&idx, mode, rating, count, last);
-            queue_numeric_update(slot, &idx, waiter);
+            if (queue_numeric_update(slot, &idx, waiter)) tagcache_stats_changed();
             if (scan_initializing) scan_journal_stats(slot, &idx);
         }
     }
@@ -569,6 +574,7 @@ static void set_song_stats(const char *path, int mode, int32_t rating, int32_t c
         struct index_entry idx;
         if (slot >= 0 && reader_index(slot, &idx) && !(idx.flag & FLAG_DELETED)) {
             update_stats(&idx, mode, rating, count, last);
+            /* Staging is invisible to readers until publication changes the generation. */
             if (scan_write_index(slot, &idx)) scan_journal_stats(slot, &idx);
         }
     }

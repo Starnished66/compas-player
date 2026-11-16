@@ -17,6 +17,102 @@ static void free_paths(char ** paths, int n) {
     free(paths);
 }
 
+/* Match the rating-order loader's bounded guard holds. */
+#define RATING_ORDER_BATCH 64
+
+typedef struct {
+    int32_t slots, generation;
+    uint32_t incarnation, stats_revision;
+    bool stale;
+} library_scan_t;
+
+/* Caller holds the guard. Incarnation also detects close/reopen with the same generation. */
+static bool library_scan_current(library_scan_t *scan) {
+    bool current = metadata_db_db_ready && tagcache_generation() == scan->generation &&
+                   metadata_db_db_incarnation == scan->incarnation &&
+                   tagcache_stats_revision() == scan->stats_revision;
+    if (!current) scan->stale = true;
+    return current;
+}
+
+static bool library_scan_begin(library_scan_t *scan) {
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready) return false;
+    *scan = (library_scan_t) { .slots = tagcache_slot_count(), .generation = tagcache_generation(),
+                             .incarnation = metadata_db_db_incarnation,
+                             .stats_revision = tagcache_stats_revision() };
+    return true;
+}
+
+static bool library_scan_finish(library_scan_t *scan) {
+    METADATA_DB_GUARD;
+    return library_scan_current(scan);
+}
+
+/* Batched scans tried first; then scans holding the guard for the whole walk,
+ * like the loaders always did, so continuous rating, play or refresh activity
+ * cannot keep a result from completing. While held, only the numeric worker
+ * dropping its overlay (storage replaced) can still change a value, so a held
+ * scan that sees it reruns once. Each attempt owns and frees its partial state. */
+#define LIBRARY_SCAN_BATCHED_ATTEMPTS 3
+#define LIBRARY_SCAN_HELD_ATTEMPTS 2
+
+static bool library_scan_once(void (*attempt)(library_scan_t *, void *), void *user) {
+    library_scan_t scan = {0};
+    if (!library_scan_begin(&scan)) return true;
+    attempt(&scan, user);
+    return !scan.stale;
+}
+
+static void library_scan_retry(void (*attempt)(library_scan_t *, void *), void *user) {
+    for (int i = 0; i < LIBRARY_SCAN_BATCHED_ATTEMPTS; i++)
+        if (library_scan_once(attempt, user)) return;
+    METADATA_DB_GUARD;
+    for (int i = 0; i < LIBRARY_SCAN_HELD_ATTEMPTS; i++)
+        if (library_scan_once(attempt, user)) return;
+}
+
+typedef struct {
+    int32_t id, rating, playcount, last_played;
+    char path[TAGCACHE_PATH_MAX];
+} library_slot_t;
+
+/* Copy borrowed reader data before releasing the guard. Selection and allocation
+ * by the visitor happen outside it. Surviving slots retain their stable IDs. */
+static bool library_scan_slots(library_scan_t *scan, bool paths,
+                               bool (*visit)(const library_slot_t *, void *), void *user) {
+    library_slot_t *batch = malloc(sizeof(*batch) * RATING_ORDER_BATCH);
+    if (!batch) return false;
+    bool ok = true;
+    for (int32_t first = 0; ok && first < scan->slots;) {
+        int count = scan->slots - first < RATING_ORDER_BATCH ? scan->slots - first : RATING_ORDER_BATCH;
+        int copied = 0;
+        {
+            METADATA_DB_GUARD;
+            ok = library_scan_current(scan);
+            for (int i = 0; ok && i < count; i++) {
+                tagcache_song_t song;
+                if (!tagcache_song_fields_by_id(first + i + 1, 0, &song)) continue;
+                if (paths && song_rating_stars(song.rating) < 3) continue;
+                if (paths && !tagcache_song_fields_by_id(first + i + 1, TAGCACHE_FIELD_PATH, &song)) {
+                    ok = false;
+                    break;
+                }
+                library_slot_t *slot = &batch[copied++];
+                slot->id = song.id;
+                slot->rating = song.rating;
+                slot->playcount = song.playcount;
+                slot->last_played = song.last_played;
+                if (paths) snprintf(slot->path, sizeof(slot->path), "%s", song.path);
+            }
+        }
+        for (int i = 0; ok && i < copied; i++) ok = visit(&batch[i], user);
+        first += count;
+    }
+    free(batch);
+    return ok && library_scan_finish(scan);
+}
+
 typedef struct {
     int32_t id;
     int32_t count;
@@ -71,80 +167,89 @@ static void played_hit_heap_sift_down(played_hit_t * heap, int count, int index,
     }
 }
 
-/* Caller holds METADATA_DB_GUARD. Streams every slot once and keeps the best
- * `limit` played songs by cmp in a bounded heap. recent selects songs with a
- * last-played stamp, otherwise songs with a play count. On success *out_hits
- * is sorted by cmp (NULL when none), and *out_total counts every matching
- * song, not just the kept ones. Returns false on allocation failure. */
-static bool collect_played_hits(int limit, bool recent, played_hit_t ** out_hits, int * out_count,
-                                int * out_total) {
-    played_hit_cmp_t cmp = recent ? cmp_hit_recent : cmp_hit_played;
-    *out_hits = NULL;
-    *out_count = 0;
-    if (out_total) *out_total = 0;
-    int32_t slots = tagcache_slot_count();
-    played_hit_t * hits = NULL;
-    int n = 0, cap = 0, total = 0;
-    for (int32_t i = 0; i < slots; i++) {
-        tagcache_song_t song;
-        if (!tagcache_song_fields_by_id(i + 1, 0, &song)) continue;
-        if (recent ? song.last_played <= 0 : song.playcount <= 0) continue;
-        if (total < INT_MAX) total++;
-        played_hit_t candidate = {
-            .id = song.id,
-            .count = song.playcount,
-            .last_played = song.last_played,
-            .ordinal = i,
-        };
-        if (n < limit) {
-            if (n >= cap) {
-                int next = cap ? (cap > limit / 2 ? limit : cap * 2) : 16;
-                if (next > limit) next = limit;
-                if ((size_t) next > SIZE_MAX / sizeof(*hits)) {
-                    free(hits);
-                    return false;
-                }
-                played_hit_t * h = realloc(hits, sizeof(*h) * (size_t) next);
-                if (!h) {
-                    free(hits);
-                    return false;
-                }
-                hits = h;
-                cap = next;
+typedef struct {
+    played_hit_t *hits;
+    int n, cap, total, limit;
+    bool recent;
+    played_hit_cmp_t cmp;
+} played_scan_t;
+
+static bool collect_played_slot(const library_slot_t *song, void *user) {
+    played_scan_t *state = user;
+    if (state->recent ? song->last_played <= 0 : song->playcount <= 0) return true;
+    if (state->total < INT_MAX) state->total++;
+    played_hit_t candidate = { song->id, song->playcount, song->last_played, song->id - 1 };
+    played_hit_t *hits = state->hits;
+    int n = state->n, cap = state->cap, limit = state->limit;
+    played_hit_cmp_t cmp = state->cmp;
+    if (n < limit) {
+        if (n >= cap) {
+            int next = cap ? (cap > limit / 2 ? limit : cap * 2) : 16;
+            if (next > limit) next = limit;
+            if ((size_t) next > SIZE_MAX / sizeof(*hits)) {
+                state->hits = hits;
+                return false;
             }
-            hits[n] = candidate;
-            played_hit_heap_sift_up(hits, n, cmp);
-            n++;
-        } else if (cmp(&candidate, &hits[0]) < 0) {
-            hits[0] = candidate;
-            played_hit_heap_sift_down(hits, n, 0, cmp);
+            played_hit_t * h = realloc(hits, sizeof(*h) * (size_t) next);
+            if (!h) {
+                state->hits = hits;
+                return false;
+            }
+            hits = h;
+            cap = next;
         }
+        hits[n] = candidate;
+        played_hit_heap_sift_up(hits, n, cmp);
+        n++;
+    } else if (cmp(&candidate, &hits[0]) < 0) {
+        hits[0] = candidate;
+        played_hit_heap_sift_down(hits, n, 0, cmp);
     }
-    if (n > 0) qsort(hits, (size_t) n, sizeof(*hits), cmp);
-    else {
-        free(hits);
-        hits = NULL;
-    }
-    *out_hits = hits;
-    *out_count = n;
-    if (out_total) *out_total = total;
+    state->hits = hits;
+    state->n = n;
+    state->cap = cap;
     return true;
 }
 
-/* Caller holds METADATA_DB_GUARD. Copies each hit's path, all or nothing. */
-static void played_hits_to_paths(const played_hit_t * hits, int n, char *** out_paths, int * out_count) {
+/* Keeps a bounded heap and counts all matches, outside the database guard. */
+static bool collect_played_hits(int limit, bool recent, played_hit_t **out_hits, int *out_count,
+                                int *out_total, library_scan_t *scan) {
+    *out_hits = NULL;
+    *out_count = 0;
+    if (out_total) *out_total = 0;
+    played_scan_t state = { .limit = limit, .recent = recent,
+                           .cmp = recent ? cmp_hit_recent : cmp_hit_played };
+    if (!library_scan_slots(scan, false, collect_played_slot, &state)) {
+        free(state.hits);
+        return false;
+    }
+    if (state.n) qsort(state.hits, (size_t)state.n, sizeof(*state.hits), state.cmp);
+    *out_hits = state.hits;
+    *out_count = state.n;
+    if (out_total) *out_total = state.total;
+    return true;
+}
+
+/* Copy selected paths with bounded guard holds, all or nothing. */
+static void played_hits_to_paths(library_scan_t *scan, const played_hit_t * hits, int n, char *** out_paths, int * out_count) {
     if (n <= 0) return;
     char ** paths = malloc(sizeof(*paths) * (size_t) n);
     if (!paths) return;
     int w = 0;
     for (int i = 0; i < n; i++) {
-        tagcache_song_t song;
-        if (!tagcache_song_fields_by_id(hits[i].id, TAGCACHE_FIELD_PATH, &song)) break;
-        paths[w] = strdup(song.path);
+        char path[TAGCACHE_PATH_MAX];
+        {
+            METADATA_DB_GUARD;
+            tagcache_song_t song;
+            if (!library_scan_current(scan) ||
+                !tagcache_song_fields_by_id(hits[i].id, TAGCACHE_FIELD_PATH, &song)) break;
+            snprintf(path, sizeof(path), "%s", song.path);
+        }
+        paths[w] = strdup(path);
         if (!paths[w]) break;
         w++;
     }
-    if (w != n) {
+    if (w != n || !library_scan_finish(scan)) {
         free_paths(paths, w);
         return;
     }
@@ -203,40 +308,54 @@ static int cmp_rated_path(const void * a, const void * b) {
     return tagcache_cmp_ascii(pa->path, pb->path);
 }
 
-/* Caller holds METADATA_DB_GUARD. Legacy stored 1 decodes to 5 stars. */
-static bool collect_rated_paths(rated_path_t ** hits, int * count) {
-    int cap = 0;
-    int32_t slots = tagcache_slot_count();
-    for (int32_t i = 0; i < slots; i++) {
-        tagcache_song_t song;
-        if (!tagcache_song_fields_by_id(i + 1, 0, &song)) continue;
-        if (song_rating_stars(song.rating) < 3) continue;
-        if (*count >= cap) {
-            if (cap > INT_MAX / 2) return false;
-            int next = cap ? cap * 2 : 16;
-            if ((size_t) next > SIZE_MAX / sizeof(**hits)) return false;
-            rated_path_t * grown = realloc(*hits, sizeof(*grown) * (size_t) next);
-            if (!grown) return false;
-            *hits = grown;
-            cap = next;
-        }
-        if (!tagcache_song_fields_by_id(i + 1, TAGCACHE_FIELD_PATH, &song)) return false;
-        char * path = strdup(song.path);
-        if (!path) return false;
-        (*hits)[(*count)++] = (rated_path_t) { path, song_rating_stars(song.rating) };
+typedef struct {
+    rated_path_t *hits;
+    int count, cap;
+} rated_scan_t;
+
+/* Legacy stored 1 decodes to 5 stars. */
+static bool collect_rated_slot(const library_slot_t *song, void *user) {
+    rated_scan_t *state = user;
+    if (state->count >= state->cap) {
+        if (state->cap > INT_MAX / 2) return false;
+        int next = state->cap ? state->cap * 2 : 16;
+        if ((size_t)next > SIZE_MAX / sizeof(*state->hits)) return false;
+        rated_path_t *grown = realloc(state->hits, sizeof(*grown) * (size_t)next);
+        if (!grown) return false;
+        state->hits = grown;
+        state->cap = next;
     }
+    char *path = strdup(song->path);
+    if (!path) return false;
+    state->hits[state->count++] = (rated_path_t) { path, song_rating_stars(song->rating) };
     return true;
 }
 
-void metadata_db_load_favorite_songs(char *** out_paths, int * out_count, int ** out_stars) {
+static bool collect_rated_paths(rated_path_t **hits, int *count, library_scan_t *scan) {
+    rated_scan_t state = {0};
+    bool ok = library_scan_slots(scan, true, collect_rated_slot, &state);
+    *hits = state.hits;
+    *count = state.count;
+    return ok;
+}
+
+typedef struct {
+    char ***paths;
+    int *count, **stars;
+    int limit;
+    bool recent;
+} path_request_t;
+
+static void favorite_attempt(library_scan_t *scan, void *user) {
+    path_request_t *request = user;
+    char ***out_paths = request->paths;
+    int *out_count = request->count, **out_stars = request->stars;
     if (out_stars) *out_stars = NULL;
-    METADATA_DB_GUARD;
     *out_paths = NULL;
     *out_count = 0;
-    if (!metadata_db_db_ready) return;
     rated_path_t * hits = NULL;
     int n = 0;
-    bool ok = collect_rated_paths(&hits, &n);
+    bool ok = collect_rated_paths(&hits, &n, scan);
     char ** paths = ok && n > 0 ? malloc(sizeof(*paths) * (size_t) n) : NULL;
     int * stars = out_stars && paths ? malloc(sizeof(*stars) * (size_t)n) : NULL;
     if (out_stars && !stars) { free(paths); paths = NULL; }
@@ -246,13 +365,26 @@ void metadata_db_load_favorite_songs(char *** out_paths, int * out_count, int **
             paths[i] = hits[i].path;
             if (stars) stars[i] = hits[i].stars;
         }
-        if (out_stars) *out_stars = stars;
-        *out_paths = paths;
-        *out_count = n;
+        if (library_scan_finish(scan)) {
+            if (out_stars) *out_stars = stars;
+            *out_paths = paths;
+            *out_count = n;
+        } else {
+            free_paths(paths, n);
+            free(stars);
+        }
     } else {
         for (int i = 0; i < n; i++) free(hits[i].path);
     }
     free(hits);
+}
+
+void metadata_db_load_favorite_songs(char ***out_paths, int *out_count, int **out_stars) {
+    *out_paths = NULL;
+    *out_count = 0;
+    if (out_stars) *out_stars = NULL;
+    path_request_t request = { .paths = out_paths, .count = out_count, .stars = out_stars };
+    library_scan_retry(favorite_attempt, &request);
 }
 
 void metadata_db_song_play_count_increment(const char * path) {
@@ -263,55 +395,84 @@ void metadata_db_song_play_count_increment(const char * path) {
     else remote_state_add_play(path, now);
 }
 
-/* Caller holds METADATA_DB_GUARD. Paths of the best `limit` songs by play
+/* Paths of the best `limit` songs by play
  * count, or by last-played time when recent. */
-static void load_played_paths(int limit, bool recent, char *** out_paths, int * out_count) {
-    *out_paths = NULL;
-    *out_count = 0;
-    if (!metadata_db_db_ready || limit <= 0) return;
-    played_hit_t * hits = NULL;
+static void played_paths_attempt(library_scan_t *scan, void *user) {
+    path_request_t *request = user;
+    played_hit_t *hits = NULL;
     int n = 0;
-    if (!collect_played_hits(limit, recent, &hits, &n, NULL)) return;
-    played_hits_to_paths(hits, n, out_paths, out_count);
+    if (!collect_played_hits(request->limit, request->recent, &hits, &n, NULL, scan)) return;
+    played_hits_to_paths(scan, hits, n, request->paths, request->count);
     free(hits);
 }
 
+static void load_played_paths(int limit, bool recent, char ***out_paths, int *out_count) {
+    *out_paths = NULL;
+    *out_count = 0;
+    if (limit <= 0) return;
+    path_request_t request = { .paths = out_paths, .count = out_count, .limit = limit, .recent = recent };
+    library_scan_retry(played_paths_attempt, &request);
+}
+
 void metadata_db_load_top_played_songs(int limit, char *** out_paths, int * out_count) {
-    METADATA_DB_GUARD;
     load_played_paths(limit, false, out_paths, out_count);
 }
 
 void metadata_db_load_recently_played_songs(int limit, char *** out_paths, int * out_count) {
-    METADATA_DB_GUARD;
     if (limit > METADATA_DB_RECENTLY_PLAYED_MAX) limit = METADATA_DB_RECENTLY_PLAYED_MAX;
     load_played_paths(limit, true, out_paths, out_count);
 }
 
-int metadata_db_get_recently_played_page(int offset, int max_rows, song_row_t * out_rows,
-                                         int64_t * out_last_played, int * out_total) {
-    METADATA_DB_GUARD;
-    if (out_total) *out_total = 0;
-    if (!metadata_db_db_ready || offset < 0 || max_rows <= 0 || !out_rows) return -1;
-    if (offset >= METADATA_DB_RECENTLY_PLAYED_MAX) offset = METADATA_DB_RECENTLY_PLAYED_MAX;
-    int keep = METADATA_DB_RECENTLY_PLAYED_MAX - offset < max_rows ? METADATA_DB_RECENTLY_PLAYED_MAX
-                                                                   : offset + max_rows;
+typedef struct {
+    int offset, max_rows, keep, result;
+    song_row_t *rows;
+    int64_t *last_played;
+    int *total;
+} page_request_t;
+
+static void recent_page_attempt(library_scan_t *scan, void *user) {
+    page_request_t *request = user;
+    int offset = request->offset, max_rows = request->max_rows, keep = request->keep;
+    song_row_t *out_rows = request->rows;
+    int64_t *out_last_played = request->last_played;
+    int *out_total = request->total;
     played_hit_t * hits = NULL;
     int n = 0, total = 0;
-    if (!collect_played_hits(keep, true, &hits, &n, &total)) return -1;
-    if (out_total) *out_total = total < METADATA_DB_RECENTLY_PLAYED_MAX ? total : METADATA_DB_RECENTLY_PLAYED_MAX;
+    if (!collect_played_hits(keep, true, &hits, &n, &total, scan)) return;
+    if (total > METADATA_DB_RECENTLY_PLAYED_MAX) total = METADATA_DB_RECENTLY_PLAYED_MAX;
     int w = 0;
     for (int i = offset; i < n && w < max_rows; i++) {
         tagcache_song_t song;
-        if (!tagcache_song_by_id(hits[i].id, &song)) {
+        METADATA_DB_GUARD;
+        if (!library_scan_current(scan)) {
             free(hits);
-            return -1;
+            return;
+        }
+        if (!tagcache_song_by_id(hits[i].id, &song)) {
+            if (out_total) *out_total = total;
+            free(hits);
+            return;
         }
         metadata_db_copy_song(&song, &out_rows[w]);
         if (out_last_played) out_last_played[w] = hits[i].last_played;
         w++;
     }
     free(hits);
-    return w;
+    if (!library_scan_finish(scan)) return;
+    if (out_total) *out_total = total;
+    request->result = w;
+}
+
+int metadata_db_get_recently_played_page(int offset, int max_rows, song_row_t *out_rows,
+                                        int64_t *out_last_played, int *out_total) {
+    if (out_total) *out_total = 0;
+    if (offset < 0 || max_rows <= 0 || !out_rows) return -1;
+    if (offset >= METADATA_DB_RECENTLY_PLAYED_MAX) offset = METADATA_DB_RECENTLY_PLAYED_MAX;
+    int keep = METADATA_DB_RECENTLY_PLAYED_MAX - offset < max_rows ? METADATA_DB_RECENTLY_PLAYED_MAX
+                                                                  : offset + max_rows;
+    page_request_t request = { offset, max_rows, keep, -1, out_rows, out_last_played, out_total };
+    library_scan_retry(recent_page_attempt, &request);
+    return request.result;
 }
 
 void metadata_db_load_recently_added_songs(int limit, char *** out_paths, int * out_count) {
@@ -463,9 +624,6 @@ bool metadata_db_walk_song_identities(bool (*visit)(const char * path, int32_t m
     free(paths);
     return ok;
 }
-
-/* Ranks read per guard hold, so UI page queries never wait for the whole scan. */
-#define RATING_ORDER_BATCH 64
 
 static bool rating_bucket_page(uint8_t *stars, int first, int end, int sections[6],
                                 int32_t generation) {

@@ -224,6 +224,8 @@ void tagcache_add_play(const char * path, int32_t now);
 /* Staging-only overlay for statistics moved from remote-state sidecars onto a scanned row. */
 void tagcache_overlay_stats(const char * path, int32_t rating, int32_t playcount, int32_t last_played);
 int32_t tagcache_generation(void);
+/* Read under the database guard, like generation. Never reset on reopen. */
+uint32_t tagcache_stats_revision(void);
 /* 1: legacy raw-title ranks; 2: displayed-title ASCII ranks; 3: Unicode
  * collation; 4: Unicode collation with inverted Spanish punctuation ordering. */
 int tagcache_title_order_version(void);

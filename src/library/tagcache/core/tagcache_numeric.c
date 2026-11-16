@@ -193,6 +193,8 @@ static void numeric_finish_batch_locked(bool ok, bool discarded) {
     else if (numeric_queue_count == 0) numeric_write_failed = false;
     numeric_inflight_active = false;
     numeric_inflight_count = 0;
+    /* Dropping the overlay puts the older values back in view. */
+    if (discarded) tagcache_stats_changed();
     atomic_fetch_add_explicit(&numeric_epoch, 1, memory_order_release);
     pthread_cond_broadcast(&numeric_drain_cond);
 }
@@ -324,16 +326,16 @@ void numeric_worker_stop(void) {
  * skips the degraded-mode synchronous flush (the waiter flushes later,
  * outside the caller's database lock); *waiter gets its handle, 0 when
  * nothing was queued or no waiter slot was free. */
-void queue_numeric_update(int32_t slot, const struct index_entry *idx, int *waiter) {
+bool queue_numeric_update(int32_t slot, const struct index_entry *idx, int *waiter) {
     if (waiter) *waiter = 0;
     numeric_conds_ready();
-    if (!disk_ready || disk_gen < 0) return;
+    if (!disk_ready || disk_gen < 0) return false;
     pthread_mutex_lock(&numeric_mutex);
     int handle = 0;
     if (waiter) {
         for (int w = 0; w < NUMERIC_WAITERS_MAX && !handle; w++)
             if (numeric_waiters[w].state == NUMERIC_WAIT_FREE) handle = w + 1;
-        if (!handle) { pthread_mutex_unlock(&numeric_mutex); return; }
+        if (!handle) { pthread_mutex_unlock(&numeric_mutex); return false; }
     }
     uint64_t ticket = numeric_next_ticket++;
     numeric_update_t *u = numeric_find_locked(numeric_queue, numeric_queue_count, disk_gen, slot);
@@ -345,7 +347,7 @@ void queue_numeric_update(int32_t slot, const struct index_entry *idx, int *wait
         if (numeric_queue_count + numeric_inflight_count >= NUMERIC_QUEUE_CAP) {
             numeric_overflow_failed = true;
             pthread_mutex_unlock(&numeric_mutex);
-            return;
+            return false;
         }
         u = &numeric_queue[numeric_queue_count++];
         u->gen = disk_gen;
@@ -362,6 +364,7 @@ void queue_numeric_update(int32_t slot, const struct index_entry *idx, int *wait
     if (numeric_thread_running) pthread_cond_signal(&numeric_cond);
     pthread_mutex_unlock(&numeric_mutex);
     if (sync) tagcache_flush_numeric();
+    return true;
 }
 
 bool tagcache_numeric_wait_durable(int waiter, int timeout_ms) {

@@ -248,6 +248,8 @@ bool tagcache_sort_prefix(const char *value, unsigned char *prefix, size_t width
 int tagcache_sort_prefix_compare(const unsigned char *a, const unsigned char *b, size_t width, bool *full_compare);
 const char * ascii_casestr(const char * hay, const char * needle);
 int db_logical_directory_status(void);
+/* Advances tagcache_stats_revision(): a value the committed reader shows changed. */
+void tagcache_stats_changed(void);
 bool db_identity_current(void);
 bool db_pin_directory(const char * dir);
 bool tc_read_full(int fd, void *buf, size_t size, off_t offset);
@@ -272,7 +274,7 @@ bool collect_load_generations(int32_t ** out, size_t * count, int32_t pointed, b
 bool tagcache_flush_numeric(void);
 void numeric_worker_start(void);
 void numeric_worker_stop(void);
-void queue_numeric_update(int32_t slot, const struct index_entry *idx, int *waiter);
+bool queue_numeric_update(int32_t slot, const struct index_entry *idx, int *waiter);
 void numeric_overlay(int32_t slot, struct index_entry *idx);
 
 /* tagcache_scan.c */
