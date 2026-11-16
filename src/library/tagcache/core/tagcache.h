@@ -144,6 +144,9 @@ enum {
 /* Numeric fields are always returned; requested string fields are populated. */
 bool tagcache_song_fields_by_id(int32_t id, unsigned fields, tagcache_song_t *out);
 bool tagcache_song_fields_at_title_rank(int32_t rank, unsigned fields, tagcache_song_t *out);
+/* The name the title order sorts by: the title tag, or the file name when it is empty.
+ * Needs TAGCACHE_FIELD_TITLE and TAGCACHE_FIELD_PATH. */
+const char *tagcache_song_display_title(const tagcache_song_t *song);
 /* True when a requested optional tag could not be read for this song (left empty). */
 bool tagcache_song_tags_incomplete(const tagcache_song_t *song);
 bool tagcache_song_fields_at_recency_rank(int32_t rank, unsigned fields, tagcache_song_t *out);

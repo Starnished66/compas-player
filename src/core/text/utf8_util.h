@@ -45,6 +45,9 @@ int utf8_collate_identity_compare_v6(const char * a, const char * b);
 bool utf8_collate_prefix(const char * value, unsigned char * out, size_t width);
 bool utf8_collate_identity_prefix(const char * value, unsigned char * out, size_t width);
 
+/* Sortable prefix matching the frozen v6 identity comparator. */
+bool utf8_collate_identity_prefix_v6(const char * value, unsigned char * out, size_t width);
+
 #ifdef __cplusplus
 }
 #endif

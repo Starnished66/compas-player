@@ -584,7 +584,7 @@ static bool reader_sort_song_fields(int32_t slot, unsigned fields, tagcache_song
     return true;
 }
 
-static const char *reader_display_title(const tagcache_song_t *song) {
+const char *tagcache_song_display_title(const tagcache_song_t *song) {
     if (song->title[0]) return song->title;
     const char *slash = strrchr(song->path, '/');
     return slash ? slash + 1 : song->path;
@@ -634,7 +634,7 @@ static int reader_compare_title_sort(const void *a, const void *b, void *context
             reader_sort_failed = true;
             return (ka->slot > kb->slot) - (ka->slot < kb->slot);
         }
-        c = utf8_collate_compare(reader_display_title(&sa), reader_display_title(&sb));
+        c = utf8_collate_compare(tagcache_song_display_title(&sa), tagcache_song_display_title(&sb));
     }
     return c ? c : (ka->slot > kb->slot) - (ka->slot < kb->slot);
 }
@@ -682,7 +682,7 @@ static int reader_compare_order(const void *a, const void *b, void *context) {
             }
             c = ascii_casecmp(sa.path, sb.path);
         }
-    } else c = utf8_collate_compare(reader_display_title(&sa), reader_display_title(&sb));
+    } else c = utf8_collate_compare(tagcache_song_display_title(&sa), tagcache_song_display_title(&sb));
     return c ? c : (ia > ib) - (ia < ib);
 }
 
@@ -1113,7 +1113,7 @@ bool reader_build_indexes(void) {
         title.slot = slot;
         recency.slot = slot;
         recency.first_seen = idx.tag_seek[tag_commitid];
-        const char *display_title = reader_display_title(&song);
+        const char *display_title = tagcache_song_display_title(&song);
         utf8_collate_prefix(display_title, title.title, sizeof(title.title));
         if (!reader_compact_sort && !tagcache_sort_prefix(song.path, recency.path, sizeof(recency.path))) {
             reader_sort_failed = true;

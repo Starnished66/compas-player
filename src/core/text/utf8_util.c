@@ -319,11 +319,11 @@ int utf8_collate_identity_compare_v6(const char *a, const char *b) {
     return collate_identity_compare(a, b, true);
 }
 
-static bool encode_key(const char *value, unsigned char *out, size_t width, bool identity) {
+static bool encode_key(const char *value, unsigned char *out, size_t width, bool identity, bool legacy_punctuation) {
     if (!out || !width) return false;
     memset(out, 0, width);
     size_t used = 0;
-    collate_iter_t it = {(const unsigned char *)(value ? value : ""), {0}, 0, 0, false, false};
+    collate_iter_t it = {(const unsigned char *)(value ? value : ""), {0}, 0, 0, false, legacy_punctuation};
     unsigned char key;
     while (next_primary_byte(&it, &key)) {
         if (used == width) return false;
@@ -346,11 +346,15 @@ static bool encode_key(const char *value, unsigned char *out, size_t width, bool
 }
 
 bool utf8_collate_prefix(const char *value, unsigned char *out, size_t width) {
-    return encode_key(value, out, width, false);
+    return encode_key(value, out, width, false, false);
 }
 
 bool utf8_collate_identity_prefix(const char *value, unsigned char *out, size_t width) {
-    return encode_key(value, out, width, true);
+    return encode_key(value, out, width, true, false);
+}
+
+bool utf8_collate_identity_prefix_v6(const char *value, unsigned char *out, size_t width) {
+    return encode_key(value, out, width, true, true);
 }
 
 bool utf8_is_valid(const char * text, size_t size) {
