@@ -151,7 +151,9 @@ static void gui_busy_build_cancel(void) {
     lv_obj_add_flag(gui_busy_cancel_btn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(gui_busy_cancel_btn, gui_busy_cancel_event_cb, LV_EVENT_CLICKED, NULL);
 #if !defined(BOARD_TEMPOTEC_V1)
-    lv_obj_align(gui_busy_cancel_btn, LV_ALIGN_CENTER, 0, BOARD_SCALE_PX(110));
+    /* Bottom-anchored so a multi-line progress detail never runs under it. */
+    lv_obj_align(gui_busy_cancel_btn, LV_ALIGN_BOTTOM_MID, 0,
+                 -HOME_INDICATOR_CONTENT_INSET - BOARD_SCALE_PY(16));
 #endif
     lv_obj_t * label = lv_label_create(gui_busy_cancel_btn);
     lv_label_set_text(label, TR("Cancel"));
