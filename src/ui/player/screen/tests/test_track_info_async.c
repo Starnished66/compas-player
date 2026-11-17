@@ -522,7 +522,7 @@ static void tap_rating(lv_indev_t *pointer) {
     lv_indev_read(pointer);
 }
 
-static void check_rating_edge(lv_obj_t *screen, lv_obj_t *hit, const lv_area_t *area) {
+static void check_rating_edge(lv_obj_t *screen, lv_obj_t *hit, const lv_area_t *area, bool on_cover) {
     lv_obj_t *saved = lv_screen_active();
     int animation_scale = current_settings.animation_scale;
     current_settings.animation_scale = 0;
@@ -531,12 +531,16 @@ static void check_rating_edge(lv_obj_t *screen, lv_obj_t *hit, const lv_area_t *
     lv_indev_t *pointer = lv_indev_create();
     lv_indev_set_type(pointer, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(pointer, read_rating_pointer);
-    rating_pointer.point = (lv_point_t){area->x1 + 1, (area->y1 + area->y2) / 2};
+    /* Off the cover the area may reach the shell's top-edge drawer pull, which
+     * takes presses there: tap the lower left corner instead of mid-height. */
+    rating_pointer.point = (lv_point_t){area->x1 + 1, on_cover ? (area->y1 + area->y2) / 2 : area->y2 - 1};
     assert(lv_indev_search_obj(screen, &rating_pointer.point) == hit);
-    lv_obj_t *cover = lv_obj_find_by_name(screen, "cover_img");
-    assert(!lv_obj_hit_test(cover, &rating_pointer.point));
-    assert(!lv_obj_hit_test(lv_obj_find_by_name(screen, "cover_card"), &rating_pointer.point));
-    assert(!point_in_swipe_dead_zone(rating_pointer.point));
+    if (on_cover) {
+        lv_obj_t *cover = lv_obj_find_by_name(screen, "cover_img");
+        assert(!lv_obj_hit_test(cover, &rating_pointer.point));
+        assert(!lv_obj_hit_test(lv_obj_find_by_name(screen, "cover_card"), &rating_pointer.point));
+        assert(!point_in_swipe_dead_zone(rating_pointer.point));
+    }
     current_track = true;
     show_now_playing_rating(2);
     rating_pointer.state = LV_INDEV_STATE_PRESSED;
@@ -563,15 +567,17 @@ static void check_rating_edge(lv_obj_t *screen, lv_obj_t *hit, const lv_area_t *
     assert(find_full_rating(lv_layer_top()));
     assert(star_rating_get(gui_player_rating_control()) == 0);
     gui_rating_popup_teardown();
-    lv_obj_add_event_cb(screen, observe_shell_gesture, LV_EVENT_GESTURE, NULL);
-    check_cover_swipe(pointer, rating_pointer.point, 1);
-    lv_area_t card;
-    lv_obj_get_coords(lv_obj_find_by_name(screen, "cover_card"), &card);
-    lv_point_t middle = {(card.x1 + card.x2) / 2, (card.y1 + card.y2) / 2};
-    check_cover_swipe(pointer, middle, 1);
-    check_cover_swipe(pointer, middle, -1);
-    lv_obj_remove_event_cb(screen, observe_shell_gesture);
-    check_cover_taps(screen, pointer, hit);
+    if (on_cover) {
+        lv_obj_add_event_cb(screen, observe_shell_gesture, LV_EVENT_GESTURE, NULL);
+        check_cover_swipe(pointer, rating_pointer.point, 1);
+        lv_area_t card;
+        lv_obj_get_coords(lv_obj_find_by_name(screen, "cover_card"), &card);
+        lv_point_t middle = {(card.x1 + card.x2) / 2, (card.y1 + card.y2) / 2};
+        check_cover_swipe(pointer, middle, 1);
+        check_cover_swipe(pointer, middle, -1);
+        lv_obj_remove_event_cb(screen, observe_shell_gesture);
+        check_cover_taps(screen, pointer, hit);
+    }
     current_track = false;
     lv_indev_delete(pointer);
     lv_screen_load(saved);
@@ -622,13 +628,96 @@ static void check_rating_geometry(lv_obj_t *screen, lv_obj_t *control) {
     check_inside_clip(lv_obj_find_by_name(screen, "cover_card"), &visible);
     check_rating_clearance(screen, hit, &area);
     check_rating_roles(screen, &area);
-    check_rating_edge(screen, hit, &area);
+    check_rating_edge(screen, hit, &area, true);
     printf("Player star %d, hit %d at %d,%d inside cover %d,%d-%d,%d\n",
            LV_MAX(32, BOARD_SCALE_PX(48)), (int)size, (int)area.x1, (int)area.y1,
            (int)card.x1, (int)card.y1, (int)card.x2, (int)card.y2);
 }
 
-static void check_player_rating(void) {
+static bool rating_anchor_on_cover(lv_obj_t *screen, lv_obj_t *anchor) {
+    lv_obj_t *card = lv_obj_find_by_name(screen, "cover_card");
+    for (lv_obj_t *p = lv_obj_get_parent(anchor); p; p = lv_obj_get_parent(p))
+        if (p == card) return true;
+    return false;
+}
+
+/* The layout's anchor stays where the plugin put it; COMPAS_TEST_ANCHOR is
+ * "x y w h parent_name" read from the XML when those are plain numbers. */
+static void check_anchor_kept(lv_obj_t *anchor) {
+    const char *spec = getenv("COMPAS_TEST_ANCHOR");
+    if (!spec || !*spec) return;
+    int x, y, w, h;
+    char parent[64] = "";
+    int fields = sscanf(spec, "%d %d %d %d %63s", &x, &y, &w, &h, parent);
+    assert(fields >= 4);
+    assert(lv_obj_get_x(anchor) == x && lv_obj_get_y(anchor) == y);
+    assert(lv_obj_get_width(anchor) == w && lv_obj_get_height(anchor) == h);
+    if (fields == 5) assert(!strcmp(lv_obj_get_name(lv_obj_get_parent(anchor)), parent));
+}
+
+/* The count chip may overlap the star but never cover most of it. */
+static void check_chip_leaves_star(lv_obj_t *control) {
+    lv_area_t star, chip, overlap;
+    lv_obj_get_coords(lv_obj_get_child(control, 0), &star);
+    lv_obj_get_coords(rating_chip(control), &chip);
+    if (lv_obj_has_flag(rating_chip(control), LV_OBJ_FLAG_HIDDEN)) return;
+    if (!lv_area_intersect(&overlap, &star, &chip)) return;
+    assert(lv_area_get_size(&overlap) * 2 < lv_area_get_size(&star));
+}
+
+/* Every size a layout can ask for, rated: the star stays visible next to its chip. */
+static void check_small_star_chips(void) {
+    static const int32_t sizes[] = {16, 18, 20, 24, 28, 32, 40, 48};
+    lv_obj_t *screen = lv_obj_create(NULL);
+    for (unsigned i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        lv_obj_t *control = star_rating_create(screen, sizes[i], true);
+        star_rating_set(control, 5);
+        lv_obj_update_layout(screen);
+        assert(!lv_obj_has_flag(rating_chip(control), LV_OBJ_FLAG_HIDDEN));
+        check_chip_leaves_star(control);
+        lv_obj_delete(control);
+    }
+    lv_obj_delete(screen);
+}
+
+static void check_rating_geometry_off_cover(lv_obj_t *screen, lv_obj_t *anchor, lv_obj_t *control) {
+    lv_obj_t *hit = lv_obj_find_by_name(screen, "rating_hit");
+    lv_area_t area, bounds, visible, box;
+    assert(hit);
+    assert(lv_obj_has_flag(anchor, LV_OBJ_FLAG_OVERFLOW_VISIBLE));
+    lv_obj_get_coords(hit, &area);
+    lv_obj_get_coords(screen, &bounds);
+    lv_obj_get_coords(control, &visible);
+    lv_obj_get_coords(anchor, &box);
+    assert(abs(box.x1 + box.x2 - visible.x1 - visible.x2) <= 1);
+    assert(abs(box.y1 + box.y2 - visible.y1 - visible.y2) <= 1);
+    lv_obj_t *icon = lv_obj_find_by_name(screen, "favorite_icon");
+    int32_t star = icon ? lv_obj_get_width(icon) : lv_obj_get_height(anchor);
+    assert(lv_obj_get_width(lv_obj_get_child(control, 0)) == star);
+    assert(area.x1 >= bounds.x1 && area.y1 >= bounds.y1 && area.x2 <= bounds.x2 && area.y2 <= bounds.y2);
+    assert(visible.x1 >= area.x1 && visible.y1 >= area.y1 && visible.x2 <= area.x2 && visible.y2 <= area.y2);
+    int32_t anchor_side = LV_MIN(lv_obj_get_width(anchor), lv_obj_get_height(anchor));
+    assert(lv_area_get_width(&area) <= LV_MAX(LV_MAX(48, BOARD_SCALE_PX(72)), anchor_side));
+    assert(lv_area_get_width(&area) >= anchor_side);
+    check_chip_leaves_star(control);
+    bool edge = area.x1 == bounds.x1 || area.y1 == bounds.y1 || area.x2 == bounds.x2 || area.y2 == bounds.y2;
+    if (!edge) {
+        assert(abs(area.x1 + area.x2 - visible.x1 - visible.x2) <= 1);
+        assert(abs(area.y1 + area.y2 - visible.y1 - visible.y2) <= 1);
+    }
+    /* Shrinking stops at the anchor's size or the control's, whichever is larger: a layout that overlaps its own
+     * anchor with another target (OrbitPlayer's album line, HibysPlayer's
+     * quality line at 320x480) cannot be cleared there; larger areas must be. */
+    if (lv_area_get_width(&area) > LV_MAX(anchor_side, lv_area_get_width(&visible))) {
+        check_rating_clearance(screen, hit, &area);
+        check_rating_roles(screen, &area);
+    }
+    check_rating_edge(screen, hit, &area, false);
+    printf("Player star %d, hit %d at %d,%d beside the cover\n", (int)star,
+           (int)lv_area_get_width(&area), (int)area.x1, (int)area.y1);
+}
+
+static void check_player_rating(bool plugin) {
     lv_obj_t * screen = gui_player_get_screen();
     lv_obj_t * anchor = lv_obj_find_by_name(screen, "favorite_circle");
     lv_obj_t * control = gui_player_rating_control();
@@ -641,9 +730,18 @@ static void check_player_rating(void) {
         if (stars) assert(lv_label_get_text(rating_digit(control))[0] == '0' + stars);
     }
     lv_obj_update_layout(screen);
-    check_rating_geometry(screen, control);
-    assert(lv_obj_get_width(control) <= lv_obj_get_width(anchor));
-    assert(lv_obj_get_height(control) <= lv_obj_get_height(anchor));
+    const char *xml = getenv("COMPAS_TEST_PLAYER_XML");
+    bool on_cover = rating_anchor_on_cover(screen, anchor);
+    /* These two plugins put the anchor beside the title; the control must follow it. */
+    if (plugin && xml && (strstr(xml, "/HibysPlayer/") || strstr(xml, "/GalleryPlayer/"))) assert(!on_cover);
+    if (on_cover) {
+        check_rating_geometry(screen, control);
+        assert(lv_obj_get_width(control) <= lv_obj_get_width(anchor));
+        assert(lv_obj_get_height(control) <= lv_obj_get_height(anchor));
+    } else {
+        if (plugin) check_anchor_kept(anchor);
+        check_rating_geometry_off_cover(screen, anchor, control);
+    }
     assert(!lv_obj_has_flag(control, LV_OBJ_FLAG_HIDDEN));
     assert(lv_obj_get_width(control) > 0 && lv_obj_get_height(control) > 0);
     lv_obj_t *transport = lv_obj_find_by_name(screen, "order_btn");
@@ -689,7 +787,7 @@ static void check_plugin_rating(void) {
     assert(gui_player_rebuild_layout(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT));
     assert(lv_obj_find_by_name(gui_player_get_screen(), "order_btn"));
     assert(!strcmp(player_layouts_effective_id(), "test.rating"));
-    check_player_rating();
+    check_player_rating(true);
     check_transport_tint();
     printf("Rating layout passed: %s\n", path);
     assert(player_layouts_session_clear_selection());
@@ -1932,7 +2030,8 @@ int main(int argc, char **argv) {
     gui_init(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT);
     if (getenv("COMPAS_TEST_MOST_PLAYED")) { check_most_played_async(); return 0; }
     if (getenv("COMPAS_TEST_COVER_GEOMETRY")) { check_cover_flow_geometry(); return 0; }
-    check_player_rating();
+    check_small_star_chips();
+    check_player_rating(false);
     check_transport_tint();
     check_plugin_rating();
     if (getenv("COMPAS_TEST_PLAYER_XML")) return 0;

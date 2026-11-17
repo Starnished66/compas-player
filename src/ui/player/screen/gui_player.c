@@ -964,17 +964,48 @@ static void player_rating_avoid_targets(lv_obj_t * scr, const player_roles_t * r
     lv_obj_update_layout(scr);
 }
 
+/* The rating anchor sits on the cover card (corner placement) rather than elsewhere in the layout. */
+static bool player_rating_on_cover(const player_roles_t * r) {
+    return player_obj_is_ancestor_of(r->cover_card, r->fav_circle);
+}
+
+/* Square hit area of `size` centred on the control and kept inside `bounds`. */
+static lv_area_t player_rating_hit_area(const lv_area_t * control, const lv_area_t * bounds, int32_t size) {
+    int32_t x = LV_CLAMP(bounds->x1, (control->x1 + control->x2 + 1 - size) / 2, bounds->x2 + 1 - size);
+    int32_t y = LV_CLAMP(bounds->y1, (control->y1 + control->y2 + 1 - size) / 2, bounds->y2 + 1 - size);
+    lv_area_t area = {x, y, x + size - 1, y + size - 1};
+    return area;
+}
+
+/* A layout anchor beside the transport row shares space with other targets:
+ * shrink the centred hit area until it is clear, but not below the anchor or
+ * the control it must contain. */
+static lv_area_t player_rating_hit_area_clear(lv_obj_t * scr, const player_roles_t * r,
+                                              const lv_area_t * control) {
+    lv_area_t bounds;
+    lv_obj_get_coords(scr, &bounds);
+    int32_t floor_size = LV_MAX(LV_MIN(lv_obj_get_width(r->fav_circle), lv_obj_get_height(r->fav_circle)),
+                                lv_area_get_width(control));
+    int32_t size = LV_MAX(player_rating_hit_size(), floor_size);
+    lv_area_t area = player_rating_hit_area(control, &bounds, size);
+    while (player_rating_overlaps(scr, &area, r) && size > floor_size) {
+        size = LV_MAX(size - 2, floor_size);
+        area = player_rating_hit_area(control, &bounds, size);
+    }
+    return area;
+}
+
 static void player_bind_rating_hit(lv_obj_t * scr, const player_roles_t * r) {
     if (!player_rating_control) return;
     lv_obj_update_layout(scr);
-    player_rating_avoid_targets(scr, r);
+    const bool on_cover = player_rating_on_cover(r);
+    if (on_cover) player_rating_avoid_targets(scr, r);
     lv_area_t control, card;
     lv_obj_get_coords(player_rating_control, &control);
     lv_obj_get_coords(r->cover_card, &card);
-    int32_t size = player_rating_hit_size();
-    int32_t x = LV_CLAMP(card.x1, (control.x1 + control.x2 + 1 - size) / 2, card.x2 + 1 - size);
-    int32_t y = LV_CLAMP(card.y1, (control.y1 + control.y2 + 1 - size) / 2, card.y2 + 1 - size);
-    lv_obj_t * hit = player_hit_rect(scr, x, y, size, size,
+    lv_area_t area = on_cover ? player_rating_hit_area(&control, &card, player_rating_hit_size())
+                              : player_rating_hit_area_clear(scr, r, &control);
+    lv_obj_t * hit = player_hit_rect(scr, area.x1, area.y1, lv_area_get_width(&area), lv_area_get_height(&area),
                                     favorite_icon_event_cb, lv_palette_main(LV_PALETTE_PINK));
     lv_obj_set_name_static(hit, "rating_hit");
     /* CLICKED also follows a long press: the handler acts on these two only. */
@@ -982,6 +1013,7 @@ static void player_bind_rating_hit(lv_obj_t * scr, const player_roles_t * r) {
     lv_obj_add_event_cb(hit, favorite_icon_event_cb, LV_EVENT_LONG_PRESSED, NULL);
     player_forward_press(hit, player_rating_control);
     player_inline_lyrics_add_hit_target(hit);
+    if (!on_cover) return;
     lv_obj_t * covers[] = {r->cover_card, r->cover_img};
     for (unsigned i = 0; i < sizeof(covers) / sizeof(covers[0]); i++) {
         lv_obj_add_flag(covers[i], LV_OBJ_FLAG_ADV_HITTEST);
@@ -1122,16 +1154,29 @@ static int32_t player_rating_inset(lv_obj_t * card) {
     return (radius * 293 + 999) / 1000 + BOARD_SCALE_PX(4);
 }
 
+/* Anchor on the cover: it moves to the cover's bottom-right corner. */
+static void player_rating_place_on_cover(const player_roles_t * r) {
+    if (lv_obj_get_parent(r->fav_circle) != r->cover_card)
+        lv_obj_set_parent(r->fav_circle, r->cover_card);
+    int32_t size = player_rating_hit_size();
+    lv_obj_set_size(r->fav_circle, size, size);
+    int32_t inset = player_rating_inset(r->cover_card);
+    lv_obj_align(r->fav_circle, LV_ALIGN_BOTTOM_RIGHT, -inset, -inset);
+}
+
 static void player_bind_rating(const player_roles_t * r) {
     player_rating_control = NULL;
     if (!r->fav_circle) return;
-    if (r->fav_icon) lv_obj_add_flag(r->fav_icon, LV_OBJ_FLAG_HIDDEN);
-    /* Some plugins put the legacy anchor beside transport. Keep its name
-     * for timelines, but place every rating inside the cover in C. */
-    if (lv_obj_get_parent(r->fav_circle) != r->cover_card)
-        lv_obj_set_parent(r->fav_circle, r->cover_card);
-    lv_obj_remove_flag(r->fav_circle, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    const bool on_cover = player_rating_on_cover(r);
+    /* Off the cover the star is sized like the heart icon it replaces. */
+    lv_obj_update_layout(r->fav_circle);
     int32_t star_px = LV_MAX(32, BOARD_SCALE_PX(48));
+    if (!on_cover) {
+        star_px = r->fav_icon ? lv_obj_get_width(r->fav_icon) : 0;
+        if (star_px <= 0) star_px = lv_obj_get_height(r->fav_circle);
+    }
+    if (r->fav_icon) lv_obj_add_flag(r->fav_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(r->fav_circle, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     player_rating_control = star_rating_create(r->fav_circle, star_px, true);
     if (!player_rating_control) return;
     lv_obj_t * source = r->transport_color ? r->transport_color : r->order ? r->order : r->title;
@@ -1139,10 +1184,10 @@ static void player_bind_rating(const player_roles_t * r) {
     if (source) lv_obj_add_event_cb(source, player_rating_style_changed, LV_EVENT_STYLE_CHANGED, NULL);
     lv_obj_set_style_opa(player_rating_control, LV_OPA_60, LV_STATE_PRESSED);
     lv_obj_update_layout(player_rating_control);
-    int32_t size = player_rating_hit_size();
-    lv_obj_set_size(r->fav_circle, size, size);
-    int32_t inset = player_rating_inset(r->cover_card);
-    lv_obj_align(r->fav_circle, LV_ALIGN_BOTTOM_RIGHT, -inset, -inset);
+    /* Off the cover the layout keeps the anchor's parent, position and size;
+     * the control is centred in it and the digit may overhang it. */
+    if (on_cover) player_rating_place_on_cover(r);
+    else lv_obj_add_flag(r->fav_circle, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_center(player_rating_control);
     star_rating_set(player_rating_control, now_playing_stars);
 }

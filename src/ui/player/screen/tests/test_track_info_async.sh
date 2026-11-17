@@ -70,6 +70,19 @@ PYLAYOUTS
     )
     for xml in "${layouts[@]}"; do
         echo "Checking rating layout: $xml"
-        COMPAS_TEST_PLAYER_XML="$xml" ./test
+        anchor="$(python3 - "$xml" <<'PYANCHOR'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+parents = {c: p for p in root.iter() for c in p}
+node = root.find('.//*[@name="favorite_circle"]')
+vals = [node.get(k, "") for k in ("x", "y", "width", "height")]
+if all(v.lstrip("-").isdigit() for v in vals):
+    parent = parents.get(node)
+    name = parent.get("name") if parent is not None else None
+    print(" ".join(vals + ([name] if name else [])))
+PYANCHOR
+        )"
+        COMPAS_TEST_ANCHOR="$anchor" COMPAS_TEST_PLAYER_XML="$xml" ./test
     done
 fi

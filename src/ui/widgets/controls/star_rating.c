@@ -104,11 +104,12 @@ static void add_star(lv_obj_t * control, int32_t px, int index) {
     lv_obj_add_event_cb(image, star_clicked, LV_EVENT_CLICKED, NULL);
 }
 
-/* The chip overhangs the star by a few percent, so the control is a little
- * larger than the star and the pair stays centred in its parent. */
+/* The chip overhangs the star, so the control is a little larger than the star
+ * and the pair stays centred in its parent. The chip has a legible minimum, so
+ * on small stars it overhangs more: it covers at most a quarter of the star. */
 static void add_chip(lv_obj_t * control, int32_t star_px) {
     int32_t chip_px = LV_MAX(20, star_px / 2);
-    int32_t side = star_px + chip_px / 6;
+    int32_t side = star_px + LV_MAX(chip_px / 6, chip_px - star_px / 2);
     lv_obj_remove_flag(control, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(control, LV_LAYOUT_NONE);
     lv_obj_set_size(control, side, side);
