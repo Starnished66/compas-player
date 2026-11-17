@@ -179,214 +179,176 @@ static void * plugin_async_http_thread_func(void * arg) {
     return NULL;
 }
 
-int l_plugin_http_request(lua_State * L) {
-    luaL_checktype(L, 1, LUA_TTABLE);
-    luaL_checktype(L, 2, LUA_TFUNCTION);
+typedef struct {
+    char url_copy[sizeof(plugin_async_http[0].url)];
+    char content_type_copy[sizeof(plugin_async_http[0].content_type)];
+    http_method_t method;
+    size_t body_size;
+    int body_root;
+    http_header_t headers[HTTP_MAX_HEADERS];
+    int header_count;
+    char long_header_name[HTTP_HEADER_NAME_MAX];
+    const char *long_value_src;
+    size_t long_value_len;
+    bool verify_tls;
+    lua_Integer requested_max;
+    lua_Integer connect_timeout_ms;
+    lua_Integer read_timeout_ms;
+    lua_Integer total_timeout_ms;
+    lua_Integer redirect_limit;
+} http_options_t;
 
-    int slot = -1;
-    for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
-        if (!plugin_async_http[i].active) { slot = i; break; }
-    }
-    if (slot < 0) {
-        return plugin_lua_push_error(L, "too many active HTTP requests");
-    }
+static int find_free_slot(void) {
+    for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++)
+        if (!plugin_async_http[i].active) return i;
+    return -1;
+}
+
+static int read_http_strings(lua_State *L, http_options_t *opts) {
 
     lua_getfield(L, 1, "url");
     const char * url = luaL_checkstring(L, -1);
-    if (strlen(url) >= sizeof(plugin_async_http[slot].url)) {
+    size_t url_len = strlen(url);
+    if (url_len >= sizeof(opts->url_copy)) {
         return luaL_error(L, "plugin.http_request: URL is too long");
     }
+    memcpy(opts->url_copy, url, url_len + 1);
     lua_pop(L, 1);
 
     lua_getfield(L, 1, "method");
     const char * method_str = luaL_optstring(L, -1, "GET");
-    http_method_t method;
-    if (strcasecmp(method_str, "GET") == 0) method = HTTP_METHOD_GET;
-    else if (strcasecmp(method_str, "POST") == 0) method = HTTP_METHOD_POST;
-    else if (strcasecmp(method_str, "PUT") == 0) method = HTTP_METHOD_PUT;
-    else if (strcasecmp(method_str, "PATCH") == 0) method = HTTP_METHOD_PATCH;
-    else if (strcasecmp(method_str, "DELETE") == 0) method = HTTP_METHOD_DELETE;
-    else if (strcasecmp(method_str, "HEAD") == 0) method = HTTP_METHOD_HEAD;
+
+    if (strcasecmp(method_str, "GET") == 0) opts->method = HTTP_METHOD_GET;
+    else if (strcasecmp(method_str, "POST") == 0) opts->method = HTTP_METHOD_POST;
+    else if (strcasecmp(method_str, "PUT") == 0) opts->method = HTTP_METHOD_PUT;
+    else if (strcasecmp(method_str, "PATCH") == 0) opts->method = HTTP_METHOD_PATCH;
+    else if (strcasecmp(method_str, "DELETE") == 0) opts->method = HTTP_METHOD_DELETE;
+    else if (strcasecmp(method_str, "HEAD") == 0) opts->method = HTTP_METHOD_HEAD;
     else return luaL_error(L, "plugin.http_request: unknown method '%s'", method_str);
     lua_pop(L, 1);
 
     lua_getfield(L, 1, "body");
-    size_t body_size = 0;
-    const char * body = lua_isnil(L, -1) ? NULL : luaL_checklstring(L, -1, &body_size);
-    if (body_size > PLUGIN_ASYNC_HTTP_MAX_REQUEST) {
+
+    const char * body = lua_isnil(L, -1) ? NULL : luaL_checklstring(L, -1, &opts->body_size);
+    if (opts->body_size > PLUGIN_ASYNC_HTTP_MAX_REQUEST) {
         return luaL_error(L, "plugin.http_request: request body exceeds %u bytes", PLUGIN_ASYNC_HTTP_MAX_REQUEST);
     }
-    uint8_t * body_copy = NULL;
-    if (body_size > 0) {
-        body_copy = malloc(body_size);
-        if (!body_copy) return luaL_error(L, "plugin.http_request: out of memory");
-        memcpy(body_copy, body, body_size);
-    }
-    lua_pop(L, 1);
+
+    opts->body_root = body ? lua_gettop(L) : 0;
+    if (!body) lua_pop(L, 1);
 
     lua_getfield(L, 1, "content_type");
     const char * content_type = luaL_optstring(L, -1, "application/x-www-form-urlencoded");
-    if (strlen(content_type) >= sizeof(plugin_async_http[slot].content_type)) {
-        free(body_copy);
+
+    size_t content_type_len = strlen(content_type);
+    if (content_type_len >= sizeof(opts->content_type_copy)) {
         return luaL_error(L, "plugin.http_request: content_type is too long");
     }
+    memcpy(opts->content_type_copy, content_type, content_type_len + 1);
     lua_pop(L, 1);
 
-    /* Arbitrary request headers -- {Name = "value", ...}, bounded to
-     * HTTP_MAX_HEADERS entries and HTTP_HEADER_NAME_MAX/VALUE_MAX per
-     * entry (silently truncated past that, same as content_type/url
-     * above being length-checked rather than ever overflowing). */
-    http_header_t headers[HTTP_MAX_HEADERS];
-    int header_count = 0;
-    /* One value may exceed a slot (a long bearer token); see
-     * HTTP_LONG_HEADER_VALUE_MAX in http_client.h. The Lua string stays
-     * reachable through options.headers for this whole call, so it is only
-     * copied to the heap after the last call below that can raise. */
-    char long_header_name[HTTP_HEADER_NAME_MAX] = "";
-    const char * long_value_src = NULL;
-    size_t long_value_len = 0;
+    return 0;
+}
+
+static int read_http_headers(lua_State *L, http_options_t *opts) {
     lua_getfield(L, 1, "headers");
     if (lua_istable(L, -1)) {
         lua_pushnil(L);
-        /* Every entry is visited: more than HTTP_MAX_HEADERS short headers
-         * (or a second long one) is an error, never a silently dropped
-         * header whose fate depends on table traversal order. */
+
         while (lua_next(L, -2) != 0) {
             if (lua_type(L, -2) == LUA_TSTRING) {
-                /* Review finding: snprintf() alone silently truncated an
-                 * oversized name/value, and validation afterward (the
-                 * CRLF/invalid-character check further down this
-                 * function) then validated the TRUNCATED copy, not what
-                 * the plugin actually passed -- a header could silently
-                 * become a different, shorter one on the wire instead of
-                 * failing loudly. Check the real length (via
-                 * lua_tolstring(), which also catches an embedded NUL a
-                 * plain lua_tostring()+strlen() would miss) and reject
-                 * with a clear Lua error, exactly like an oversized
-                 * url/content_type already does elsewhere in this
-                 * function, instead of truncating. */
+
                 size_t name_len = 0, value_len = 0;
                 const char * name = lua_tolstring(L, -2, &name_len);
-                const char * value = lua_tolstring(L, -1, &value_len); /* non-string values (numbers) still convert fine via lua_tolstring */
+                const char * value = lua_tolstring(L, -1, &value_len);
                 if (name && value) {
-                    bool long_value = value_len >= sizeof(headers[0].value);
+                    bool long_value = value_len >= sizeof(opts->headers[0].value);
                     if (strlen(name) != name_len || strlen(value) != value_len) {
-                        free(body_copy);
                         return luaL_error(L, "plugin.http_request: header '%s' contains a NUL byte", name);
                     }
-                    if (name_len >= sizeof(headers[0].name) ||
-                        (long_value && (long_value_src || value_len >= HTTP_LONG_HEADER_VALUE_MAX ||
+                    if (name_len >= sizeof(opts->headers[0].name) ||
+                        (long_value && (opts->long_value_src || value_len >= HTTP_LONG_HEADER_VALUE_MAX ||
                                         lua_type(L, -1) != LUA_TSTRING))) {
-                        free(body_copy);
                         return luaL_error(L, "plugin.http_request: header '%s' name/value exceeds %d/%d bytes "
                                           "(one value may be up to %d)",
-                                          name, (int) sizeof(headers[0].name) - 1, (int) sizeof(headers[0].value) - 1,
+                                          name, (int) sizeof(opts->headers[0].name) - 1, (int) sizeof(opts->headers[0].value) - 1,
                                           HTTP_LONG_HEADER_VALUE_MAX - 1);
                     }
-                    if (!long_value && header_count >= HTTP_MAX_HEADERS) {
-                        free(body_copy);
+                    if (!long_value && opts->header_count >= HTTP_MAX_HEADERS) {
                         return luaL_error(L, "plugin.http_request: at most %d headers", HTTP_MAX_HEADERS);
                     }
                     if (long_value) {
-                        long_value_src = value;
-                        long_value_len = value_len;
-                        memcpy(long_header_name, name, name_len + 1);
+                        opts->long_value_src = value;
+                        opts->long_value_len = value_len;
+                        memcpy(opts->long_header_name, name, name_len + 1);
                     } else {
-                        memcpy(headers[header_count].name, name, name_len + 1);
-                        memcpy(headers[header_count].value, value, value_len + 1);
-                        header_count++;
+                        memcpy(opts->headers[opts->header_count].name, name, name_len + 1);
+                        memcpy(opts->headers[opts->header_count].value, value, value_len + 1);
+                        opts->header_count++;
                     }
                 }
             }
-            lua_pop(L, 1); /* pop value, keep key for lua_next */
-        }
-    }
-    /* The long value itself is pushed and stays on the stack until the call
-     * returns: a later options metamethod could remove it from the headers
-     * table and collect it, so the table alone does not keep it alive. */
-    if (long_value_src) {
-        lua_pushstring(L, long_header_name);
-        lua_rawget(L, -2);
-        size_t len = 0;
-        long_value_src = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &len) : NULL;
-        if (!long_value_src || len != long_value_len) {
-            free(body_copy);
-            return luaL_error(L, "plugin.http_request: header '%s' changed while reading", long_header_name);
+            lua_pop(L, 1);
         }
     }
 
+    if (opts->long_value_src) {
+        lua_pushstring(L, opts->long_header_name);
+        lua_rawget(L, -2);
+        size_t len = 0;
+        opts->long_value_src = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &len) : NULL;
+        if (!opts->long_value_src || len != opts->long_value_len) {
+            return luaL_error(L, "plugin.http_request: header '%s' changed while reading", opts->long_header_name);
+        }
+    }
+
+    return 0;
+}
+
+static int read_http_scalar_options(lua_State *L, http_options_t *opts) {
     lua_getfield(L, 1, "verify_tls");
-    bool verify_tls = lua_isnil(L, -1) ? true : lua_toboolean(L, -1);
+    opts->verify_tls = lua_isnil(L, -1) ? true : lua_toboolean(L, -1);
     lua_pop(L, 1);
     lua_getfield(L, 1, "max_response_bytes");
-    lua_Integer requested_max = luaL_optinteger(L, -1, PLUGIN_ASYNC_HTTP_DEFAULT_MAX);
+    opts->requested_max = luaL_optinteger(L, -1, PLUGIN_ASYNC_HTTP_DEFAULT_MAX);
     lua_pop(L, 1);
-    if (requested_max < 1 || requested_max > PLUGIN_ASYNC_HTTP_MAX_RESPONSE) {
-        free(body_copy);
+    if (opts->requested_max < 1 || opts->requested_max > PLUGIN_ASYNC_HTTP_MAX_RESPONSE) {
         return luaL_error(L, "plugin.http_request: max_response_bytes must be 1..%u",
                           PLUGIN_ASYNC_HTTP_MAX_RESPONSE);
     }
 
     lua_getfield(L, 1, "connect_timeout_ms");
-    lua_Integer connect_timeout_ms = luaL_optinteger(L, -1, 0);
+    opts->connect_timeout_ms = luaL_optinteger(L, -1, 0);
     lua_pop(L, 1);
     lua_getfield(L, 1, "read_timeout_ms");
-    lua_Integer read_timeout_ms = luaL_optinteger(L, -1, 0);
+    opts->read_timeout_ms = luaL_optinteger(L, -1, 0);
     lua_pop(L, 1);
     lua_getfield(L, 1, "total_timeout_ms");
-    lua_Integer total_timeout_ms = luaL_optinteger(L, -1, 0);
+    opts->total_timeout_ms = luaL_optinteger(L, -1, 0);
     lua_pop(L, 1);
     lua_getfield(L, 1, "redirect_limit");
-    lua_Integer redirect_limit = luaL_optinteger(L, -1, 0);
+    opts->redirect_limit = luaL_optinteger(L, -1, 0);
     lua_pop(L, 1);
-    if (connect_timeout_ms < 0 || read_timeout_ms < 0 || total_timeout_ms < 0 || redirect_limit < 0) {
-        free(body_copy);
+    if (opts->connect_timeout_ms < 0 || opts->read_timeout_ms < 0 || opts->total_timeout_ms < 0 || opts->redirect_limit < 0) {
         return luaL_error(L, "plugin.http_request: timeout/redirect_limit fields must not be negative");
     }
-    /* Review finding: values were only checked for being non-negative,
-     * then narrowed to uint32_t/int with no upper bound at all. A
-     * timeout above UINT32_MAX would wrap; more seriously, a value
-     * between INT_MAX+1 and UINT32_MAX becomes NEGATIVE once narrowed to
-     * the plain int poll() itself takes, which poll() treats as "wait
-     * indefinitely" -- the opposite of what a timeout is for. An
-     * enormous redirect_limit could also drive the redirect-following
-     * recursion deep enough to exhaust the C stack. Reject outright
-     * rather than silently clamp/truncate, so a plugin passing a garbage
-     * value finds out immediately, not via mysterious hangs later. These
-     * limits match http_client.c's own separate, defensive caps
-     * (HTTP_REQUEST_MAX_TIMEOUT_MS/HTTP_REQUEST_MAX_REDIRECTS) -- kept as
-     * two independent checks deliberately (belt and suspenders), not
-     * because either alone would be insufficient. */
-#define PLUGIN_HTTP_MAX_TIMEOUT_MS (5 * 60 * 1000) /* 5 minutes */
+
+#define PLUGIN_HTTP_MAX_TIMEOUT_MS (5 * 60 * 1000)
 #define PLUGIN_HTTP_MAX_REDIRECTS 10
-    if (connect_timeout_ms > PLUGIN_HTTP_MAX_TIMEOUT_MS || read_timeout_ms > PLUGIN_HTTP_MAX_TIMEOUT_MS ||
-        total_timeout_ms > PLUGIN_HTTP_MAX_TIMEOUT_MS) {
-        free(body_copy);
+    if (opts->connect_timeout_ms > PLUGIN_HTTP_MAX_TIMEOUT_MS || opts->read_timeout_ms > PLUGIN_HTTP_MAX_TIMEOUT_MS ||
+        opts->total_timeout_ms > PLUGIN_HTTP_MAX_TIMEOUT_MS) {
         return luaL_error(L, "plugin.http_request: connect_timeout_ms/read_timeout_ms/total_timeout_ms must not exceed %d",
                           PLUGIN_HTTP_MAX_TIMEOUT_MS);
     }
-    if (redirect_limit > PLUGIN_HTTP_MAX_REDIRECTS) {
-        free(body_copy);
+    if (opts->redirect_limit > PLUGIN_HTTP_MAX_REDIRECTS) {
         return luaL_error(L, "plugin.http_request: redirect_limit must not exceed %d", PLUGIN_HTTP_MAX_REDIRECTS);
     }
 
-    /* Registered before anything native is allocated or the slot is
-     * claimed: luaL_ref() can raise. */
-    lua_pushvalue(L, 2);
-    int callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    return 0;
+}
 
-    char * long_header_value = NULL;
-    if (long_value_src) {
-        long_header_value = malloc(long_value_len + 1);
-        if (!long_header_value) {
-            luaL_unref(L, LUA_REGISTRYINDEX, callback_ref);
-            free(body_copy);
-            return plugin_lua_push_error(L, "out of memory");
-        }
-        memcpy(long_header_value, long_value_src, long_value_len + 1);
-    }
-
-    lua_State * owner = plugin_lua_main_state(L);
+static plugin_async_http_t *prepare_http_slot(lua_State *L, int slot, http_options_t *opts,
+    int callback_ref, uint8_t *body_copy, char *long_header_value) {
     plugin_async_http_t * req = &plugin_async_http[slot];
     uint16_t generation = (uint16_t) (req->generation + 1);
     if (generation == 0) generation = 1;
@@ -394,24 +356,54 @@ int l_plugin_http_request(lua_State * L) {
     atomic_init(&req->done, false);
     http_cancel_token_init(&req->cancel);
     req->generation = generation;
-    req->L = owner;
-    req->method = method;
-    memcpy(req->headers, headers, sizeof(req->headers));
-    req->header_count = header_count;
-    memcpy(req->long_header_name, long_header_name, sizeof(req->long_header_name));
+    req->L = plugin_lua_main_state(L);
+    req->method = opts->method;
+    memcpy(req->headers, opts->headers, sizeof(req->headers));
+    req->header_count = opts->header_count;
+    memcpy(req->long_header_name, opts->long_header_name, sizeof(req->long_header_name));
     req->long_header_value = long_header_value;
-    req->verify_tls = verify_tls;
+    req->verify_tls = opts->verify_tls;
     req->request_body = body_copy;
-    req->request_body_size = body_size;
-    req->max_response_size = (size_t) requested_max;
-    req->connect_timeout_ms = (uint32_t) connect_timeout_ms;
-    req->read_timeout_ms = (uint32_t) read_timeout_ms;
-    req->total_timeout_ms = (uint32_t) total_timeout_ms;
-    req->redirect_limit = (int) redirect_limit;
-    snprintf(req->url, sizeof(req->url), "%s", url);
-    snprintf(req->content_type, sizeof(req->content_type), "%s", content_type);
+    req->request_body_size = opts->body_size;
+    req->max_response_size = (size_t) opts->requested_max;
+    req->connect_timeout_ms = (uint32_t) opts->connect_timeout_ms;
+    req->read_timeout_ms = (uint32_t) opts->read_timeout_ms;
+    req->total_timeout_ms = (uint32_t) opts->total_timeout_ms;
+    req->redirect_limit = (int) opts->redirect_limit;
+    snprintf(req->url, sizeof(req->url), "%s", opts->url_copy);
+    snprintf(req->content_type, sizeof(req->content_type), "%s", opts->content_type_copy);
     req->callback_ref = callback_ref;
 
+    return req;
+}
+
+static int start_http_request(lua_State *L, int slot, http_options_t *opts) {
+    uint8_t *body_copy = NULL;
+    lua_pushvalue(L, 2);
+    int callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    if (opts->body_size > 0) {
+        body_copy = malloc(opts->body_size);
+        if (!body_copy) {
+            luaL_unref(L, LUA_REGISTRYINDEX, callback_ref);
+            return plugin_lua_push_error(L, "out of memory");
+        }
+        memcpy(body_copy, lua_tostring(L, opts->body_root), opts->body_size);
+    }
+    if (opts->body_root) lua_remove(L, opts->body_root);
+
+    char * long_header_value = NULL;
+    if (opts->long_value_src) {
+        long_header_value = malloc(opts->long_value_len + 1);
+        if (!long_header_value) {
+            luaL_unref(L, LUA_REGISTRYINDEX, callback_ref);
+            free(body_copy);
+            return plugin_lua_push_error(L, "out of memory");
+        }
+        memcpy(long_header_value, opts->long_value_src, opts->long_value_len + 1);
+    }
+
+    plugin_async_http_t *req = prepare_http_slot(L, slot, opts, callback_ref, body_copy, long_header_value);
     if (pthread_create(&req->thread, NULL, plugin_async_http_thread_func, req) != 0) {
         luaL_unref(L, LUA_REGISTRYINDEX, req->callback_ref);
         free(req->request_body);
@@ -424,9 +416,25 @@ int l_plugin_http_request(lua_State * L) {
     }
 
     req->active = true;
-    int handle = ((int) generation << 8) | (slot + 1);
+    int handle = ((int) req->generation << 8) | (slot + 1);
     lua_pushinteger(L, handle);
     return 1;
+}
+
+int l_plugin_http_request(lua_State *L) {
+    int initial_top = lua_gettop(L);
+    luaL_checktype(L, 1, LUA_TTABLE);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    http_options_t opts = {0};
+    read_http_strings(L, &opts);
+    read_http_headers(L, &opts);
+    read_http_scalar_options(L, &opts);
+    int slot = find_free_slot();
+    if (slot < 0) {
+        lua_settop(L, initial_top);
+        return plugin_lua_push_error(L, "too many active HTTP requests");
+    }
+    return start_http_request(L, slot, &opts);
 }
 
 /* plugin.download_file_async(url, dest_path [, verify_tls], callback)
@@ -450,10 +458,7 @@ int l_plugin_download_file_async(lua_State * L) {
     if (plugin_path_in_program_dirs(dest_path))
         return luaL_error(L, "plugin.download_file_async: the program folders (.apps, .apps-data, .emulators) are reserved");
 
-    int slot = -1;
-    for (int i = 0; i < PLUGIN_MAX_ASYNC_HTTP; i++) {
-        if (!plugin_async_http[i].active) { slot = i; break; }
-    }
+    int slot = find_free_slot();
     if (slot < 0) {
         return plugin_lua_push_error(L, "too many active HTTP requests");
     }
@@ -532,7 +537,6 @@ int l_plugin_cancel(lua_State * L) {
     lua_pushboolean(L, cancelled);
     return 1;
 }
-
 
 /* A finished download has already replaced dest_path, even when its
  * callback is then skipped (cancelled, owner gone), so the cached image of

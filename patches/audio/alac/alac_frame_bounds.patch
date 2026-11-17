@@ -1,0 +1,28 @@
+diff --git a/codec/ALACDecoder.cpp b/codec/ALACDecoder.cpp
+index ce3340d..72ea707 100644
+--- a/codec/ALACDecoder.cpp
++++ b/codec/ALACDecoder.cpp
+@@ -200,6 +200,7 @@ int32_t ALACDecoder::Decode( BitBuffer * bits, uint8_t * sampleBuffer, uint32_t
+ 	
+ 	RequireAction( (bits != nil) && (sampleBuffer != nil) && (outNumSamples != nil), return kALAC_ParamError; );
+ 	RequireAction( numChannels > 0, return kALAC_ParamError; );
++	RequireAction( numSamples <= mConfig.frameLength, return kALAC_ParamError; );
+ 
+ 	mActiveElements = 0;
+ 	channelIndex	= 0;
+@@ -251,6 +252,7 @@ int32_t ALACDecoder::Decode( BitBuffer * bits, uint8_t * sampleBuffer, uint32_t
+ 				{
+ 					numSamples  = BitBufferRead( bits, 16 ) << 16;
+ 					numSamples |= BitBufferRead( bits, 16 );
++					RequireAction( numSamples <= mConfig.frameLength, status = kALAC_ParamError; goto Exit; );
+ 				}
+ 
+ 				if ( escapeFlag == 0 )
+@@ -402,6 +404,7 @@ int32_t ALACDecoder::Decode( BitBuffer * bits, uint8_t * sampleBuffer, uint32_t
+ 				{
+ 					numSamples  = BitBufferRead( bits, 16 ) << 16;
+ 					numSamples |= BitBufferRead( bits, 16 );
++					RequireAction( numSamples <= mConfig.frameLength, status = kALAC_ParamError; goto Exit; );
+ 				}
+ 
+ 				if ( escapeFlag == 0 )

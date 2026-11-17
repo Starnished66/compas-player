@@ -6,7 +6,6 @@
 #include "../../hardware/power/battery.h"
 #include "../../ui/text/i18n/i18n.h"
 #include "../system/lifecycle/idle_shutdown.h"
-#include "../persistence/settings.h"
 #include <pthread.h>
 #include <spawn.h>
 #include <stdlib.h>
@@ -113,6 +112,17 @@ static bool finish_update(bool ok, const char * error) {
     update_owner = recovery_from_ota ? UPDATE_OWNER_OTA : UPDATE_OWNER_NONE;
     pthread_mutex_unlock(&update_mutex);
     return ok;
+}
+
+void firmware_update_recovery_cancel(void) {
+    if (phase_log_fd >= 0) { close(phase_log_fd); phase_log_fd = -1; }
+    pthread_mutex_lock(&update_mutex);
+    update_status.phase = FIRMWARE_UPDATE_FAILED;
+    update_status.busy = false;
+    update_owner = UPDATE_OWNER_NONE;
+    snprintf(update_status.error, sizeof(update_status.error), "%s",
+             TR("Recovery remains selected. Keep the update file; saving diagnostics failed."));
+    pthread_mutex_unlock(&update_mutex);
 }
 
 static bool reserve_update(bool from_ota) {
@@ -281,7 +291,27 @@ static bool write_recovery_flag(char * error, size_t size) {
 }
 #endif
 
-static bool prepare_recovery(const char * path) {
+#ifndef HOST_BUILD
+static bool recovery_reboot(bool startup) {
+    if (fsync(phase_log_fd) != 0)
+        return finish_update(false, TR("Recovery remains selected. Keep the update file; saving diagnostics failed."));
+    if (!startup) {
+        idle_shutdown_recovery_reboot();
+        return true;
+    }
+    /* The boot gesture runs before settings, audio, and the UI are initialized;
+     * there are no userspace persistence queues or UI snapshots yet. */
+    if (idle_shutdown_reboot_handoff()) return true;
+    char error[160];
+    snprintf(error, sizeof(error), TR("Recovery remains selected but reboot failed: %s. Keep the update file."), strerror(errno));
+    return finish_update(false, error);
+}
+#endif
+
+static bool prepare_recovery(const char * path, bool startup) {
+#ifdef HOST_BUILD
+    (void)startup;
+#endif
     char selected[512], error[160] = "";
     struct stat before, after;
     if (!firmware_update_scan_checked(selected, sizeof(selected), error, sizeof(error)) || strcmp(path, selected))
@@ -330,15 +360,7 @@ static bool prepare_recovery(const char * path) {
         return finish_update(false, TR("Saving data failed. Recovery remains selected; keep the update file and check .compas/ota/update.log."));
     if (!set_phase(FIRMWARE_UPDATE_REBOOT, "requesting recovery reboot"))
         return finish_update(false, TR("Recovery remains selected. Keep the update file; saving diagnostics failed."));
-    /* Keep the validated SD log open across the handoff. If the standalone
-     * reboot syscall fails, finish_update() can record the error; if
-     * supervised, _exit() closes it before the parent can reap the player. */
-    if (fsync(phase_log_fd) != 0)
-        return finish_update(false, TR("Recovery remains selected. Keep the update file; saving diagnostics failed."));
-    if (idle_shutdown_reboot_handoff()) return true;
-    snprintf(error, sizeof(error), TR("Recovery remains selected but reboot failed: %s. Keep the update file."), strerror(errno));
-    settings_shutdown_cancel();
-    return finish_update(false, error);
+    return recovery_reboot(startup);
 #else
     set_phase(FIRMWARE_UPDATE_REBOOT, "host validation complete; no flash or reboot");
     return finish_update(true, NULL);
@@ -347,22 +369,22 @@ static bool prepare_recovery(const char * path) {
 
 bool firmware_update_enter_recovery_for_path(const char * path) {
     if (!path || !reserve_update(false)) return false;
-    return prepare_recovery(path);
+    return prepare_recovery(path, false);
 }
 
 bool firmware_update_enter_ota_recovery_for_path(const char * path) {
     if (!path || !reserve_update(true)) return false;
-    return prepare_recovery(path);
+    return prepare_recovery(path, false);
 }
 
 void firmware_update_enter_recovery(void) {
     char path[512];
-    if (firmware_update_scan(path, sizeof(path))) firmware_update_enter_recovery_for_path(path);
+    if (firmware_update_scan(path, sizeof(path)) && reserve_update(false)) prepare_recovery(path, true);
 }
 
 static void * manual_worker(void * unused) {
     (void) unused;
-    prepare_recovery(manual_path);
+    prepare_recovery(manual_path, false);
     return NULL;
 }
 

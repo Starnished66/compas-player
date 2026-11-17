@@ -94,6 +94,7 @@ static void compute_geometry(cover_flow_t * cf) {
                        (HOME_INDICATOR_BAND_HEIGHT + HOME_SWIPE_HIT_EXTRA_PX) / 2 - HOME_INDICATOR_PILL_HEIGHT / 2;
     int32_t text_bottom = g->label_y + labels - row_label_descender_margin(gui_theme_font(GUI_FONT_ROLE_SUBTEXT));
     g->strip_y = (text_bottom + pill_top) / 2 - cf_az_track_center();
+    if (g->strip_y > floor_y - g->strip_h) g->strip_y = floor_y - g->strip_h;
     g->area_bottom = g->strip_y;
 }
 

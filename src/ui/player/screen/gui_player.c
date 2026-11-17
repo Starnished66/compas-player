@@ -977,6 +977,9 @@ static void player_bind_rating_hit(lv_obj_t * scr, const player_roles_t * r) {
     lv_obj_t * hit = player_hit_rect(scr, x, y, size, size,
                                     favorite_icon_event_cb, lv_palette_main(LV_PALETTE_PINK));
     lv_obj_set_name_static(hit, "rating_hit");
+    /* CLICKED also follows a long press: the handler acts on these two only. */
+    lv_obj_add_event_cb(hit, favorite_icon_event_cb, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(hit, favorite_icon_event_cb, LV_EVENT_LONG_PRESSED, NULL);
     player_forward_press(hit, player_rating_control);
     player_inline_lyrics_add_hit_target(hit);
     lv_obj_t * covers[] = {r->cover_card, r->cover_img};
@@ -1128,13 +1131,12 @@ static void player_bind_rating(const player_roles_t * r) {
     if (lv_obj_get_parent(r->fav_circle) != r->cover_card)
         lv_obj_set_parent(r->fav_circle, r->cover_card);
     lv_obj_remove_flag(r->fav_circle, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-    int32_t star_px = LV_MAX(24, BOARD_SCALE_PX(36));
+    int32_t star_px = LV_MAX(32, BOARD_SCALE_PX(48));
     player_rating_control = star_rating_create(r->fav_circle, star_px, true);
     if (!player_rating_control) return;
     lv_obj_t * source = r->transport_color ? r->transport_color : r->order ? r->order : r->title;
     player_rating_sync_colors(source);
     if (source) lv_obj_add_event_cb(source, player_rating_style_changed, LV_EVENT_STYLE_CHANGED, NULL);
-    lv_obj_set_style_text_font(player_rating_control, &app_font_22, 0);
     lv_obj_set_style_opa(player_rating_control, LV_OPA_60, LV_STATE_PRESSED);
     lv_obj_update_layout(player_rating_control);
     int32_t size = player_rating_hit_size();

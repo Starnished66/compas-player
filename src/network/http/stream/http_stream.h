@@ -10,7 +10,10 @@ typedef struct http_stream http_stream_t;
 
 /* Opens an HTTP(S) stream. A byte-range probe is used to identify finite,
  * seekable responses; live and ordinary non-range responses remain readable. */
-http_stream_t * http_stream_open(const char * url, bool verify_tls, bool request_icy);
+/* Generation 0 is untracked; other generations support playback cancellation. */
+http_stream_t * http_stream_open(const char * url, bool verify_tls,
+                                 bool request_icy, uint64_t generation);
+void http_stream_cancel_generation(uint64_t generation);
 size_t http_stream_read(http_stream_t * s, void * buf, size_t n);
 const char * http_stream_content_type(http_stream_t * s);
 /* Nonblocking snapshot; false if unavailable or a worker currently owns it. */

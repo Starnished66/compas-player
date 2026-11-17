@@ -253,10 +253,6 @@ bool tagcache_song_fields_at_title_rank(int32_t rank, unsigned fields, tagcache_
     return song_fields_at_rank(false, rank, fields, out);
 }
 
-bool tagcache_song_tags_incomplete(const tagcache_song_t *song) {
-    return song && (song->flags & FLAG_TAGS_INCOMPLETE);
-}
-
 bool tagcache_song_fields_at_recency_rank(int32_t rank, unsigned fields, tagcache_song_t *out) {
     return song_fields_at_rank(true, rank, fields, out);
 }

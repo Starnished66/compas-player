@@ -5,6 +5,7 @@
 #include "../../../audio/output/audio_output.h" /* target-only, like audio.c's own audio_output_* calls */
 #endif
 #include "../../../core/persistence/settings_registry.h"
+#include "../../../library/remote/remote_state.h"
 #include "../../bluetooth/control/bluetooth_control.h"
 #include "../../../hardware/usb/usb_dac_bridge.h"
 
@@ -165,6 +166,7 @@ static int queue_song_id_count = 0;
 static uint64_t queue_snapshot_revision = 0;
 static int queue_current_position = -1;
 static int queue_pending_count = 0;
+
 
 /* Publishes a request to play a file with its folder as the queue. The path
  * must fit REMOTE_CONTROL_PATH_MAX. */
@@ -516,6 +518,8 @@ static bool queue_full_requested(const char *path) {
     return query_param_int(path, "full", &full) && full == 1;
 }
 
+
+
 static void build_queue_json(char * out, size_t out_size, int offset, int limit, bool full) {
     /* Snapshot queue_song_ids under status_mutex, then resolve IDs via
      * metadata_db_get_songs_by_ids() outside the lock. */
@@ -653,6 +657,12 @@ static int remote_sort_scope(const char *name) {
     return -1;
 }
 
+static bool library_sort_valid(int scope, int mode) {
+    if (scope == 0 && mode == METADATA_DB_ALBUM_SORT_RATING) return true;
+    return scope >= 0 && scope < 3 && mode >= 0 && mode <= 7 &&
+           (mode & ~METADATA_DB_ALBUM_SORT_REVERSE) <= (scope == 0 ? 3 : 2);
+}
+
 static void build_library_sorting_json(char *out, size_t size) {
     int configured[3];
     pthread_mutex_lock(&status_mutex);
@@ -666,14 +676,19 @@ static void build_library_sorting_json(char *out, size_t size) {
     json_builder_appendf(&json, "{");
     for (int i = 0; i < 3; ++i) {
         int mode = configured[i];
-        if (mode < 0 || mode > 7 || (mode & ~METADATA_DB_ALBUM_SORT_REVERSE) > (i == 0 ? 3 : 2)) mode = 0;
+        if (!library_sort_valid(i, mode)) mode = 0;
         int effective = metadata_db_album_sort_available((metadata_db_album_sort_t) mode)
                             ? mode : (mode & METADATA_DB_ALBUM_SORT_REVERSE);
-        json_builder_appendf(&json, "%s\"%s\":{\"configured\":%d,\"effective\":%d,\"reverse\":%s,\"available\":[true,%s,%s]}",
+        json_builder_appendf(&json, "%s\"%s\":{\"configured\":%d,\"effective\":%d,\"reverse\":%s,\"available\":[true,%s,%s",
                              i ? "," : "", names[i], mode & ~METADATA_DB_ALBUM_SORT_REVERSE,
                              effective & ~METADATA_DB_ALBUM_SORT_REVERSE,
                              mode & METADATA_DB_ALBUM_SORT_REVERSE ? "true" : "false",
                              recent ? "true" : "false", year ? "true" : "false");
+        if (i == 0)
+            json_builder_appendf(&json, ",%s,false,false,false,false,%s",
+                metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR) ? "true" : "false",
+                metadata_db_album_sort_available(METADATA_DB_ALBUM_SORT_RATING) ? "true" : "false");
+        json_builder_appendf(&json, "]}");
     }
     json_builder_appendf(&json, "}");
 }
@@ -695,13 +710,16 @@ void handle_library_sorting_route(int fd, const char *method, const char *path) 
         char scope_name[32]; uint64_t mode, reverse = 0;
         bool has_reverse = query_param_present(path, "reverse");
         int scope = query_decoded(path, "scope", scope_name, sizeof(scope_name)) == 1 ? remote_sort_scope(scope_name) : -1;
-        if (scope < 0 || !query_required_number(path, "mode", 2, &mode) ||
+        if (scope < 0 || !query_required_number(path, "mode", METADATA_DB_ALBUM_SORT_RATING, &mode) ||
+            !library_sort_valid(scope, (int)mode) || (mode & METADATA_DB_ALBUM_SORT_REVERSE) ||
             (has_reverse && !query_required_number(path, "reverse", 1, &reverse))) {
             catalog_send_error(fd, "400 Bad Request", "invalid_sorting"); return;
         }
         pthread_mutex_lock(&status_mutex);
         if (!has_reverse) reverse = (status_library_sorting[scope] & METADATA_DB_ALBUM_SORT_REVERSE) != 0;
         pthread_mutex_unlock(&status_mutex);
+        /* Like the device's Rating option, this order is always highest first. */
+        if (mode == METADATA_DB_ALBUM_SORT_RATING) reverse = 0;
         if (reverse) mode |= METADATA_DB_ALBUM_SORT_REVERSE;
         if (!metadata_db_album_sort_available((metadata_db_album_sort_t) mode)) {
             catalog_send_error(fd, "409 Conflict", "sort_unavailable"); return;
@@ -716,6 +734,16 @@ void handle_library_sorting_route(int fd, const char *method, const char *path) 
 }
 
 /* GET /api/library/albums?scope=...: albums of one scope in the configured sort order. */
+static void append_album_groups(json_builder_t *json, const group_row_t *groups, int count) {
+    for (int i = 0; i < count; ++i) {
+        char name[768] = {0}, aa[768] = {0};
+        json_escape_append(name, sizeof(name), groups[i].name);
+        json_escape_append(aa, sizeof(aa), groups[i].album_artist);
+        json_builder_appendf(json, "%s{\"name\":\"%s\",\"count\":%d,\"index\":%lld,\"album_artist\":\"%s\"}",
+                             i ? "," : "", name, groups[i].song_count, (long long) groups[i].first_song_id, aa);
+    }
+}
+
 void handle_scoped_albums_route(int fd, const char *method, const char *path) {
     if (strcmp(method, "GET") != 0) { send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed"); return; }
     char scope_name[32], artist[128], album_artist[128];
@@ -735,8 +763,7 @@ void handle_scoped_albums_route(int fd, const char *method, const char *path) {
     pthread_mutex_lock(&status_mutex);
     int configured = status_library_sorting[scope];
     pthread_mutex_unlock(&status_mutex);
-    if (configured < 0 || configured > 7 ||
-        (configured & ~METADATA_DB_ALBUM_SORT_REVERSE) > (scope == 0 ? 3 : 2)) configured = 0;
+    if (!library_sort_valid(scope, configured)) configured = 0;
     int mode = metadata_db_album_sort_available((metadata_db_album_sort_t) configured)
                    ? configured : (configured & METADATA_DB_ALBUM_SORT_REVERSE);
     metadata_db_catalog_page_t identity = {0};
@@ -748,6 +775,7 @@ void handle_scoped_albums_route(int fd, const char *method, const char *path) {
     size_t capacity = (size_t) limit * 2048 + 512;
     char *out = malloc(capacity);
     if (!groups || !out) { free(groups); free(out); catalog_send_error(fd, "503 Service Unavailable", "allocation_failed"); return; }
+    unsigned rating_revision = remote_state_revision();
     int64_t total;
     int count;
     if (scope == 0) {
@@ -761,22 +789,18 @@ void handle_scoped_albums_route(int fd, const char *method, const char *path) {
         total = metadata_db_count_albums_for_group(kind, name);
         count = metadata_db_get_albums_for_group_sorted(kind, name, (metadata_db_album_sort_t) mode, (int) offset, (int) limit, groups);
     }
-    if (!metadata_db_catalog_revision_matches(identity.revision) || count < 0 || total < 0) {
+    if (!metadata_db_catalog_revision_matches(identity.revision) || count < 0 || total < 0 ||
+        (mode == METADATA_DB_ALBUM_SORT_RATING && rating_revision != remote_state_revision())) {
         free(groups); free(out); catalog_send_error(fd, "409 Conflict", "library_changed"); return;
     }
     if (offset > (uint64_t) total) {
         free(groups); free(out); catalog_send_error(fd, "400 Bad Request", "invalid_offset"); return;
     }
     json_builder_t json; json_builder_init(&json, out, capacity);
-    json_builder_appendf(&json, "{\"total\":%lld,\"offset\":%llu,\"next_offset\":%llu,\"revision\":\"%s:%d:%d:%d\",\"groups\":[",
-                         (long long) total, (unsigned long long) offset, (unsigned long long) (offset + (unsigned) count), identity.revision, scope, configured, mode);
-    for (int i = 0; i < count; ++i) {
-        char name[768] = {0}, aa[768] = {0};
-        json_escape_append(name, sizeof(name), groups[i].name);
-        json_escape_append(aa, sizeof(aa), groups[i].album_artist);
-        json_builder_appendf(&json, "%s{\"name\":\"%s\",\"count\":%d,\"index\":%lld,\"album_artist\":\"%s\"}",
-                             i ? "," : "", name, groups[i].song_count, (long long) groups[i].first_song_id, aa);
-    }
+    json_builder_appendf(&json, "{\"total\":%lld,\"offset\":%llu,\"next_offset\":%llu,\"revision\":\"%s:%d:%d:%d:%u\",\"groups\":[",
+                         (long long) total, (unsigned long long) offset, (unsigned long long) (offset + (unsigned) count), identity.revision, scope, configured, mode,
+                         mode == METADATA_DB_ALBUM_SORT_RATING ? rating_revision : 0);
+    append_album_groups(&json, groups, count);
     json_builder_appendf(&json, "]}");
     if (json.truncated) catalog_send_error(fd, "503 Service Unavailable", "response_too_large");
     else send_response(fd, "200 OK", "application/json", out);
@@ -798,7 +822,7 @@ void handle_collection_play_route(int fd, const char *method, const char *path) 
         query_decoded(path, "album_artist", request.album_artist, sizeof(request.album_artist)) < 0 ||
         !catalog_query_revision_named(path, "catalog_revision", true, request.expected_revision) ||
         (scope >= 1 && scope <= 5 && !request.name[0]) ||
-        (scope == REMOTE_COLLECTION_ALBUM && !request.artist[0] && !query_param_present(path, "album_artist")) ||
+        (scope == REMOTE_COLLECTION_ALBUM && !query_param_present(path, "artist") && !query_param_present(path, "album_artist")) ||
         (request.artist[0] && query_param_present(path, "album_artist")) ||
         (scope == 5 && (!playlist_name_is_safe(request.name) || strlen(request.name) > PLAYLIST_NAME_MAX_BYTES))) {
         catalog_send_error(fd, "400 Bad Request", "invalid_collection"); return;
@@ -919,6 +943,26 @@ static bool validate_catalog_action(int cfd, const char * path_only, const char 
     return true;
 }
 
+static bool set_play_mode_request_locked(const char *path) {
+    char mode_raw[32] = {0};
+    bool mode_present = query_param_present(path, "mode");
+    bool mode_valid = query_param_str(path, "mode", mode_raw, sizeof(mode_raw));
+    if (!mode_present) {
+        request_mode_cycle = true;
+    } else {
+        char * end = NULL;
+        errno = 0;
+        long mode = strtol(mode_raw, &end, 10);
+        if (mode_valid && errno == 0 && end != mode_raw && *end == '\0' && mode >= 0 && mode <= 4) {
+            request_has_play_mode = true;
+            request_play_mode = (int) mode;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Publishes one playback or queue request for the UI thread to consume.
  * Caller holds status_mutex. Returns false for an unknown route or invalid
  * parameters; *reject receives the error code when a queue request is rejected
@@ -935,21 +979,7 @@ static bool set_playback_request_locked(const char * path_only, const char * pat
     } else if (strcmp(path_only, "/api/playback/prev") == 0) {
         request_prev = true;
     } else if (strcmp(path_only, "/api/playback/mode") == 0) {
-        char mode_raw[32] = {0};
-        bool mode_present = query_param_str(path, "mode", mode_raw, sizeof(mode_raw));
-        if (!mode_present) {
-            request_mode_cycle = true;
-        } else {
-            char * end = NULL;
-            errno = 0;
-            long mode = strtol(mode_raw, &end, 10);
-            if (errno == 0 && end != mode_raw && *end == '\0' && mode >= 0 && mode <= 4) {
-                request_has_play_mode = true;
-                request_play_mode = (int) mode;
-            } else {
-                ok = false;
-            }
-        }
+        ok = set_play_mode_request_locked(path);
     } else if (strcmp(path_only, "/api/playback/seek") == 0) {
         int seconds;
         if (query_param_int(path, "seconds", &seconds) && seconds >= 0) {

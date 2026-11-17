@@ -297,10 +297,29 @@ bool remote_collection_busy(void) {
 /* Plays a song selected via the remote-control web UI within its intended
  * scope (album, playlist, or artist). Falls back to full-library queue if
  * no scope is provided or resolved. */
+static bool play_entries_at_path(group_song_entry_t *entries, int count, const char *title, const char *path) {
+    int pos = -1;
+    for (int i = 0; i < count; i++) if (!strcmp(entries[i].path, path)) { pos = i; break; }
+    if (pos < 0) return false;
+    char **copy = calloc((size_t)count, sizeof(*copy));
+    if (!copy) return false;
+    for (int i = 0; i < count; i++) {
+        if (!(copy[i] = strdup(entries[i].path))) {
+            for (int j = 0; j < i; j++) free(copy[j]);
+            free(copy);
+            return false;
+        }
+    }
+    set_player_source_group_songs_direct(entries, count, title, pos);
+    on_file_selected(copy, count, pos);
+    return true;
+}
+
 void play_remote_control_song(const char * song_path, const char * playlist_name, const char * artist_filter,
                                       const char * album_artist_filter, const char * album_filter) {
     if (!song_path || !song_path[0]) return;
     if (!gui_player_local_playback_allowed()) return;
+    gui_library_cancel_remote_collection();
     group_song_entry_t * scoped_entries = NULL;
     int scoped_count = 0;
     char scoped_title[128] = "";
@@ -370,24 +389,9 @@ void play_remote_control_song(const char * song_path, const char * playlist_name
         }
     }
 
-    if (scoped_entries && scoped_count > 0) {
-        int pos = -1;
-        for (int i = 0; i < scoped_count; i++) {
-            if (strcmp(scoped_entries[i].path, song_path) == 0) {
-                pos = i;
-                break;
-            }
-        }
-        if (pos >= 0) {
-            char ** playlist_copy = malloc(sizeof(char *) * (size_t) scoped_count);
-            for (int i = 0; i < scoped_count; i++) playlist_copy[i] = strdup(scoped_entries[i].path);
-            set_player_source_group_songs_direct(scoped_entries, scoped_count, scoped_title, pos);
-            on_file_selected(playlist_copy, scoped_count, pos);
-            free_group_song_entries(scoped_entries, scoped_count);
-            return;
-        }
-    }
+    bool played = scoped_entries && play_entries_at_path(scoped_entries, scoped_count, scoped_title, song_path);
     free_group_song_entries(scoped_entries, scoped_count);
+    if (played) return;
 
     /* A caller that supplied a collection context asked for that exact
      * source. If it no longer resolves (for example after a rescan), do not
@@ -409,15 +413,8 @@ static void show_favorites(void) {
 }
 
 static void show_most_played(void) {
-    char ** paths;
-    int count;
-    metadata_db_load_top_played_songs(MOST_PLAYED_LIMIT, &paths, &count);
-
-    group_song_entry_t * entries = build_group_song_entries_from_paths(paths, count);
-    if (entries) show_group_songs(TR("Most played"), entries, count);
-    free_group_song_entries(entries, count);
-    for (int i = 0; i < count; i++) free(paths[i]);
-    free(paths);
+    show_group_songs(TR("Most played"), NULL, 0);
+    gui_library_refresh_most_played();
 }
 
 static char playlist_m3u_name[128];

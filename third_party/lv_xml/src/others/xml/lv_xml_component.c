@@ -129,29 +129,15 @@ lv_xml_component_scope_t * lv_xml_component_get_scope(const char * component_nam
     return NULL;
 }
 
-lv_result_t lv_xml_register_component_from_data(const char * name, const char * xml_def)
+static bool parse_component_metadata(lv_xml_parser_state_t *state, const char *xml_def)
 {
-    bool globals = false;
-    if(lv_streq(name, "globals")) globals = true;
-
-    /* Create a temporary parser state to extract styles/params/consts */
-    lv_xml_parser_state_t state;
-    if(globals) {
-        lv_xml_component_scope_t * global_scope = lv_xml_component_get_scope("globals");
-        state.scope = *global_scope;
-    }
-    else {
-        lv_xml_parser_state_init(&state);
-        state.scope.name = name;
-    }
-
     /* Parse the XML to extract metadata */
     XML_Memory_Handling_Suite mem_handlers;
     mem_handlers.malloc_fcn = lv_malloc;
     mem_handlers.realloc_fcn = lv_realloc;
     mem_handlers.free_fcn = lv_free;
     XML_Parser parser = XML_ParserCreate_MM(NULL, &mem_handlers, NULL);
-    XML_SetUserData(parser, &state);
+    XML_SetUserData(parser, state);
     XML_SetElementHandler(parser, start_metadata_handler, end_metadata_handler);
 
     if(XML_Parse(parser, xml_def, lv_strlen(xml_def), XML_TRUE) == XML_STATUS_ERROR) {
@@ -161,12 +147,40 @@ lv_result_t lv_xml_register_component_from_data(const char * name, const char * 
         XML_ParserFree(parser);
         /* LOCAL MOD: upstream leaked everything the metadata pass had
          * registered before the error (styles, consts, fonts, ...). */
-        if(!globals) scope_free_contents(&state.scope);
-        return LV_RESULT_INVALID;
+        return false;
     }
 
     XML_ParserFree(parser);
 
+    if(state->invalid_metadata) {
+        return false;
+    }
+
+
+    return true;
+}
+
+lv_result_t lv_xml_register_component_from_data(const char * name, const char * xml_def)
+{
+    bool globals = false;
+    if(lv_streq(name, "globals")) globals = true;
+
+    /* Create a temporary parser state to extract styles/params/consts */
+    lv_xml_parser_state_t state;
+    state.invalid_metadata = 0;
+    if(globals) {
+        lv_xml_component_scope_t * global_scope = lv_xml_component_get_scope("globals");
+        state.scope = *global_scope;
+    }
+    else {
+        lv_xml_parser_state_init(&state);
+        state.scope.name = name;
+    }
+
+    if(!parse_component_metadata(&state, xml_def)) {
+        if(!globals) scope_free_contents(&state.scope);
+        return LV_RESULT_INVALID;
+    }
 
     /* Copy extracted metadata to component processor */
     if(globals) {
@@ -699,95 +713,114 @@ static void process_include_timeline_element(lv_xml_parser_state_t * state, cons
     }
 }
 
+static bool split_gradient_pair(const char * text, char * buf, size_t buf_size, char ** first, char ** second)
+{
+    if(!text || !text[0]) return false;
+    size_t len = strlen(text);
+    if(len >= buf_size) return false;
+    memcpy(buf, text, len + 1);
+    char * split = strchr(buf, ' ');
+    if(!split || split == buf) return false;
+    *split++ = '\0';
+    while(*split == ' ') split++;
+    if(!split[0] || strchr(split, ' ')) return false;
+    *first = buf;
+    *second = split;
+    return true;
+}
+
+static bool parse_gradient_xy(const char * text, int32_t * x, int32_t * y)
+{
+    char buf[64], * first, * second;
+    if(!split_gradient_pair(text, buf, sizeof(buf), &first, &second)) return false;
+    *x = lv_xml_to_size(first);
+    *y = lv_xml_to_size(second);
+    return true;
+}
+
 static void process_grad_element(lv_xml_parser_state_t * state, const char * tag_name, const char ** attrs)
 {
     lv_xml_grad_t * grad = lv_ll_ins_tail(&state->scope.gradient_ll);
     lv_memzero(grad, sizeof(lv_xml_grad_t));
 
-    grad->name = lv_strdup(lv_xml_get_value_of(attrs, "name"));
+    const char * name = lv_xml_get_value_of(attrs, "name");
+    grad->name = lv_strdup(name ? name : "");
+    if(name == NULL) { state->invalid_metadata = 1; return; }
     lv_grad_dsc_t * dsc = &grad->grad_dsc;
     lv_memzero(dsc, sizeof(lv_grad_dsc_t));
     dsc->extend = LV_GRAD_EXTEND_PAD;
 
     if(lv_streq(tag_name, "linear")) {
         dsc->dir = LV_GRAD_DIR_LINEAR;
-        char buf[64];
-        char * buf_p = buf;
         const char * start = lv_xml_get_value_of(attrs, "start");
-        lv_strlcpy(buf, start, sizeof(buf));
-        dsc->params.linear.start.x = lv_xml_to_size(lv_xml_split_str(&buf_p, ' '));
-        dsc->params.linear.start.y = lv_xml_to_size(buf_p);
-
-        buf_p = buf;
         const char * end = lv_xml_get_value_of(attrs, "end");
-        lv_strlcpy(buf, end, sizeof(buf));
-        dsc->params.linear.end.x = lv_xml_to_size(lv_xml_split_str(&buf_p, ' '));
-        dsc->params.linear.end.y = lv_xml_to_size(buf_p);
+        if(!parse_gradient_xy(start, &dsc->params.linear.start.x, &dsc->params.linear.start.y) ||
+           !parse_gradient_xy(end, &dsc->params.linear.end.x, &dsc->params.linear.end.y)) {
+            state->invalid_metadata = 1;
+                return;
+        }
     }
     else if(lv_streq(tag_name, "radial")) {
         dsc->dir = LV_GRAD_DIR_RADIAL;
-        char buf[64];
-        char * buf_p = buf;
         const char * center = lv_xml_get_value_of(attrs, "center");
         if(center) {
-            lv_strlcpy(buf, center, sizeof(buf));
-            dsc->params.radial.end.x = lv_xml_to_size(lv_xml_split_str(&buf_p, ' '));
-            dsc->params.radial.end.y = lv_xml_to_size(buf_p);
+            if(!parse_gradient_xy(center, &dsc->params.radial.end.x, &dsc->params.radial.end.y)) {
+                state->invalid_metadata = 1;
+                return;
+            }
         }
         else {
             dsc->params.radial.end.x = lv_pct(50);
             dsc->params.radial.end.y = lv_pct(50);
         }
-        buf_p = buf;
         const char * center_edge = lv_xml_get_value_of(attrs, "edge");
         if(center_edge) {
-            lv_strlcpy(buf, center_edge, sizeof(buf));
-            dsc->params.radial.end_extent.x = lv_xml_to_size(lv_xml_split_str(&buf_p, ' '));
-            dsc->params.radial.end_extent.y = lv_xml_to_size(buf_p);
+            if(!parse_gradient_xy(center_edge, &dsc->params.radial.end_extent.x,
+                                  &dsc->params.radial.end_extent.y)) {
+                state->invalid_metadata = 1;
+                return;
+            }
         }
         else {
             dsc->params.radial.end_extent.x = lv_pct(100);
             dsc->params.radial.end_extent.y = lv_pct(100);
         }
 
-        buf_p = buf;
         const char * center_radius = lv_xml_get_value_of(attrs, "radius");
         if(center_radius) {
             int32_t r = lv_xml_atoi(center_radius);
-            lv_strlcpy(buf, center_edge, sizeof(buf));
             dsc->params.radial.end_extent.x = dsc->params.radial.end.x + r;
             dsc->params.radial.end_extent.y = dsc->params.radial.end.y;
         }
 
-        buf_p = buf;
         const char * focal = lv_xml_get_value_of(attrs, "focal_center");
         if(focal) {
-            lv_strlcpy(buf, focal, sizeof(buf));
-            dsc->params.radial.focal.x = lv_xml_to_size(lv_xml_split_str(&buf_p, ' '));
-            dsc->params.radial.focal.y = lv_xml_to_size(buf_p);
+            if(!parse_gradient_xy(focal, &dsc->params.radial.focal.x, &dsc->params.radial.focal.y)) {
+                state->invalid_metadata = 1;
+                return;
+            }
         }
         else {
             dsc->params.radial.focal.x = dsc->params.radial.end.x;
             dsc->params.radial.focal.y = dsc->params.radial.end.y;
         }
 
-        buf_p = buf;
         const char * focal_edge = lv_xml_get_value_of(attrs, "focal_edge");
         if(focal_edge) {
-            lv_strlcpy(buf, focal_edge, sizeof(buf));
-            dsc->params.radial.focal_extent.x = lv_xml_to_size(lv_xml_split_str(&buf_p, ' '));
-            dsc->params.radial.focal_extent.y = lv_xml_to_size(buf_p);
+            if(!parse_gradient_xy(focal_edge, &dsc->params.radial.focal_extent.x,
+                                  &dsc->params.radial.focal_extent.y)) {
+                state->invalid_metadata = 1;
+                return;
+            }
         }
         else {
             dsc->params.radial.focal_extent.x = dsc->params.radial.focal.x;
             dsc->params.radial.focal_extent.y = dsc->params.radial.focal.y;
         }
 
-        buf_p = buf;
         const char * focal_radius = lv_xml_get_value_of(attrs, "focal_radius");
         if(focal_radius) {
-            int32_t r = lv_xml_atoi(center_radius);
-            lv_strlcpy(buf, center_edge, sizeof(buf));
+            int32_t r = lv_xml_atoi(focal_radius);
             dsc->params.radial.focal_extent.x = dsc->params.radial.focal.x + r;
             dsc->params.radial.focal_extent.y = dsc->params.radial.focal.y;
         }
@@ -797,23 +830,28 @@ static void process_grad_element(lv_xml_parser_state_t * state, const char * tag
     else if(lv_streq(tag_name, "conical")) {
         dsc->dir = LV_GRAD_DIR_CONICAL;
         char buf[64];
-        char * buf_p = buf;
         const char * center = lv_xml_get_value_of(attrs, "center");
         if(center) {
-            lv_strlcpy(buf, center, sizeof(buf));
-            dsc->params.conical.center.x = lv_xml_to_size(lv_xml_split_str(&buf_p, ' '));
-            dsc->params.conical.center.y = lv_xml_to_size(buf_p);
+            if(!parse_gradient_xy(center, &dsc->params.conical.center.x,
+                                  &dsc->params.conical.center.y)) {
+                state->invalid_metadata = 1;
+                return;
+            }
         }
         else {
             dsc->params.conical.center.x = lv_pct(50);
             dsc->params.conical.center.y = lv_pct(50);
         }
-        buf_p = buf;
         const char * angle = lv_xml_get_value_of(attrs, "angle");
         if(angle) {
-            lv_strlcpy(buf, angle, sizeof(buf));
-            dsc->params.conical.start_angle = lv_xml_atoi(lv_xml_split_str(&buf_p, ' '));
-            dsc->params.conical.end_angle = lv_xml_atoi(buf_p);
+            char * first, * second;
+            if(!split_gradient_pair(angle, buf, sizeof(buf), &first, &second)) {
+                state->invalid_metadata = 1;
+                return;
+            } else {
+                dsc->params.conical.start_angle = lv_xml_atoi(first);
+                dsc->params.conical.end_angle = lv_xml_atoi(second);
+            }
         }
         else {
             dsc->params.conical.start_angle = 0;

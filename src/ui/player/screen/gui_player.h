@@ -138,7 +138,9 @@ void gui_player_queue_checkpoint_urgent(void);
 void gui_player_queue_poll_urgent(void);
 bool gui_player_queue_write_busy(void);
 bool gui_player_queue_checkpoint_failed(void);
-void gui_player_queue_flush(void);
+/* Request the final checkpoint and poll until durable; never joins an active writer. */
+bool gui_player_queue_flush(void);
+void gui_player_queue_flush_cancel(void);
 void gui_player_step_manual(int direction);
 /* Time skipping applies only to manual transport within this directory. */
 void gui_player_set_transport_skip(const char * directory, int seconds);
@@ -170,6 +172,7 @@ void on_file_browser_selected(char ** new_playlist, int count, int selected_inde
 void on_track_auto_advanced(int index);
 void play_track_at(int index);
 void play_track_at_from(int index, double start_seconds);
+/* Records play-count only after the requested decoder is active. */
 bool gui_player_local_playback_allowed(void);
 bool gui_player_transport_button(int direction); /* -1 previous, 0 play/pause, 1 next */
 void toggle_play_pause(void);

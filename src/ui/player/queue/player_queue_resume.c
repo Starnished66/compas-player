@@ -19,6 +19,7 @@
 #include "../../../library/playlists/queue_resume.h"
 #include "../../../library/remote/remote_track.h"
 #include "../../../plugins/manager/plugin_manager.h"
+#include "../../../network/services/subsonic_client.h"
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
@@ -265,7 +266,7 @@ void gui_player_queue_checkpoint(void) {
 
     queue_resume_t s = {0};
     if (!player_queue_model_checkpoint_snapshot(current_settings.play_mode, position, &s)) {
-        close(target_dirfd); return;
+        *last_rev = 0; player_queue_storage_checkpoint_mark_failed(); close(target_dirfd); return;
     }
     *last_rev = revision;
     *last_pos = position;
@@ -297,10 +298,27 @@ void gui_player_queue_poll_urgent(void) {
     gui_player_queue_checkpoint();
 }
 
-void gui_player_queue_flush(void) {
-    player_queue_storage_checkpoint_join();
-    gui_player_queue_checkpoint();
-    player_queue_storage_checkpoint_join();
+static bool flush_requested;
+
+void gui_player_queue_flush_cancel(void) {
+    flush_requested = false;
+}
+
+bool gui_player_queue_flush(void) {
+    if (player_queue_storage_checkpoint_busy()) return false;
+    if (!flush_requested) {
+        gui_player_queue_checkpoint();
+        flush_requested = true;
+        if (player_queue_storage_checkpoint_busy()) return false;
+    }
+    if (!player_queue_storage_checkpoint_reap_if_done(NULL, NULL)) return false;
+    if (player_queue_storage_checkpoint_take_header_fallback()) {
+        checkpoint_revision_internal = checkpoint_revision_sd = 0;
+        flush_requested = false;
+        return false;
+    }
+    flush_requested = false;
+    return !player_queue_storage_checkpoint_failed();
 }
 
 /* Drops the queue and the player screen after its source storage left. */
@@ -606,6 +624,7 @@ bool install_saved_resume_playlist(char ** resume_playlist, int resume_count) {
             return false;
         }
     }
+    subsonic_stream_policy_set(current_settings.subsonic_url, current_settings.subsonic_verify_tls);
     player_queue_install_t owned = player_queue_install_new(resume_playlist, resume_count);
     owned.lazy_ranks = new_order;
     owned.snapshot = resume_snapshot;

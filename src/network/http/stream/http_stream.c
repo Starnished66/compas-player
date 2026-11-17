@@ -4,6 +4,7 @@
 #include "http_stream.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../client/http_conn.h"
+#include "../client/http_client.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -13,10 +14,14 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #define STREAM_RING_CAPACITY (256 * 1024)
 #define STREAM_MAX_REDIRECTS 5
+#define STREAM_CONNECT_TIMEOUT_MS 10000u
+#define STREAM_READ_TIMEOUT_MS 5000u
+#define STREAM_OPEN_TIMEOUT_MS 20000u
 
 typedef struct {
     http_conn_t * conn;
@@ -62,11 +67,49 @@ struct http_stream {
      * connection and buffered bytes stay, so seeking back costs nothing. */
     bool at_virtual_end;
     bool stop_requested, ended, thread_started;
+    uint64_t playback_generation;
+    http_cancel_token_t cancel;
+    struct http_stream * cancel_next;
 };
 
 static pthread_mutex_t metadata_mutex = PTHREAD_MUTEX_INITIALIZER;
 static http_stream_t * metadata_streams;
 static uint64_t next_stream_id;
+static pthread_mutex_t cancel_mutex = PTHREAD_MUTEX_INITIALIZER;
+static http_stream_t * cancel_streams;
+static uint64_t cancelled_through_generation;
+
+static uint64_t stream_monotonic_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+
+static void register_cancel_stream(http_stream_t * s) {
+    pthread_mutex_lock(&cancel_mutex);
+    s->cancel_next = cancel_streams;
+    cancel_streams = s;
+    if (s->playback_generation && s->playback_generation <= cancelled_through_generation)
+        http_cancel_token_cancel(&s->cancel);
+    pthread_mutex_unlock(&cancel_mutex);
+}
+
+static void unregister_cancel_stream(http_stream_t * s) {
+    pthread_mutex_lock(&cancel_mutex);
+    http_stream_t ** link = &cancel_streams;
+    while (*link && *link != s) link = &(*link)->cancel_next;
+    if (*link) *link = s->cancel_next;
+    pthread_mutex_unlock(&cancel_mutex);
+}
+
+void http_stream_cancel_generation(uint64_t generation) {
+    pthread_mutex_lock(&cancel_mutex);
+    if (generation > cancelled_through_generation) cancelled_through_generation = generation;
+    for (http_stream_t * s = cancel_streams; s; s = s->cancel_next)
+        if (s->playback_generation && s->playback_generation <= generation)
+            http_cancel_token_cancel(&s->cancel);
+    pthread_mutex_unlock(&cancel_mutex);
+}
 
 bool http_stream_metadata_for_url(const char * url, icy_metadata_t * out) {
     if (!url || !out || pthread_mutex_trylock(&metadata_mutex) != 0) return false;
@@ -187,25 +230,8 @@ static bool read_stream_header(void * ctx, const char * name, char * value) {
     return true;
 }
 
-static bool open_response(const char * url, bool verify_tls, int redirects_left,
-                          bool range, uint64_t offset, const char * if_range, bool request_icy,
-                          response_t * r) {
-    memset(r, 0, sizeof(*r));
-    bool https;
-    char host[256], port[16], path[2048];
-    if (!http_conn_parse_url(url, &https, host, sizeof(host), port, sizeof(port),
-                             path, sizeof(path)))
-        return false;
-    r->conn = calloc(1, sizeof(*r->conn));
-    if (!r->conn)
-        return false;
-    if (!http_conn_open(r->conn, host, port, https, verify_tls)) {
-        http_conn_close(r->conn);
-        free(r->conn);
-        r->conn = NULL;
-        return false;
-    }
-    r->reader.conn = r->conn;
+static bool send_stream_request(http_conn_t *conn, const char *host, const char *path,
+                                 bool range, uint64_t offset, const char *if_range, bool request_icy) {
     char request[2800];
     int n = range ? snprintf(request, sizeof(request),
                              "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: "
@@ -220,12 +246,42 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
                              "%d\r\nConnection: close\r\n\r\n",
                              path, host, request_icy ? 1 : 0);
     if (n < 0 || (size_t)n >= sizeof(request) ||
-        !write_request(r->conn, request, (size_t)n))
-        goto fail;
+        !write_request(conn, request, (size_t)n))
+        return false;
+    return true;
+}
+
+static bool open_response(const char * url, bool verify_tls, int redirects_left,
+                          bool range, uint64_t offset, const char * if_range, bool request_icy,
+                          http_cancel_token_t * cancel, uint64_t deadline_ms, response_t * r) {
+    memset(r, 0, sizeof(*r));
+    bool https;
+    char host[256], port[16], path[2048];
+    if (!http_conn_parse_url(url, &https, host, sizeof(host), port, sizeof(port),
+                             path, sizeof(path)))
+        return false;
+    r->conn = calloc(1, sizeof(*r->conn));
+    if (!r->conn)
+        return false;
+    http_conn_error_t conn_error;
+    if (!http_conn_open_deadline_ex(r->conn, host, port, https, verify_tls,
+                                    STREAM_CONNECT_TIMEOUT_MS, STREAM_READ_TIMEOUT_MS,
+                                    cancel, &conn_error, deadline_ms)) {
+        http_conn_close(r->conn);
+        free(r->conn);
+        r->conn = NULL;
+        return false;
+    }
+    r->reader.conn = r->conn;
+    if (!send_stream_request(r->conn, host, path, range, offset, if_range, request_icy)) goto fail;
     char location[2048] = "";
     http_head_t head = { .location = location, .location_size = sizeof(location),
                          .allow_header_eof = true };
-    if (http_conn_read_head(&r->reader, &head, read_stream_header, r) != HTTP_HEAD_OK)
+    http_head_result_t head_result = http_conn_read_head(&r->reader, &head, read_stream_header, r);
+    /* The absolute cap covers connect, request write and the complete header
+     * phase only. The cancel token interrupts stalled body reads. */
+    http_conn_end_deadline(r->conn, 0);
+    if (head_result != HTTP_HEAD_OK)
         goto fail;
     r->status = head.status;
     r->chunked = head.chunked;
@@ -241,7 +297,7 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
         /* An entity validator applies only to the original origin and must
      * not be forwarded if a redirect changes the selected resource. */
         return open_response(location, verify_tls, redirects_left - 1, range,
-                             offset, NULL, request_icy, r);
+                             offset, NULL, request_icy, cancel, deadline_ms, r);
     }
     if (range) {
         /* A server may ignore the initial capability probe and return the
@@ -455,64 +511,69 @@ static void release_gated_pump(pump_gate_t * gate) {
     pthread_mutex_unlock(&gate->mutex);
 }
 
-http_stream_t * http_stream_open(const char * url, bool verify_tls, bool request_icy) {
+static void stream_adopt_response(http_stream_t *s, response_t *r, bool negotiated, bool verify_tls) {
+    s->conn = r->conn;
+    r->conn = NULL;
+    s->reader = r->reader;
+    s->reader.conn = s->conn;
+    s->chunked = r->chunked;
+    s->has_content_length = r->has_length && !r->chunked;
+    s->content_length = r->content_length;
+    s->remaining = r->content_length;
+    s->icy_audio_left = s->icy_interval = r->icy_interval;
+    s->seekable = !r->icy_interval && negotiated && r->status == 206 && r->range_valid &&
+                  r->range_start == 0 && r->range_end + 1 == r->range_total &&
+                  r->range_total <= INT64_MAX &&
+                  (!r->has_length || r->content_length == r->range_total);
+    if (s->seekable && !r->has_length) {
+        s->has_content_length = true;
+        s->remaining = r->range_total;
+    }
+    s->length = r->icy_interval ? UINT64_MAX : s->seekable ? r->range_total
+                            : (r->has_length ? r->content_length : UINT64_MAX);
+    s->verify_tls = verify_tls;
+    snprintf(s->content_type, sizeof(s->content_type), "%s", r->content_type);
+    snprintf(s->final_url, sizeof(s->final_url), "%s", r->final_url);
+    snprintf(s->etag, sizeof(s->etag), "%s", r->etag);
+    snprintf(s->last_modified, sizeof(s->last_modified), "%s", r->last_modified);
+}
+
+http_stream_t * http_stream_open(const char * url, bool verify_tls,
+                                                bool request_icy, uint64_t generation) {
+    http_stream_t * s = calloc(1, sizeof(*s));
+    if (!s) return NULL;
+    s->playback_generation = generation;
+    http_cancel_token_init(&s->cancel);
+    register_cancel_stream(s);
     response_t r;
+    uint64_t deadline = stream_monotonic_ms() + STREAM_OPEN_TIMEOUT_MS;
     /* First negotiate Range: 0-. Live servers commonly ignore it and still
    * return 200/chunked, preserving the established radio behavior. */
     bool negotiated =
-        open_response(url, verify_tls, STREAM_MAX_REDIRECTS, true, 0, NULL, request_icy, &r);
+        open_response(url, verify_tls, STREAM_MAX_REDIRECTS, true, 0, NULL, request_icy,
+                      &s->cancel, deadline, &r);
     if (!negotiated) {
         if (!open_response(url, verify_tls, STREAM_MAX_REDIRECTS, false, 0, NULL, request_icy,
-                           &r))
-            return NULL;
-    }
-    http_stream_t * s = calloc(1, sizeof(*s));
-    if (!s) {
-        http_conn_close(r.conn);
-        free(r.conn);
-        return NULL;
+                           &s->cancel, deadline, &r)) {
+            goto fail;
+        }
     }
     s->ring = malloc(STREAM_RING_CAPACITY);
     if (!s->ring) {
         http_conn_close(r.conn);
         free(r.conn);
-        free(s);
-        return NULL;
+        goto fail;
     }
     pthread_mutex_init(&s->mutex, NULL);
     pthread_cond_init(&s->cond, NULL);
-    s->conn = r.conn;
-    r.conn = NULL;
-    s->reader = r.reader;
-    s->reader.conn = s->conn;
-    s->chunked = r.chunked;
-    s->has_content_length = r.has_length && !r.chunked;
-    s->content_length = r.content_length;
-    s->remaining = r.content_length;
-    s->icy_audio_left = s->icy_interval = r.icy_interval;
-    s->seekable = !r.icy_interval && negotiated && r.status == 206 && r.range_valid &&
-                  r.range_start == 0 && r.range_end + 1 == r.range_total &&
-                  r.range_total <= INT64_MAX &&
-                  (!r.has_length || r.content_length == r.range_total);
-    if (s->seekable && !r.has_length) {
-        s->has_content_length = true;
-        s->remaining = r.range_total;
-    }
-    s->length = r.icy_interval ? UINT64_MAX : s->seekable ? r.range_total
-                            : (r.has_length ? r.content_length : UINT64_MAX);
-    s->verify_tls = verify_tls;
-    snprintf(s->content_type, sizeof(s->content_type), "%s", r.content_type);
-    snprintf(s->final_url, sizeof(s->final_url), "%s", r.final_url);
-    snprintf(s->etag, sizeof(s->etag), "%s", r.etag);
-    snprintf(s->last_modified, sizeof(s->last_modified), "%s", r.last_modified);
+    stream_adopt_response(s, &r, negotiated, verify_tls);
     if (!start_pump(s)) {
         http_conn_close(s->conn);
         free(s->conn);
         pthread_mutex_destroy(&s->mutex);
         pthread_cond_destroy(&s->cond);
         free(s->ring);
-        free(s);
-        return NULL;
+        goto fail;
     }
     snprintf(s->source_url, sizeof(s->source_url), "%s", url);
     pthread_mutex_lock(&metadata_mutex);
@@ -523,7 +584,13 @@ http_stream_t * http_stream_open(const char * url, bool verify_tls, bool request
     metadata_streams = s;
     pthread_mutex_unlock(&metadata_mutex);
     return s;
+fail:
+    unregister_cancel_stream(s);
+    http_cancel_token_destroy(&s->cancel);
+    free(s);
+    return NULL;
 }
+
 
 size_t http_stream_read(http_stream_t * s, void * buf, size_t n) {
     if (!s || !buf || !n)
@@ -573,6 +640,38 @@ int64_t http_stream_length(http_stream_t * s) {
     if (!s || s->length == UINT64_MAX || s->length > INT64_MAX)
         return -1;
     return (int64_t)s->length;
+}
+
+static bool open_seek_response(http_stream_t *s, uint64_t dest, response_t *candidate) {
+    const char * if_range = NULL;
+    if (s->etag[0] && strncmp(s->etag, "W/", 2) != 0 && s->etag[0] == '"')
+        if_range = s->etag;
+    else if (s->last_modified[0])
+        if_range = s->last_modified;
+    bool if_range_is_etag = if_range && s->etag[0] && if_range == s->etag;
+    if (!open_response(s->final_url, s->verify_tls, STREAM_MAX_REDIRECTS, true,
+                       dest, if_range, false, &s->cancel,
+                       stream_monotonic_ms() + STREAM_OPEN_TIMEOUT_MS, candidate))
+        return false;
+    if ((candidate->status != 206 || candidate->range_total != s->length ||
+         candidate->icy_interval || !candidate->range_valid || candidate->range_start != dest ||
+         candidate->range_end + 1 != candidate->range_total)) {
+        http_conn_close(candidate->conn);
+        free(candidate->conn);
+        return false;
+    }
+    if (((if_range &&
+          strcmp(if_range, if_range_is_etag ? candidate->etag
+                                            : candidate->last_modified) != 0) ||
+         (s->etag[0] && candidate->etag[0] &&
+          strcmp(s->etag, candidate->etag) != 0) ||
+         (s->last_modified[0] && candidate->last_modified[0] &&
+          strcmp(s->last_modified, candidate->last_modified) != 0))) {
+        http_conn_close(candidate->conn);
+        free(candidate->conn);
+        return false;
+    }
+    return true;
 }
 
 bool http_stream_seek(http_stream_t * s, int64_t offset, int origin) {
@@ -646,36 +745,7 @@ bool http_stream_seek(http_stream_t * s, int64_t offset, int origin) {
     pthread_mutex_unlock(&s->mutex);
     response_t candidate;
     bool have_body = dest < s->length;
-    const char * if_range = NULL;
-    if (s->etag[0] && strncmp(s->etag, "W/", 2) != 0 && s->etag[0] == '"')
-        if_range = s->etag;
-    else if (s->last_modified[0])
-        if_range = s->last_modified;
-    bool if_range_is_etag = if_range && s->etag[0] && if_range == s->etag;
-    if (have_body &&
-        !open_response(s->final_url, s->verify_tls, STREAM_MAX_REDIRECTS, true,
-                       dest, if_range, false, &candidate))
-        return false;
-    if (have_body &&
-        (candidate.status != 206 || candidate.range_total != s->length ||
-         candidate.icy_interval || !candidate.range_valid || candidate.range_start != dest ||
-         candidate.range_end + 1 != candidate.range_total)) {
-        http_conn_close(candidate.conn);
-        free(candidate.conn);
-        return false;
-    }
-    if (have_body &&
-        ((if_range &&
-          strcmp(if_range, if_range_is_etag ? candidate.etag
-                                            : candidate.last_modified) != 0) ||
-         (s->etag[0] && candidate.etag[0] &&
-          strcmp(s->etag, candidate.etag) != 0) ||
-         (s->last_modified[0] && candidate.last_modified[0] &&
-          strcmp(s->last_modified, candidate.last_modified) != 0))) {
-        http_conn_close(candidate.conn);
-        free(candidate.conn);
-        return false;
-    }
+    if (have_body && !open_seek_response(s, dest, &candidate)) return false;
     pthread_t candidate_thread;
     pump_gate_t * candidate_gate = NULL;
     if (have_body && !create_gated_pump(s, &candidate_thread, &candidate_gate)) {
@@ -736,6 +806,8 @@ void http_stream_close(http_stream_t * s) {
     while (*link && *link != s) link = &(*link)->metadata_next;
     if (*link) *link = s->metadata_next;
     pthread_mutex_unlock(&metadata_mutex);
+    unregister_cancel_stream(s);
+    http_cancel_token_cancel(&s->cancel);
     pthread_mutex_lock(&s->mutex);
     s->stop_requested = true;
     pthread_cond_broadcast(&s->cond);
@@ -748,5 +820,6 @@ void http_stream_close(http_stream_t * s) {
     pthread_mutex_destroy(&s->mutex);
     pthread_cond_destroy(&s->cond);
     free(s->ring);
+    http_cancel_token_destroy(&s->cancel);
     free(s);
 }

@@ -78,6 +78,8 @@ static bool subsonic_streams_directly(const subsonic_song_t * song, int quality_
 
 /* The popup owns a copy; opening or cancelling it never grows the stream catalog. */
 static subsonic_stream_song_meta_t context_song;
+static bool context_verify_tls;
+static char context_base_url[sizeof(((subsonic_server_t *)0)->base_url)];
 
 static void subsonic_context_queue(bool next) {
     size_t count = (size_t) subsonic_stream_meta_count + 1;
@@ -85,6 +87,7 @@ static void subsonic_context_queue(bool next) {
     subsonic_stream_song_meta_t * grown = realloc(subsonic_stream_meta, count * sizeof(*grown));
     if (!grown) return;
     subsonic_stream_meta = grown;
+    subsonic_stream_policy_set(context_base_url, context_verify_tls);
     subsonic_stream_meta[subsonic_stream_meta_count++] = context_song;
     uint64_t revision = gui_player_queue_revision();
     if (next) gui_player_queue_play_next(context_song.url);
@@ -99,6 +102,8 @@ static bool subsonic_prepare_context_song(const subsonic_song_t *song) {
     subsonic_server_t server = subsonic_server_from_settings();
     char * entry = NULL;
     subsonic_fill_stream_queue_entry(&server, song, NULL, quality_kbps, &entry, &context_song, 0);
+    context_verify_tls = server.verify_tls;
+    snprintf(context_base_url, sizeof(context_base_url), "%s", server.base_url);
     if (!entry) return false;
     free(entry);
     /* The shared queue and current-track path buffers are 600 bytes. */
@@ -156,6 +161,7 @@ static void subsonic_start_stream_queue(const subsonic_server_t * server, const 
         return;
     }
 
+    subsonic_stream_policy_set(server->base_url, server->verify_tls);
     free(subsonic_stream_meta);
     subsonic_stream_meta = new_meta;
     subsonic_stream_meta_count = count;

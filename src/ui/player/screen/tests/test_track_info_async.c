@@ -1,3 +1,4 @@
+#include "../../../widgets/cover_flow/cover_flow_internal.h"
 #include "src/ui/player/lyrics/player_inline_lyrics.h"
 #include "src/ui/shell/gui_shell.h"
 #include "lvgl/src/misc/lv_area_private.h"
@@ -167,7 +168,8 @@ void __wrap_on_file_selected(char **paths, int count, int selected) {
 
 void __wrap_set_player_source_group_songs_direct(const group_song_entry_t *entries,
                                                 int count, const char *title, int selected) {
-    assert(entries && selected >= 0 && selected < count && !strcmp(title, "Top rated"));
+    assert(entries && selected >= 0 && selected < count);
+    assert(!strcmp(title, "Top rated") || (getenv("COMPAS_TEST_MOST_PLAYED") && !strcmp(title, "Most played")));
     source_count = count;
 }
 
@@ -513,6 +515,13 @@ static void check_cover_taps(lv_obj_t *screen, lv_indev_t *pointer, lv_obj_t *hi
     current_settings.lyrics_enabled = enabled;
 }
 
+static void tap_rating(lv_indev_t *pointer) {
+    rating_pointer.state = LV_INDEV_STATE_PRESSED;
+    lv_indev_read(pointer);
+    rating_pointer.state = LV_INDEV_STATE_RELEASED;
+    lv_indev_read(pointer);
+}
+
 static void check_rating_edge(lv_obj_t *screen, lv_obj_t *hit, const lv_area_t *area) {
     lv_obj_t *saved = lv_screen_active();
     int animation_scale = current_settings.animation_scale;
@@ -529,14 +538,30 @@ static void check_rating_edge(lv_obj_t *screen, lv_obj_t *hit, const lv_area_t *
     assert(!lv_obj_hit_test(lv_obj_find_by_name(screen, "cover_card"), &rating_pointer.point));
     assert(!point_in_swipe_dead_zone(rating_pointer.point));
     current_track = true;
+    show_now_playing_rating(2);
     rating_pointer.state = LV_INDEV_STATE_PRESSED;
     lv_indev_read(pointer);
     assert(lv_obj_has_state(gui_player_rating_control(), LV_STATE_PRESSED));
     rating_pointer.state = LV_INDEV_STATE_RELEASED;
     lv_indev_read(pointer);
-    assert(find_full_rating(lv_layer_top()));
+    /* A tap rates 5 without the popup; a second tap clears the 5. */
+    assert(star_rating_get(gui_player_rating_control()) == 5);
+    assert(!find_full_rating(lv_layer_top()));
     assert(!player_inline_lyrics_is_open());
     assert(!lv_obj_has_state(gui_player_rating_control(), LV_STATE_PRESSED));
+    tap_rating(pointer);
+    assert(star_rating_get(gui_player_rating_control()) == 0);
+    /* Holding opens the popup and leaves the rating alone. */
+    rating_pointer.state = LV_INDEV_STATE_PRESSED;
+    for (int i = 0; i < 40 && !find_full_rating(lv_layer_top()); i++) {
+        lv_tick_inc(25);
+        usleep(25000); /* the host tick may follow the real clock */
+        lv_indev_read(pointer);
+    }
+    rating_pointer.state = LV_INDEV_STATE_RELEASED;
+    lv_indev_read(pointer);
+    assert(find_full_rating(lv_layer_top()));
+    assert(star_rating_get(gui_player_rating_control()) == 0);
     gui_rating_popup_teardown();
     lv_obj_add_event_cb(screen, observe_shell_gesture, LV_EVENT_GESTURE, NULL);
     check_cover_swipe(pointer, rating_pointer.point, 1);
@@ -564,6 +589,10 @@ static void check_rating_roles(lv_obj_t *screen, const lv_area_t *area) {
     }
 }
 
+/* The compact control: star image, then the count chip holding its label. */
+static lv_obj_t *rating_chip(lv_obj_t *control) { return lv_obj_get_child(control, 1); }
+static lv_obj_t *rating_digit(lv_obj_t *control) { return lv_obj_get_child(rating_chip(control), 0); }
+
 static void check_inside_clip(lv_obj_t *cover, const lv_area_t *area) {
     lv_area_t card;
     lv_obj_get_coords(cover, &card);
@@ -587,15 +616,15 @@ static void check_rating_geometry(lv_obj_t *screen, lv_obj_t *control) {
     assert(visible.x1 >= area.x1 && visible.y1 >= area.y1 && visible.x2 <= area.x2 && visible.y2 <= area.y2);
     assert(abs(area.x1 + area.x2 - visible.x1 - visible.x2) <= 1);
     assert(abs(area.y1 + area.y2 - visible.y1 - visible.y2) <= 1);
-    assert(lv_obj_get_width(lv_obj_get_child(control, 0)) == LV_MAX(24, BOARD_SCALE_PX(36)));
-    assert(lv_obj_get_style_text_font(control, 0) == &app_font_22);
+    assert(lv_obj_get_width(lv_obj_get_child(control, 0)) == LV_MAX(32, BOARD_SCALE_PX(48)));
+    assert(lv_obj_get_style_text_font(rating_digit(control), 0) == &app_font_16);
     check_inside_clip(lv_obj_find_by_name(screen, "cover_card"), &area);
     check_inside_clip(lv_obj_find_by_name(screen, "cover_card"), &visible);
     check_rating_clearance(screen, hit, &area);
     check_rating_roles(screen, &area);
     check_rating_edge(screen, hit, &area);
     printf("Player star %d, hit %d at %d,%d inside cover %d,%d-%d,%d\n",
-           LV_MAX(24, BOARD_SCALE_PX(36)), (int)size, (int)area.x1, (int)area.y1,
+           LV_MAX(32, BOARD_SCALE_PX(48)), (int)size, (int)area.x1, (int)area.y1,
            (int)card.x1, (int)card.y1, (int)card.x2, (int)card.y2);
 }
 
@@ -608,7 +637,8 @@ static void check_player_rating(void) {
     for (int stars = 0; stars <= 5; stars++) {
         show_now_playing_rating(stars);
         assert(star_rating_get(control) == stars);
-        assert(lv_label_get_text(lv_obj_get_child(control, 1))[0] == '0' + stars);
+        assert(lv_obj_has_flag(rating_chip(control), LV_OBJ_FLAG_HIDDEN) == (stars == 0));
+        if (stars) assert(lv_label_get_text(rating_digit(control))[0] == '0' + stars);
     }
     lv_obj_update_layout(screen);
     check_rating_geometry(screen, control);
@@ -627,7 +657,9 @@ static void check_player_rating(void) {
     show_now_playing_rating(0);
     assert(lv_color_eq(lv_obj_get_style_image_recolor(lv_obj_get_child(control, 0), 0), color));
     assert(lv_obj_get_style_image_recolor_opa(lv_obj_get_child(control, 0), 0) == LV_OPA_COVER);
-    assert(lv_color_eq(lv_obj_get_style_text_color(lv_obj_get_child(control, 1), 0), color));
+    show_now_playing_rating(5);
+    assert(lv_color_eq(lv_obj_get_style_bg_color(rating_chip(control), 0), color));
+    show_now_playing_rating(0);
 }
 
 static void check_transport_tint(void) {
@@ -641,7 +673,7 @@ static void check_transport_tint(void) {
     for (int stars = 0; stars <= 5; stars++) {
         show_now_playing_rating(stars);
         assert(lv_color_eq(lv_obj_get_style_image_recolor(lv_obj_get_child(control, 0), 0), tint));
-        assert(lv_color_eq(lv_obj_get_style_text_color(lv_obj_get_child(control, 1), 0), tint));
+        if (stars) assert(lv_color_eq(lv_obj_get_style_bg_color(rating_chip(control), 0), tint));
         assert(lv_obj_get_style_image_recolor_opa(lv_obj_get_child(control, 0), 0) == LV_OPA_COVER);
     }
     lv_obj_remove_local_style_prop(source, LV_STYLE_IMAGE_RECOLOR, 0);
@@ -690,8 +722,9 @@ static void check_minimal_rating(void) {
             show_now_playing_rating(stars);
             assert(lv_color_eq(lv_obj_get_style_image_recolor(lv_obj_get_child(control, 0), 0), colors[i]));
             assert(lv_obj_get_style_image_recolor_opa(lv_obj_get_child(control, 0), 0) == LV_OPA_COVER);
-            assert(lv_color_eq(lv_obj_get_style_text_color(lv_obj_get_child(control, 1), 0), colors[i]));
-            assert(lv_obj_get_style_text_opa(lv_obj_get_child(control, 1), 0) == LV_OPA_COVER);
+            if (!stars) continue;
+            assert(lv_color_eq(lv_obj_get_style_bg_color(rating_chip(control), 0), colors[i]));
+            assert(lv_obj_get_style_bg_opa(rating_chip(control), 0) == LV_OPA_COVER);
         }
     }
     lv_style_set_text_color(style, text.color);
@@ -1614,6 +1647,34 @@ static void check_reverse_strip(lv_obj_t *strip) {
     atomic_store(&az_generation_offset, 0);
 }
 
+static void check_reverse_search(const int expected[]) {
+    compact_list_page_row_t rows[1];
+    library_search_open(SEARCH_BINDING_ALL_SONGS);
+    lv_obj_t *entry = find_search_entry(all_songs_screen);
+    assert(entry);
+    lv_textarea_set_text(entry, "Rating song 2");
+    int rank = -1;
+    for (int i = 0; i < 2000; i++) {
+        pump_ui();
+        poll_search_job();
+        if (library_search_try_map_filtered_row(SEARCH_BINDING_ALL_SONGS, 0, &rank)) break;
+    }
+    assert(rank == 2 && search_remap_index(SEARCH_BINDING_ALL_SONGS, 0) == 2);
+    current_settings.play_mode = PLAY_MODE_SEQUENTIAL;
+    all_click(0);
+    check_queue_paths(expected);
+    assert(player_queue_model_current() == 3);
+    all_menu(0);
+    assert(all_menu_rank == 2);
+    lv_screen_load(all_songs_screen);
+    assert(search_close_if_active_for_screen(all_songs_screen));
+    assert(all_songs_fetch_page(NULL, 0, 1, rows) == 1);
+    assert(!strcmp(rows[0].label, "Rating song 5"));
+    lv_obj_t *strip = library_az_index_strip_for_screen(all_songs_screen);
+    assert(strip);
+    assert(!strncmp(lv_label_get_text(strip), "Z\nY\nX", 5));
+}
+
 static void check_all_songs_reverse(lv_obj_t *sort) {
     select_all_songs_sort(sort, 0, 1);
     settings_save_drain();
@@ -1674,28 +1735,7 @@ static void check_all_songs_reverse(lv_obj_t *sort) {
         gui_library_poll_now_playing_indicators();
     }
     assert(all_playing_row == 3);
-    library_search_open(SEARCH_BINDING_ALL_SONGS);
-    lv_obj_t *entry = find_search_entry(all_songs_screen);
-    assert(entry);
-    lv_textarea_set_text(entry, "Rating song 2");
-    int rank = -1;
-    for (int i = 0; i < 2000; i++) {
-        pump_ui();
-        poll_search_job();
-        if (library_search_try_map_filtered_row(SEARCH_BINDING_ALL_SONGS, 0, &rank)) break;
-    }
-    assert(rank == 2 && search_remap_index(SEARCH_BINDING_ALL_SONGS, 0) == 2);
-    current_settings.play_mode = PLAY_MODE_SEQUENTIAL;
-    all_click(0);
-    check_queue_paths(expected);
-    assert(player_queue_model_current() == 3);
-    all_menu(0);
-    assert(all_menu_rank == 2);
-    lv_screen_load(all_songs_screen);
-    assert(search_close_if_active_for_screen(all_songs_screen));
-    assert(all_songs_fetch_page(NULL, 0, 1, rows) == 1);
-    assert(!strcmp(rows[0].label, "Rating song 5"));
-    assert(!strncmp(lv_label_get_text(strip), "Z\nY\nX", 5));
+    check_reverse_search(expected);
     free_playlist();
     assert(snapshot_refs == 0);
     snapshot_opens = 0;
@@ -1765,35 +1805,88 @@ static void check_all_songs_by_rating(void) {
     all_songs_rearm();
 }
 
-int compas_original_main(int argc, char **argv);
-int main(int argc, char **argv) {
-    az_ui_thread = pthread_self();
-    if (argc > 1 && (!strcmp(argv[1], "--metadata-artwork-helper") ||
-                     !strcmp(argv[1], "--metadata-scan-worker")))
-        return compas_original_main(argc, argv);
-    lv_init(); assert(ui_fonts_init());
-    assert(lv_sdl_window_create(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT));
-    settings_load(&current_settings); audio_init();
-    gui_init(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT);
-    check_player_rating();
-    check_transport_tint();
-    check_plugin_rating();
-    if (getenv("COMPAS_TEST_PLAYER_XML")) return 0;
-    check_minimal_rating();
-    check_song_popup();
-    check_popup_accent();
-    ui_thread = pthread_self();
-    check_loading_album_rating();
-    check_album_rating();
-    check_favorite_albums();
-    check_favorite_empty_results();
-    check_rated_list_accent();
-    check_top_songs();
-    check_refresh_during_load();
-    check_top_albums();
-    check_live_ratings();
-    check_all_songs_by_rating();
-    check_popup_rating();
+static atomic_bool most_fixture, most_hold, most_entered;
+static atomic_int most_completed;
+void __real_metadata_db_load_top_played_songs(int limit, char ***paths, int *count);
+void __wrap_metadata_db_load_top_played_songs(int limit, char ***paths, int *count) {
+    if (!atomic_load(&most_fixture)) { __real_metadata_db_load_top_played_songs(limit, paths, count); return; }
+    bool ui = pthread_equal(az_ui_thread, pthread_self());
+    atomic_store(&most_entered, true);
+    while (!ui && atomic_load(&most_hold)) usleep(1000);
+    *count = 2; *paths = calloc(2, sizeof(char *)); assert(*paths);
+    (*paths)[0] = strdup("./music/filter-0.wav"); (*paths)[1] = strdup("./music/filter-1.wav");
+    atomic_fetch_add(&most_completed, 1);
+}
+static void wait_most_entered(void) {
+    for (int i = 0; i < 2000 && !atomic_load(&most_entered); ++i) pump_ui();
+    assert(atomic_load(&most_entered));
+}
+static void check_most_played_refresh_pending(void) {
+    int completed = atomic_load(&most_completed);
+    atomic_store(&most_hold, true); atomic_store(&most_entered, false);
+    library_playlist_open_row(GUI_PLAYLIST_ROW_MOST_PLAYED, NULL, NULL, NULL, 0);
+    wait_most_entered();
+    refresh_group_songs_from_database();
+    refresh_group_songs_from_database();
+    atomic_store(&most_hold, false);
+    for (int i = 0; i < 2000 && atomic_load(&most_completed) == completed; i++) usleep(1000);
+    assert(atomic_load(&most_completed) == completed + 1);
+    atomic_store(&most_hold, true); atomic_store(&most_entered, false);
+    wait_most_entered(); /* the stale completion must launch exactly one replacement */
+    assert(group_songs_count == 0);
+    atomic_store(&most_hold, false);
+    for (int i = 0; i < 2000 && group_songs_count != 2; i++) pump_ui();
+    assert(group_songs_count == 2 && atomic_load(&most_completed) == completed + 2);
+}
+
+static void check_most_played_async(void) {
+    atomic_store(&most_fixture, true); atomic_store(&most_hold, true);
+    library_playlist_open_row(GUI_PLAYLIST_ROW_MOST_PLAYED, NULL, NULL, NULL, 0);
+    wait_most_entered();
+    assert(group_songs_count == 0);
+    lv_obj_t *covered = lv_obj_create(NULL);
+    lv_screen_load(covered);
+    atomic_store(&most_hold, false);
+    for (int i = 0; i < 2000 && group_songs_count != 2; ++i) pump_ui();
+    assert(group_songs_count == 2 && lv_screen_active() == covered);
+    atomic_store(&most_hold, true); atomic_store(&most_entered, false);
+    refresh_group_songs_from_database(); /* must return before the held worker */
+    wait_most_entered();
+    show_group_songs("Other collection", NULL, 0);
+    atomic_store(&most_hold, false);
+    for (int i = 0; i < 300; ++i) pump_ui();
+    assert(atomic_load(&most_completed) == 2 && group_songs_count == 0);
+    atomic_store(&most_hold, true); atomic_store(&most_entered, false);
+    library_playlist_open_row(GUI_PLAYLIST_ROW_MOST_PLAYED, NULL, NULL, NULL, 0);
+    wait_most_entered();
+    play_remote_control_song("./music/filter-0.wav", "@most_played", "", "", "");
+    assert(playback_count == 2); /* remote scope matches the synchronous sibling collections */
+    atomic_store(&most_hold, false);
+    for (int i = 0; i < 2000 && group_songs_count != 2; ++i) pump_ui();
+    assert(group_songs_count == 2); /* a concurrent remote play must not consume the view result */
+    check_most_played_refresh_pending();
+    puts("Most Played async loading, covered result, stale view, refresh retry and concurrent remote play passed");
+}
+
+static void geometry_select(int index) { (void)index; }
+static void check_cover_flow_geometry(void) {
+    cover_flow_item_t item = { .title = "Album", .subtitle = "Artist", .song_id = -1 };
+    cover_flow_params_t params = { .title = "Albums", .items = &item, .count = 1, .az_index = true, .on_select = geometry_select };
+    assert(cover_flow_show(&params));
+    assert(cf_instance);
+    lv_obj_update_layout(cf_instance->screen);
+    lv_area_t title, subtitle;
+    lv_obj_get_coords(cf_instance->title_label, &title);
+    lv_obj_get_coords(cf_instance->sub_label, &subtitle);
+    assert(title.y2 < subtitle.y1);
+    assert(subtitle.y2 < cf_instance->g.strip_y);
+    assert(cf_instance->g.strip_y + cf_instance->g.strip_h <=
+           BOARD_SCREEN_HEIGHT - HOME_INDICATOR_CONTENT_INSET);
+    assert(cf_instance->g.cover_y >= cf_instance->g.area_top);
+    puts("Cover Flow actual LVGL label/strip geometry passed");
+}
+
+static void check_information_metadata(void) {
     gui_track_info_context_t playing = { .source = GUI_TRACK_SOURCE_LOCAL };
     strcpy(playing.path, "./music/current.wav");
     gui_track_info_set_current(&playing);
@@ -1825,5 +1918,39 @@ int main(int argc, char **argv) {
     check_rating_during_probe(4);
     check_rating_during_probe(0);
     check_placeholder_rating();
+}
+
+int compas_original_main(int argc, char **argv);
+int main(int argc, char **argv) {
+    az_ui_thread = pthread_self();
+    if (argc > 1 && (!strcmp(argv[1], "--metadata-artwork-helper") ||
+                     !strcmp(argv[1], "--metadata-scan-worker")))
+        return compas_original_main(argc, argv);
+    lv_init(); assert(ui_fonts_init());
+    assert(lv_sdl_window_create(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT));
+    settings_load(&current_settings); audio_init();
+    gui_init(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT);
+    if (getenv("COMPAS_TEST_MOST_PLAYED")) { check_most_played_async(); return 0; }
+    if (getenv("COMPAS_TEST_COVER_GEOMETRY")) { check_cover_flow_geometry(); return 0; }
+    check_player_rating();
+    check_transport_tint();
+    check_plugin_rating();
+    if (getenv("COMPAS_TEST_PLAYER_XML")) return 0;
+    check_minimal_rating();
+    check_song_popup();
+    check_popup_accent();
+    ui_thread = pthread_self();
+    check_loading_album_rating();
+    check_album_rating();
+    check_favorite_albums();
+    check_favorite_empty_results();
+    check_rated_list_accent();
+    check_top_songs();
+    check_refresh_during_load();
+    check_top_albums();
+    check_live_ratings();
+    check_all_songs_by_rating();
+    check_popup_rating();
+    check_information_metadata();
     puts("Information metadata, ratings, CUE facts and stale completion passed");
 }

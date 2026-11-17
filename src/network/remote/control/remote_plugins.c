@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "remote_plugins.h"
+#include "remote_control_internal.h"
 #include "cJSON.h"
 
 #include <errno.h>
@@ -264,9 +265,8 @@ static bool query_id(const char * path, remote_plugins_job_t * job) {
     const char * query = strchr(path, '?');
     if (!query || strncmp(query + 1, "id=", 3) != 0) return false;
     const char * value = query + 4;
-    size_t length = strlen(value);
-    if (!length || length >= sizeof(job->id) || length > 63) return false;
-    memcpy(job->id, value, length + 1);
+    if (!value[0] || strchr(value, '&') ||
+        !url_decode_checked(value, job->id, sizeof(job->id)) || strlen(job->id) > 63) return false;
     return id_valid(job);
 }
 

@@ -165,6 +165,8 @@ static lv_obj_t * text_entry_space_key;
  * between callbacks that chain into another show_text_entry() call and those
  * that complete navigation back. */
 static uint32_t text_entry_generation = 0;
+
+uint32_t gui_text_input_generation(void) { return text_entry_generation; }
 static void text_entry_variant_close(void);
 static void text_entry_variant_owner_event_cb(lv_event_t * e);
 static void text_entry_place_key(lv_obj_t * key, int col, int row);

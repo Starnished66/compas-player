@@ -21,7 +21,6 @@
 
 #define BT_AGENT_PATH "/org/compas/agent"
 #define BT_AGENT_CAPABILITY "DisplayYesNo"
-#define BT_AGENT_PIN "0000"
 #define BT_AGENT_DISCOVERABLE_REASSERT_TENTHS 600
 /* Short: a healthy bluetoothd answers in milliseconds, and callers sit on connect paths. */
 #define BT_AGENT_CALL_TIMEOUT_MS 1000
@@ -208,8 +207,8 @@ static void handle_request_pin_code(DBusConnection * c, DBusMessage * msg) {
     dbus_message_get_args(msg, &err, DBUS_TYPE_OBJECT_PATH, &device, DBUS_TYPE_INVALID);
     dbus_error_free(&err);
     DBG_LOG("bt_pairing_agent: RequestPinCode %s\n", device);
-    const char * pin = BT_AGENT_PIN;
-    if (bt_agent_pairing_allowed(c, msg, device)) bt_agent_send_basic_reply(c, msg, DBUS_TYPE_STRING, &pin);
+    if (bt_agent_pairing_allowed(c, msg, device) && !bt_agent_confirm_begin(c, msg, device, UINT32_MAX))
+        bt_agent_send_error_reply(c, msg, "org.bluez.Error.Rejected", "Another pairing request is pending");
 }
 
 static void handle_display_pin_code(DBusConnection * c, DBusMessage * msg) {

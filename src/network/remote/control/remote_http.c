@@ -209,6 +209,11 @@ void send_json_free(int cfd, char * json) {
     free(json);
 }
 
+static bool number_token_ok(const char *val, const char *end) {
+    return end != val && (!*end || *end == '&') &&
+           ((*val >= '0' && *val <= '9') || *val == '-' || *val == '+');
+}
+
 /* Pulls an integer query parameter from the request path. Returns false if
  * absent, invalid or out of int range. */
 bool query_param_int(const char * path, const char * key, int * out_value) {
@@ -217,7 +222,7 @@ bool query_param_int(const char * path, const char * key, int * out_value) {
     char * end;
     errno = 0;
     long v = strtol(val, &end, 10);
-    if (end == val) return false; /* no digits at all */
+    if (!number_token_ok(val, end)) return false;
     if (errno == ERANGE || v < INT_MIN || v > INT_MAX) return false;
     *out_value = (int) v;
     return true;
@@ -231,7 +236,7 @@ bool query_param_int_saturating(const char * path, const char * key, int * out_v
     if (!val) return false;
     char * end;
     long v = strtol(val, &end, 10);
-    if (end == val) return false; /* no digits at all */
+    if (!number_token_ok(val, end)) return false;
     *out_value = v < INT_MIN ? INT_MIN : v > INT_MAX ? INT_MAX : (int) v;
     return true;
 }
@@ -244,7 +249,7 @@ bool query_param_int64(const char * path, const char * key, int64_t * out_value)
     char * end;
     errno = 0;
     long long v = strtoll(val, &end, 10);
-    if (end == val) return false; /* no digits at all */
+    if (!number_token_ok(val, end)) return false;
     if (errno == ERANGE) return false;
     *out_value = (int64_t) v;
     return true;

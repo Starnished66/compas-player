@@ -28,6 +28,8 @@ typedef struct {
  * ahead of queued NEXT work; separate slots preserve gapless preparation. */
 bool track_metadata_worker_start(void);
 bool track_metadata_history_failed(void);
+/* True once queued and in-flight play events have reached the database. */
+bool track_metadata_history_ready(void);
 bool track_metadata_submit(int lane, const track_metadata_request_t * request);
 bool track_metadata_take(int lane, track_metadata_result_t * result);
 /* Play-count events are ordered separately and never coalesced with display

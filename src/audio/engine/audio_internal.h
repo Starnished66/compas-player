@@ -130,7 +130,7 @@ audio_codec_t public_codec_for_decoder(const decoder_t * dec);
 bool is_stream_url(const char * path);
 bool decoder_open(decoder_t * dec, const char * path);
 bool decoder_open_for_generation(decoder_t * dec, const char * path, uint64_t generation);
-bool decoder_open_next(decoder_t * dec, const char * path);
+bool decoder_open_next(decoder_t * dec, const char * path, uint64_t generation);
 
 /* --- audio_decoder_io.c --- */
 /* Every local (non-stream) MP3 is a candidate for a seek-point index
@@ -263,6 +263,8 @@ extern float volume_gain; /* linear PCM multiplier the playback thread applies *
 
 /* --- audio_output_sink.c --- */
 void close_device(void);
+void audio_output_clear_pending(void);
+void audio_output_drain_pending(void);
 bool ensure_device(unsigned int channels, unsigned int sample_rate);
 #ifdef HOST_BUILD
 extern SDL_AudioDeviceID sdl_dev;

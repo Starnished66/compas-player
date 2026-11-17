@@ -4,21 +4,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-/* Full poweroff, the same mechanism the stock firmware's own "Idle
- * shutdown" setting uses (confirmed via `strings` on the stock binary:
- * /sbin/poweroff, driven by its power_save_shutdown_timer). Real
- * suspend-to-RAM exists at the kernel level on this hardware but its
- * display/WiFi resume path is broken (confirmed on a real device: the jzfb
- * driver spins forever on "pan display wait timeout" after resume, leaving
- * the screen blank while the backlight stays on), so a full poweroff is the
- * only reliable way to actually cut standby power draw -- see gui.c's
- * idle-shutdown timer for the inactivity gating (screen off, not playing,
- * not charging) before this gets called. Replaces this process with
- * busybox `poweroff` (then the reboot(RB_POWER_OFF) syscall if exec
- * fails) so it cannot return on the device. Must not use subprocess_run():
- * that helper SIGKILLs its child after 15s, which cancelled poweroff and
- * left the countdown looking finished while the device stayed on. No-op
- * on host. */
+/* Request poweroff and return to the UI. Queue checkpoints are polled; rating,
+ * numeric and settings persistence runs on a worker. Failure or a five-second
+ * persistence timeout cancels the action and reports an error. A stalled worker
+ * is retained until it finishes, without blocking the UI or powering off late.
+ * No-op on host. */
 void idle_shutdown_now(void);
 
 /* Exit status idle_shutdown_reboot_handoff() uses when its parent is
@@ -30,8 +20,10 @@ void idle_shutdown_now(void);
 /* Normal reboot entry point. Retains the update-busy guard and drains the
  * player queue before using the shared reboot handoff. No-op on host. */
 void idle_shutdown_reboot_now(void);
+/* Queue a factory reset behind the same asynchronous persistence gate. */
+void idle_shutdown_factory_reset(void);
 
-/* Flush terminal settings and hand off a reboot. On device, exits with
+/* Hand off a reboot after the caller has drained terminal persistence. On device, exits with
  * IDLE_SHUTDOWN_REBOOT_EXIT_CODE when supervised by compas_loader (or the previous compas_bootloader);
  * otherwise syncs, asks BusyBox init to run its shutdown scripts when present,
  * waits up to 20 seconds, then invokes the kernel reboot syscall. Returns
@@ -42,10 +34,13 @@ void idle_shutdown_reboot_now(void);
  * recovery updater calls it while holding the update reservation. */
 bool idle_shutdown_reboot_handoff(void);
 
+/* Worker request and UI-thread poll for recovery persistence preparation. */
+void idle_shutdown_recovery_reboot(void);
+void idle_shutdown_poll_recovery(void);
+
 /* Reboot into the boot selector using a durable one-shot marker on internal
- * storage. Returns false with an error message when the marker cannot be
- * safely persisted or the reboot request fails. Host builds never touch the
- * host filesystem or reboot it. */
+ * storage. Returns whether preparation was scheduled; later persistence or
+ * restart failure is reported on the UI. Host builds never write or reboot. */
 bool idle_shutdown_reboot_to_bootloader(char * error, size_t error_size);
 
 #endif /* IDLE_SHUTDOWN_H */

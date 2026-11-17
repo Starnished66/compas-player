@@ -92,7 +92,10 @@ const char * ui_order_label(ui_order_kind_t kind, int id) {
 
 /* Cover Flow is offered only while its module is built. */
 bool ui_order_available(ui_order_kind_t kind, int id) {
-    return kind != UI_ORDER_MUSIC || id != UI_MUSIC_COVER_FLOW || cover_flow_open_albums;
+    if (kind == UI_ORDER_MUSIC) return id != UI_MUSIC_COVER_FLOW || cover_flow_open_albums;
+    /* Power off is held back from the Quick Drawer for this release. */
+    const char *key = kind == UI_ORDER_DRAWER ? ui_order_key(kind, id) : NULL;
+    return !key || strcmp(key, "power_off") != 0;
 }
 
 int ui_order_find_key(ui_order_kind_t kind, const char *key) {
@@ -156,6 +159,7 @@ static void default_text(ui_order_kind_t kind, char *out, size_t cap) {
         used = (size_t)snprintf(out, cap, "%s", DRAWER_ORDER_VERSION);
     for (int i = 0; i < order_desc_for(kind)->count; ++i) {
         if (kind == UI_ORDER_MUSIC && i == UI_MUSIC_COVER_FLOW) continue; /* hidden until switched on */
+        if (kind == UI_ORDER_DRAWER && !ui_order_available(kind, i)) continue;
         if (kind == UI_ORDER_DRAWER && !strcmp(ui_order_key(kind, i), "dlna")) continue;
         used += (size_t)snprintf(out + used, cap - used, "%s%s", used ? "," : "", ui_order_key(kind, i));
     }
@@ -262,7 +266,7 @@ bool ui_order_to_text(ui_order_kind_t kind, const ui_item_order_t *visible, cons
      * Music keeps its established omission format. */
     for (int id = 0; id < ui_order_size(kind); ++id) {
         if (kind != UI_ORDER_DRAWER && id < order_desc_for(kind)->count) continue;
-        if (!shown[id] && order_id_key(kind, id, key, sizeof(key)) &&
+        if (!shown[id] && ui_order_available(kind, id) && order_id_key(kind, id, key, sizeof(key)) &&
             !order_text_add(out, cap, &used, true, key)) return false;
     }
     /* Keys of plugins that are not loaded now keep their place for later.

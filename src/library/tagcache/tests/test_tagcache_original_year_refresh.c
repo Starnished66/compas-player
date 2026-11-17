@@ -63,10 +63,40 @@ static void refresh(const char *dir, bool targeted) {
     }
     assert(tagcache_end_update_with_lock(NULL, NULL));
 }
+
+static void test_staged_and_published_stats(void) {
+    const char *new_path = "/m/new-after-start.mp3";
+    bool changed = false;
+    tagcache_begin_update_with_lock(NULL, NULL);
+    tagcache_upsert_year_changed(new_path, 1, 2, "new", "Artist", "Album", "Artist", "g", 1, 1, 2000, &changed);
+    assert(changed);
+    /* Simulates a rating written after the scan processed this new path. */
+    tagcache_overlay_stats(new_path, 5, 3, 1234);
+    assert(tagcache_end_update_with_lock(NULL, NULL));
+    tagcache_song_t song;
+    assert(tagcache_song_by_path(new_path, &song));
+    assert(song.rating == 5 && song.playcount == 3 && song.last_played == 1234);
+
+    /* A later sidecar tuple is applied after publication through the ordinary
+     * numeric writer, then remains visible after a durable flush. */
+    assert(tagcache_set_stats(new_path, 4, 4, 2345));
+    assert(tagcache_flush_numeric());
+    assert(tagcache_song_by_path(new_path, &song));
+    assert(song.rating == 4 && song.playcount == 4 && song.last_played == 2345);
+
+    const char *cancel_path = "/m/cancelled.mp3";
+    tagcache_begin_update_with_lock(NULL, NULL);
+    tagcache_upsert_year_changed(cancel_path, 1, 2, "cancel", "Artist", "Album", "Artist", "g", 1, 1, 2000, NULL);
+    tagcache_overlay_stats(cancel_path, 5, 1, 3456);
+    tagcache_abort_update();
+    assert(!tagcache_song_by_path(cancel_path, NULL));
+}
+
 int main(void) {
     char dir[] = "/tmp/compas-original-year-refresh-XXXXXX";
     assert(mkdtemp(dir));
     assert(tagcache_open(dir));
+    test_staged_and_published_stats();
     refresh(dir, false);
     refresh(dir, true);
     tagcache_close();

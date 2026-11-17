@@ -1,3 +1,4 @@
+#include "../player/screen/gui_lyrics.h"
 #include "gui_shell_internal.h"
 #include "../network/gui_network.h"
 
@@ -206,7 +207,7 @@ static void quick_drawer_build_expansion_handle(void) {
      * itself is claimed by coordinate hit-test in poll_quick_drawer_drag()
      * over the same padded rectangle this advertises. */
 #if defined(BOARD_TEMPOTEC_V1)
-    lv_obj_set_ext_click_area(expansion_handle, BOARD_SCALE_PX(4));
+    lv_obj_set_ext_click_area(expansion_handle, BOARD_V1_DRAWER_HANDLE_PAD);
 #else
     lv_obj_set_ext_click_area(expansion_handle, BOARD_SCALE_PX(8));
 #endif
@@ -570,7 +571,14 @@ static void quick_drawer_register_shift_objs(lv_obj_t * brightness_container) {
 static void quick_drawer_open_player_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     quick_drawer_dismiss_for_navigation();
-    nav_push(gui_player_get_screen());
+    lv_obj_t *player = gui_player_get_screen();
+    if (gui_navigation_contains(player)) {
+        while (!gui_navigation_is_top(player) && gui_navigation_get_depth() > 1) {
+            if (gui_navigation_is_top(gui_lyrics_get_screen())) gui_lyrics_prepare_exit();
+            nav_pop_stack_only();
+        }
+    }
+    nav_push(player);
 }
 
 void gui_shell_build_mini_player_widgets(lv_obj_t * cover_parent, lv_obj_t * title_parent,

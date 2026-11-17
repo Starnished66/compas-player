@@ -1,3 +1,4 @@
+#include "src/library/remote/remote_state.h"
 #include "src/library/tagcache/core/tagcache_internal.h"
 #include <assert.h>
 #include "src/library/metadata/db/metadata_db_internal.h"
@@ -7,6 +8,9 @@ uint32_t metadata_db_db_incarnation;
 pthread_once_t metadata_db_mutex_once = PTHREAD_ONCE_INIT;
 pthread_mutex_t metadata_db_mutex;
 _Thread_local unsigned metadata_query_depth;
+static int album_ratings[4];
+static unsigned test_rating_revision;
+static int rating_order_reads;
 void metadata_db_mutex_init(void) {
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr);
@@ -14,10 +18,71 @@ void metadata_db_mutex_init(void) {
     pthread_mutex_init(&metadata_db_mutex, &attr);
     pthread_mutexattr_destroy(&attr);
 }
+void metadata_db_copy_song(const tagcache_song_t *src, song_row_t *dst) {
+    memset(dst, 0, sizeof(*dst));
+    dst->id = src->id;
+    snprintf(dst->path, sizeof(dst->path), "%s", src->path);
+    snprintf(dst->tags.genre, sizeof(dst->tags.genre), "%s", src->genre);
+    snprintf(dst->tags.artist, sizeof(dst->tags.artist), "%s", src->artist);
+    snprintf(dst->tags.album, sizeof(dst->tags.album), "%s", src->album);
+    snprintf(dst->tags.album_artist, sizeof(dst->tags.album_artist), "%s", src->album_artist);
+}
 void metadata_db_copy_group(const tagcache_group_t *src, group_row_t *dst) {
     memset(dst, 0, sizeof(*dst));
     snprintf(dst->name, sizeof(dst->name), "%s", src->name);
     snprintf(dst->album_artist, sizeof(dst->album_artist), "%s", src->album_artist);
+}
+remote_state_rating_t *remote_state_list_prefix(const char *prefix, int *count) {
+    rating_order_reads++;
+    *count = 4;
+    remote_state_rating_t *rows = calloc(4, sizeof(*rows));
+    for (int i = 0; i < 4; i++) {
+        char path[128];
+        snprintf(path, sizeof(path), "%sArtist\t%c", prefix, 'A' + i);
+        rows[i].path = strdup(path);
+        rows[i].rating = album_ratings[i] ? 6 - album_ratings[i] : 0;
+    }
+    return rows;
+}
+int rating_writer_effective_stars(const char *path, int stored) { (void)path; return stored; }
+unsigned remote_state_revision(void) { return test_rating_revision; }
+
+static void check_rating_order(void) {
+    album_ratings[0] = 2;
+    album_ratings[1] = 5;
+    album_ratings[2] = 5;
+    album_ratings[3] = 0;
+    int *ranks = NULL, sections[6], count = 0;
+    int32_t generation;
+    assert(metadata_db_load_album_rating_order(&ranks, sections, &count, &generation));
+    assert(count == 4 && sections[5] == 2 && sections[2] == 1 && sections[0] == 1);
+    assert(ranks[0] == 1 && ranks[1] == 2 && ranks[2] == 0 && ranks[3] == 3);
+    group_row_t page[2];
+    assert(metadata_db_get_albums_page_sorted(NULL, METADATA_DB_ALBUM_SORT_RATING, 1, 2, page) == 2);
+    assert(strcmp(page[0].name, "C") == 0 && strcmp(page[1].name, "A") == 0);
+    free(ranks);
+
+    album_ratings[0] = album_ratings[1] = album_ratings[2] = album_ratings[3] = 0;
+    test_rating_revision++;
+    assert(metadata_db_load_album_rating_order(&ranks, sections, &count, &generation));
+    assert(count == 4 && sections[0] == 4);
+    assert(ranks[0] == 0 && ranks[1] == 1 && ranks[2] == 2 && ranks[3] == 3);
+    free(ranks);
+}
+
+static void check_rating_page_cache(void) {
+    group_row_t page[2];
+    assert(metadata_db_get_albums_page_sorted(NULL, METADATA_DB_ALBUM_SORT_RATING, 0, 2, page) == 2);
+    int reads = rating_order_reads;
+    assert(metadata_db_get_albums_page_sorted(NULL, METADATA_DB_ALBUM_SORT_RATING, 2, 2, page) == 2);
+    assert(rating_order_reads == reads);
+    album_ratings[3] = 5;
+    test_rating_revision++;
+    assert(metadata_db_get_albums_page_sorted(NULL, METADATA_DB_ALBUM_SORT_RATING, 0, 2, page) == 2);
+    assert(!strcmp(page[0].name, "D") && rating_order_reads == reads + 1);
+    metadata_db_db_incarnation++;
+    assert(metadata_db_get_albums_page_sorted(NULL, METADATA_DB_ALBUM_SORT_RATING, 2, 2, page) == 2);
+    assert(rating_order_reads == reads + 2);
 }
 
 
@@ -84,6 +149,8 @@ int main(void) {
                                      "Artist", "Genre", 1, 1, years[i], NULL);
     }
     assert(tagcache_end_update_with_lock(NULL, NULL));
+    check_rating_order();
+    check_rating_page_cache();
     check_orders(2);
     tagcache_close();
     assert(tagcache_open(dir));

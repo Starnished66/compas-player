@@ -1,3 +1,5 @@
+#include "../../library/metadata/db/metadata_db.h"
+#include <float.h>
 #include "settings.h"
 #include "../system/logging/debug_log.h"
 #include <pthread.h>
@@ -33,6 +35,7 @@ static void settings_snapshot(player_settings_t * dst, const player_settings_t *
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,7 +58,7 @@ static void settings_snapshot(player_settings_t * dst, const player_settings_t *
 
 /* Settings that load and save as a plain 0/1, integer or string, with no
  * validation or migration. Anything with rules of its own stays explicit in
- * settings_load() and settings_write_file(). */
+ * settings_load() and settings_record_write(). */
 typedef enum { PF_BOOL, PF_INT, PF_STR } pfield_kind_t;
 typedef struct {
     const char * key;
@@ -71,7 +74,13 @@ typedef struct {
 #define PF_PF_BOOL(k, f) { k, PF_BOOL, PF_AT(f, bool), PF_SIZE(f) }
 #define PF_PF_INT(k, f) { k, PF_INT, PF_AT(f, int), PF_SIZE(f) }
 #define PF_PF_STR(k, f) { k, PF_STR, PF_AT(f, char *), PF_SIZE(f) }
+#define PF_BOOK(i) PF("book_path_" #i, PF_STR, book_positions[i].path), \
+                   PF("book_scroll_" #i, PF_INT, book_positions[i].scroll)
 static const pfield_t plain_fields[] = {
+    PF_BOOK(0), PF_BOOK(1), PF_BOOK(2), PF_BOOK(3),
+    PF_BOOK(4), PF_BOOK(5), PF_BOOK(6), PF_BOOK(7),
+    PF_BOOK(8), PF_BOOK(9), PF_BOOK(10), PF_BOOK(11),
+    PF_BOOK(12), PF_BOOK(13), PF_BOOK(14), PF_BOOK(15),
     PF("native_play_through_folders", PF_BOOL, native_play_through_folders),
     PF("native_play_through_albums", PF_BOOL, native_play_through_albums),
     PF("native_audio_migrated", PF_BOOL, native_audio_migrated),
@@ -245,6 +254,27 @@ static bool parse_button_action(const char *value, button_mapping_action_t *out)
     return true;
 }
 
+static bool parse_double_setting(const char *value, double lo, double hi, double *out) {
+    char *end;
+    errno = 0;
+    double parsed = strtod(value, &end);
+    if (end == value || *end || errno || !isfinite(parsed) || parsed < lo || parsed > hi) return false;
+    *out = parsed;
+    return true;
+}
+
+static float parse_volume_setting(const char *value, float fallback) {
+    double parsed;
+    return parse_double_setting(value, 0.0, 1.0, &parsed) ? (float)parsed : fallback;
+}
+
+static int parse_album_sort_setting(const char *value) {
+    char *end;
+    long mode = strtol(value, &end, 10);
+    return end != value && !*end && mode >= 0 && mode <= METADATA_DB_ALBUM_SORT_RATING &&
+           album_sort_mode_valid((int)mode) ? (int)mode : 0;
+}
+
 /* Parse an unsigned decimal setting without accepting signs, trailing text,
  * or values that overflow uint32_t. */
 static bool parse_u32_setting(const char *value, uint32_t *out) {
@@ -363,6 +393,14 @@ static bool valid_setup_plugin_id(const char * value) {
     return true;
 }
 
+static void set_resume_defaults(player_settings_t *out) {
+    out->last_track[0] = '\0';
+    memset(out->book_positions, 0, sizeof(out->book_positions));
+    out->last_position = 0.0;
+    out->last_source_kind = 0;
+    out->last_source_name[0] = '\0';
+}
+
 static void set_defaults(player_settings_t * out) {
     out->native_audio_migrated = false;
     out->native_gain_mode = -1;
@@ -378,10 +416,7 @@ static void set_defaults(player_settings_t * out) {
     out->setup_layout_plugin_id[0] = '\0';
     out->setup_scan_music = true;
     out->volume = 1.0f;
-    out->last_track[0] = '\0';
-    out->last_position = 0.0;
-    out->last_source_kind = 0;
-    out->last_source_name[0] = '\0';
+    set_resume_defaults(out);
     out->resume_mode = 0;
     out->play_pause_button_mode = 0;
     for (int i = 0; i < BUTTON_MAPPING_BUTTON_COUNT; ++i) {
@@ -586,6 +621,18 @@ static void sync_subsonic_saved_sidecar(player_settings_t * out) {
     free(rows);
 }
 
+static void finish_album_sort_settings(player_settings_t *out, bool artist_albums_sort_seen,
+                                        bool album_artist_albums_sort_seen) {
+    /* Existing installs inherit their previous global album order in each
+     * nested collection until the user chooses a context-specific order. */
+    if (!artist_albums_sort_seen)
+        out->artist_albums_sort_mode = out->album_sort_mode <= 2 ? out->album_sort_mode : 0;
+    if (!album_artist_albums_sort_seen)
+        out->album_artist_albums_sort_mode = out->album_sort_mode <= 2 ? out->album_sort_mode : 0;
+    /* Rating is descending only; value 8 avoids the existing reverse bit (4). */
+    if (!album_sort_mode_has_reverse(out->album_sort_mode)) out->album_sort_reverse = false;
+}
+
 bool settings_load(player_settings_t * out) {
     set_defaults(out);
 
@@ -611,7 +658,7 @@ bool settings_load(player_settings_t * out) {
     _Static_assert(sizeof(line) > sizeof("quick_drawer_order=") + UI_ORDER_TEXT_MAX + 1,
                    "a full order text must fit one settings line");
     while (fgets(line, sizeof(line), f)) {
-        line[strcspn(line, "\n")] = '\0';
+        line[strcspn(line, "\r\n")] = '\0';
 
         char * eq = strchr(line, '=');
         if (!eq) continue;
@@ -644,9 +691,9 @@ bool settings_load(player_settings_t * out) {
             if (valid_setup_plugin_id(value))
                 snprintf(out->setup_layout_plugin_id, sizeof(out->setup_layout_plugin_id), "%s", value);
         } else if (strcmp(key, "volume") == 0) {
-            out->volume = (float) atof(value);
+            out->volume = parse_volume_setting(value, out->volume);
         } else if (strcmp(key, "last_position") == 0) {
-            out->last_position = atof(value);
+            parse_double_setting(value, 0.0, DBL_MAX, &out->last_position);
         } else if (strcmp(key, "accent_color") == 0) {
             out->accent_color = (uint32_t) strtoul(value, NULL, 16);
         } else if (strcmp(key, "accent_dynamic_color") == 0) {
@@ -723,7 +770,9 @@ bool settings_load(player_settings_t * out) {
         } else if (strcmp(key, "bt_rc_trusted") == 0) {
             bt_rc_trust_settings_parse(out, value);
         } else if (strcmp(key, "bt_sample_rate") == 0) {
-            out->bt_sample_rate = (unsigned int) strtoul(value, NULL, 10);
+            uint32_t rate;
+            if (parse_u32_setting(value, &rate) && (rate == 0 || (rate >= 8000 && rate <= 192000)))
+                out->bt_sample_rate = rate;
         } else if (strcmp(key, "bt_last_output_mac") == 0) {
             if (valid_bt_output_mac(value)) {
                 snprintf(out->bt_last_output_mac, sizeof(out->bt_last_output_mac), "%s", value);
@@ -748,9 +797,7 @@ bool settings_load(player_settings_t * out) {
         } else if (strcmp(key, "album_sort_reverse") == 0) {
             out->album_sort_reverse = strcmp(value, "1") == 0;
         } else if (strcmp(key, "album_sort_mode") == 0) {
-            out->album_sort_mode = strcmp(value, "1") == 0 ? 1 :
-                                   (strcmp(value, "2") == 0 ? 2 :
-                                    (strcmp(value, "3") == 0 ? 3 : 0));
+            out->album_sort_mode = parse_album_sort_setting(value);
         } else if (strcmp(key, "artist_albums_sort_reverse") == 0) {
             out->artist_albums_sort_reverse = strcmp(value, "1") == 0;
         } else if (strcmp(key, "all_songs_sort_reverse") == 0) {
@@ -868,25 +915,21 @@ bool settings_load(player_settings_t * out) {
 
     fclose(f);
 
-    /* Existing installs inherit their previous global album order in each
-     * nested collection until the user chooses a context-specific order. */
-    if (!artist_albums_sort_seen)
-        out->artist_albums_sort_mode = out->album_sort_mode <= 2 ? out->album_sort_mode : 0;
-    if (!album_artist_albums_sort_seen)
-        out->album_artist_albums_sort_mode = out->album_sort_mode <= 2 ? out->album_sort_mode : 0;
+    finish_album_sort_settings(out, artist_albums_sort_seen, album_artist_albums_sort_seen);
     return true;
 }
 
 /* Flushes directory metadata changes to flash so the rename survives an unclean
  * shutdown (atomic durable replace: write tmp -> fsync tmp -> rename -> fsync dir). */
-static void fsync_settings_dir(void) {
+static bool fsync_settings_dir(void) {
     int dir_fd = open(INTERNAL_COMPAS_DIR, O_RDONLY | O_DIRECTORY);
-    if (dir_fd < 0) return;
-    fsync(dir_fd);
+    if (dir_fd < 0) return false;
+    bool ok = fsync(dir_fd) == 0;
     close(dir_fd);
+    return ok;
 }
 
-static void settings_write_file(const player_settings_t * settings) {
+static bool settings_write_file(const player_settings_t * settings) {
     ui_customization_t ui_defaults;
     ui_customization_defaults(&ui_defaults);
     char subsonic_download_subfolder[SETTINGS_SUBSONIC_DOWNLOAD_SUBFOLDER_MAX] = "";
@@ -898,15 +941,15 @@ static void settings_write_file(const player_settings_t * settings) {
      * rewrite the atomic temp file as owner-only even when an older temp
      * file exists with broader permissions. */
     int settings_fd = open(SETTINGS_TMP_FILE_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (settings_fd < 0) return;
+    if (settings_fd < 0) return false;
     if (fchmod(settings_fd, 0600) != 0) {
         close(settings_fd);
-        return;
+        return false;
     }
     FILE * f = fdopen(settings_fd, "w");
     if (!f) {
         close(settings_fd);
-        return;
+        return false;
     }
 
     plain_fields_write(f, settings);
@@ -959,8 +1002,8 @@ static void settings_write_file(const player_settings_t * settings) {
                 ? settings->topbar_clock_position : TOPBAR_CLOCK_CENTER);
     fprintf(f, "file_sort_mode=%d\n", settings->file_sort_mode == 1 ? 1 : 0);
     fprintf(f, "file_sort_reverse=%d\n", settings->file_sort_reverse ? 1 : 0);
-    fprintf(f, "album_sort_mode=%d\n", settings->album_sort_mode >= 0 && settings->album_sort_mode <= 3 ? settings->album_sort_mode : 0);
-    fprintf(f, "album_sort_reverse=%d\n", settings->album_sort_reverse ? 1 : 0);
+    fprintf(f, "album_sort_mode=%d\n", album_sort_mode_valid(settings->album_sort_mode) ? settings->album_sort_mode : 0);
+    fprintf(f, "album_sort_reverse=%d\n", album_sort_mode_has_reverse(settings->album_sort_mode) && settings->album_sort_reverse ? 1 : 0);
     fprintf(f, "all_songs_sort_reverse=%d\n", settings->all_songs_sort_reverse ? 1 : 0);
     fprintf(f, "all_songs_sort_mode=%d\n", settings->all_songs_sort_mode == 1);
     fprintf(f, "artist_albums_sort_mode=%d\n", settings->artist_albums_sort_mode >= 0 && settings->artist_albums_sort_mode <= 2 ? settings->artist_albums_sort_mode : 0);
@@ -992,14 +1035,19 @@ static void settings_write_file(const player_settings_t * settings) {
     if (fclose(f) != 0) write_ok = false;
     if (!write_ok) {
         (void) unlink(SETTINGS_TMP_FILE_PATH);
-        return;
+        return false;
     }
     if (rename(SETTINGS_TMP_FILE_PATH, SETTINGS_FILE_PATH) != 0) {
         (void) unlink(SETTINGS_TMP_FILE_PATH);
-        return;
+        return false;
     }
     chmod(SETTINGS_FILE_PATH, 0600);
-    fsync_settings_dir();
+    return fsync_settings_dir();
+}
+
+static bool settings_write_failed;
+static void settings_record_write(const player_settings_t *settings) {
+    settings_write_failed = !settings_write_file(settings);
 }
 
 /* Both synchronous callers and the coalescing worker share the same tmp
@@ -1060,7 +1108,7 @@ void settings_save(const player_settings_t * settings) {
     }
     settings_save_generation++;
     pthread_mutex_unlock(&settings_queue_mutex);
-    settings_write_file(settings);
+    settings_record_write(settings);
     pthread_mutex_unlock(&settings_write_mutex);
 }
 
@@ -1082,7 +1130,7 @@ static void * settings_worker_main(void * unused) {
         pthread_mutex_lock(&settings_queue_mutex);
         bool current = generation == settings_save_generation;
         pthread_mutex_unlock(&settings_queue_mutex);
-        if (current) settings_write_file(&snapshot);
+        if (current) settings_record_write(&snapshot);
         pthread_mutex_unlock(&settings_write_mutex);
 
         pthread_mutex_lock(&settings_queue_mutex);
@@ -1129,13 +1177,22 @@ void settings_save_drain(void) {
     pthread_mutex_unlock(&settings_queue_mutex);
 }
 
-void settings_shutdown_flush(void) {
-    /* The dynamic accent cache changes when covers arrive, without saving on
-     * each track. Queue one final current snapshot before latching shutdown. */
-    settings_save_async(&current_settings);
+bool settings_shutdown_start(void) {
+    pthread_once(&settings_worker_once, settings_start_worker);
+    if (!settings_worker_ready) return false;
     pthread_mutex_lock(&settings_queue_mutex);
+    if (settings_shutdown_started) { pthread_mutex_unlock(&settings_queue_mutex); return true; }
+    settings_snapshot(&settings_queued_snapshot, &current_settings);
+    settings_queued_generation = ++settings_save_generation;
+    settings_save_pending = true;
     settings_shutdown_started = true;
     pthread_cond_broadcast(&settings_queue_cond);
+    pthread_mutex_unlock(&settings_queue_mutex);
+    return true;
+}
+
+bool settings_shutdown_wait(void) {
+    pthread_mutex_lock(&settings_queue_mutex);
     while (settings_save_pending || settings_save_in_flight)
         pthread_cond_wait(&settings_queue_cond, &settings_queue_mutex);
     pthread_mutex_unlock(&settings_queue_mutex);
@@ -1145,7 +1202,28 @@ void settings_shutdown_flush(void) {
      * for that last possible write. Later synchronous callers see the latch
      * under this same writer lock and return without touching disk. */
     pthread_mutex_lock(&settings_write_mutex);
+    bool ok = !settings_write_failed;
     pthread_mutex_unlock(&settings_write_mutex);
+    return ok;
+}
+
+void settings_shutdown_flush(void) {
+    if (settings_shutdown_start()) (void)settings_shutdown_wait();
+    else {
+        settings_save(&current_settings);
+        pthread_mutex_lock(&settings_queue_mutex);
+        settings_shutdown_started = true;
+        pthread_mutex_unlock(&settings_queue_mutex);
+    }
+}
+
+bool settings_shutdown_ready(void) {
+    pthread_mutex_lock(&settings_queue_mutex);
+    bool ready = !settings_save_pending && !settings_save_in_flight;
+    pthread_mutex_unlock(&settings_queue_mutex);
+    if (!ready || pthread_mutex_trylock(&settings_write_mutex)) return false;
+    pthread_mutex_unlock(&settings_write_mutex);
+    return true;
 }
 
 void settings_shutdown_cancel(void) {
@@ -1159,7 +1237,7 @@ void settings_shutdown_cancel(void) {
     pthread_mutex_unlock(&settings_queue_mutex);
 }
 
-void settings_factory_reset(void) {
+void settings_factory_reset_commit(void) {
     DBG_LOG("settings_factory_reset: called\n");
     /* Do not erase settings while an update may be validating or writing
      * recovery state. This guard precedes all destructive reset work. */
@@ -1171,9 +1249,6 @@ void settings_factory_reset(void) {
      * must never recreate settings.txt after the reset has deleted it. */
     settings_shutdown_flush();
 #ifndef HOST_BUILD
-    /* Join the queue checkpoint writer before erasing its destination. */
-    extern void gui_player_queue_flush(void);
-    gui_player_queue_flush();
     /* Wipes every direct child of /usr/data except "mnt", preserving the physical
      * SD card mount (/usr/data/mnt/sd_0) while clearing all other configuration files. */
     DIR * dir = opendir(SETTINGS_DIR_PATH);
@@ -1214,5 +1289,14 @@ void settings_factory_reset(void) {
 #else
     /* A host reset returns to the live simulator instead of rebooting. */
     settings_shutdown_cancel();
+#endif
+}
+
+/* Normal UI callers share the asynchronous shutdown persistence gate. */
+void settings_factory_reset(void) {
+#ifdef HOST_BUILD
+    settings_factory_reset_commit();
+#else
+    idle_shutdown_factory_reset();
 #endif
 }

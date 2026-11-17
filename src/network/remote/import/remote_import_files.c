@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -120,6 +121,13 @@ void remote_import_files_stop(void) {
     pthread_mutex_unlock(&import_mu);
 }
 
+/* Ordinary hidden music remains accessible. Executable plugins and player
+ * state belong to their authenticated APIs, including on case-insensitive SDs. */
+static bool protected_component(const char *s, size_t n) {
+    return (n == 8 && strncasecmp(s, ".plugins", n) == 0) ||
+           (n == 7 && strncasecmp(s, ".compas", n) == 0);
+}
+
 static bool path_string_valid(const char *s, bool allow_empty) {
     size_t n = strlen(s);
     if (n > IMPORT_PATH_MAX || (!allow_empty && n == 0) || (n && s[n - 1] == '/')) return false;
@@ -131,7 +139,7 @@ static bool path_string_valid(const char *s, bool allow_empty) {
         if (c == '\\' || (c != 0 && (c < 0x20 || c == 0x7f))) return false;
         if (c == '/' || c == 0) {
             size_t len = (size_t)(p - part);
-            if (!len || len > IMPORT_NAME_MAX || (len == 1 && part[0] == '.') ||
+            if (!len || len > IMPORT_NAME_MAX || protected_component(part, len) || (len == 1 && part[0] == '.') ||
                 (len == 2 && part[0] == '.' && part[1] == '.')) return false;
             if (part[len - 1] == '.' || part[len - 1] == ' ') return false;
             if (c == 0) break;
@@ -143,7 +151,7 @@ static bool path_string_valid(const char *s, bool allow_empty) {
 
 static bool leaf_valid(const char *s) {
     size_t n = strlen(s);
-    if (!n || n > IMPORT_NAME_MAX || (n == 1 && s[0] == '.') ||
+    if (!n || n > IMPORT_NAME_MAX || protected_component(s, n) || (n == 1 && s[0] == '.') ||
         (n == 2 && s[0] == '.' && s[1] == '.') || s[n - 1] == '.' || s[n - 1] == ' ') return false;
     if (!utf8_is_valid(s, n)) return false;
     for (size_t i = 0; i < n; i++) {
@@ -211,6 +219,22 @@ static bool query_parse(const char *path, const char *const *keys, char values[]
     return true;
 }
 
+/* VFAT short names can alias a protected long name. Compare filesystem
+ * identity as well as spelling; never guess how an 8.3 alias was generated. */
+static bool unprotected_identity(int parent, const struct stat *candidate) {
+    static const char *const names[] = { ".plugins", ".compas" };
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        struct stat reserved;
+        if (fstatat(parent, names[i], &reserved, AT_SYMLINK_NOFOLLOW) == 0) {
+            if (reserved.st_dev == candidate->st_dev && reserved.st_ino == candidate->st_ino) {
+                errno = EACCES;
+                return false;
+            }
+        } else if (errno != ENOENT) return false;
+    }
+    return true;
+}
+
 static int open_dir_relative(int rootfd, const char *rel) {
     if (!path_string_valid(rel, true)) { errno = EINVAL; return -1; }
     if (!*rel) return openat(rootfd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
@@ -223,6 +247,14 @@ static int open_dir_relative(int rootfd, const char *rel) {
         size_t n = slash ? (size_t)(slash - p) : strlen(p);
         memcpy(part, p, n); part[n] = '\0';
         int next = openat(current, part, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        if (next >= 0 && p == rel) {
+            struct stat opened;
+            if (fstat(next, &opened) != 0 || !unprotected_identity(current, &opened)) {
+                int error = errno;
+                close(next); close(current); errno = error;
+                return -1;
+            }
+        }
         close(current);
         if (next < 0) return -1;
         current = next;
@@ -238,11 +270,17 @@ static int resolve_parent(int rootfd, const char *rel, char *leaf, size_t leafca
     const char *name = slash ? slash + 1 : rel;
     if (!leaf_valid(name) || strlen(name) + 1 > leafcap) { errno = EINVAL; return -1; }
     strcpy(leaf, name);
-    if (!slash) return fcntl(rootfd, F_DUPFD_CLOEXEC, 3);
     char parent[IMPORT_PATH_MAX + 1];
-    size_t n = (size_t)(slash - rel);
+    size_t n = slash ? (size_t)(slash - rel) : 0;
     memcpy(parent, rel, n); parent[n] = '\0';
-    return open_dir_relative(rootfd, parent);
+    int fd = open_dir_relative(rootfd, parent);
+    if (fd >= 0 && !slash) {
+        struct stat item;
+        bool ok = fstatat(fd, leaf, &item, AT_SYMLINK_NOFOLLOW) == 0
+            ? unprotected_identity(fd, &item) : errno == ENOENT;
+        if (!ok) { int error = errno; close(fd); errno = error; return -1; }
+    }
+    return fd;
 }
 
 static int rename_noreplace(int olddir, const char *oldname, int newdir, const char *newname) {
@@ -477,7 +515,8 @@ static bool import_list_parse(int fd, const char *path, import_list_request_t *r
 /* True for a visible regular file or directory the listing should show. */
 static bool import_list_visible(int dirfd, const struct dirent *de, struct stat *st, bool show_hidden) {
     if (file_name_is_hidden(de->d_name, show_hidden) || !leaf_valid(de->d_name)) return false;
-    return fstatat(dirfd, de->d_name, st, AT_SYMLINK_NOFOLLOW) == 0 && (S_ISDIR(st->st_mode) || S_ISREG(st->st_mode));
+    return fstatat(dirfd, de->d_name, st, AT_SYMLINK_NOFOLLOW) == 0 &&
+           (S_ISDIR(st->st_mode) || S_ISREG(st->st_mode));
 }
 
 static unsigned long import_list_count(DIR *dir, int dirfd, bool show_hidden) {

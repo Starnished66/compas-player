@@ -79,8 +79,15 @@ static void max_volume_slider_event_cb(lv_event_t * e) {
 }
 
 /* Startup volume and the live maximum share one page; 100% means uncapped. */
+static void volume_screen_loaded_cb(lv_event_t *e) {
+    (void)e;
+    setting_slider_sync(&startup_volume_ui, current_settings.startup_volume_fixed_enabled, current_settings.startup_volume_fixed_percent);
+    setting_slider_set_index(&max_volume_ui, current_settings.max_volume_percent);
+}
+
 static lv_obj_t * build_volume_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_add_event_cb(scr, volume_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
     build_screen_header(scr, TR("Volume limits"), generic_back_cb, NULL, NULL);
     lv_obj_t * content = build_settings_body(scr);

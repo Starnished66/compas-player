@@ -22,7 +22,6 @@ bool player_queue_storage_checkpoint_busy(void);
 /* Returns false only while a worker is still running. Otherwise joins any
  * completed worker and reports whether one was reaped and whether it failed. */
 bool player_queue_storage_checkpoint_reap_if_done(bool * completed, bool * failed);
-void player_queue_storage_checkpoint_join(void);
 bool player_queue_storage_checkpoint_failed(void);
 void player_queue_storage_checkpoint_mark_failed(void);
 void player_queue_storage_checkpoint_defer_unlink(void);

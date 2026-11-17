@@ -23,7 +23,8 @@ bool remote_state_get(const char * path, int32_t * rating, int32_t * playcount, 
  * (an existing row keeps the new value in RAM either way). */
 bool remote_state_set_rating(const char * path, int32_t rating);
 void remote_state_add_play(const char * path, int32_t now);
-/* Copies stats for path and deletes the sidecar row. False if none. */
-bool remote_state_take(const char * path, int32_t * rating, int32_t * playcount, int32_t * last_played);
+/* Removes only durably migrated tuples that have not changed since the snapshot. */
+void remote_state_remove_matches(const remote_state_rating_t *rows, const int32_t (*tuples)[3],
+                                  const bool *migrated, int count);
 
 #endif /* REMOTE_STATE_H */

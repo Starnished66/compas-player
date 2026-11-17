@@ -661,6 +661,8 @@ lv_obj_t * build_setting_label_card(lv_obj_t * parent, const char * label, lv_ob
 /* Dims `obj` to 40% and disables it and its children, or restores it. */
 void ui_set_greyed(lv_obj_t * obj, bool greyed);
 /* Greys out and disables the control, or restores it. */
+void setting_toggle_size(lv_obj_t *toggle, int32_t width, int32_t height, int32_t hit_padding);
+void setting_slider_sync(const setting_slider_t *s, bool enabled, int32_t index);
 void setting_slider_set_enabled(const setting_slider_t * s, bool enabled);
 /* Updates the value text for slider position `index`. */
 void setting_slider_set_index(const setting_slider_t * s, int32_t index);

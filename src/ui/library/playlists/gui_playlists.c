@@ -19,6 +19,8 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,6 +51,36 @@ static char playlist_action_path[PATH_MAX];
 static gui_playlists_open_row_cb_t open_row_cb;
 static gui_playlists_reload_edited_cb_t reload_edited_cb;
 static gui_playlists_ensure_dir_cb_t ensure_dir_cb;
+typedef struct {
+    pthread_t thread;
+    atomic_bool done;
+    bool added;
+    bool duplicate;
+    uint64_t generation;
+    char playlist[PATH_MAX];
+    char song[PATH_MAX];
+} playlist_add_job_t;
+static playlist_add_job_t *playlist_add_job;
+static void *playlist_add_worker(void *data) {
+    playlist_add_job_t *job = data;
+    job->added = playlist_files_add_if_absent(job->playlist, job->song, &job->duplicate);
+    atomic_store_explicit(&job->done, true, memory_order_release);
+    return NULL;
+}
+static void playlist_add_poll(lv_timer_t *timer) {
+    playlist_add_job_t *job = playlist_add_job;
+    if (!job || !atomic_load_explicit(&job->done, memory_order_acquire)) return;
+    pthread_join(job->thread, NULL);
+    playlist_add_job = NULL;
+    if (job->duplicate) show_error_toast(TR("Song already added"));
+    else if (job->added) show_info_toast(TR("Added to playlist"));
+    else show_error_toast(TR("Failed to add to playlist"));
+    gui_playlist_target_snapshot_t target;
+    gui_playlist_target_copy(&target);
+    if (target.generation == job->generation && lv_screen_active() == add_to_playlist_screen) nav_pop();
+    free(job);
+    lv_timer_delete(timer);
+}
 static void populate_add_to_playlist_screen(void);
 static void populate_playlists_screen(void);
 static void new_playlist_row_cb(lv_event_t *event);
@@ -368,15 +400,21 @@ static void existing_playlist_row_cb(lv_event_t *event) {
                                                     target.generation, add_to_playlist_screen);
         return;
     }
-    if (playlist_files_contains(path, target.song_path)) {
-        show_error_toast(TR("Song already added"));
-        nav_pop();
-        return;
+    if (playlist_add_job) return;
+    playlist_add_job_t *job = calloc(1, sizeof(*job));
+    if (!job) { show_error_toast(TR("Failed to add to playlist")); return; }
+    snprintf(job->playlist, sizeof(job->playlist), "%s", path);
+    job->generation = target.generation;
+    snprintf(job->song, sizeof(job->song), "%s", target.song_path);
+    atomic_init(&job->done, false);
+    playlist_add_job = job;
+    lv_timer_t *timer = lv_timer_create(playlist_add_poll, 25, NULL);
+    if (!timer || pthread_create(&job->thread, NULL, playlist_add_worker, job) != 0) {
+        if (timer) lv_timer_delete(timer);
+        playlist_add_job = NULL;
+        free(job);
+        show_error_toast(TR("Failed to add to playlist"));
     }
-    bool ok = playlist_files_append(path, target.song_path);
-    if (ok) show_info_toast(TR("Added to playlist"));
-    else show_error_toast(TR("Failed to add to playlist"));
-    nav_pop();
 }
 
 static bool open_saved_playlist_path(const char *path) {

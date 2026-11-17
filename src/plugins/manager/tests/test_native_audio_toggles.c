@@ -24,6 +24,45 @@ static bool order_key(int index, char * out, size_t cap) {
 }
 static const char * order_label(int index) { (void)index; return "Test"; }
 
+static void check_drawer_order(void) {
+    ui_order_set_extras(UI_ORDER_DRAWER, order_count, order_key, order_label);
+    assert(ui_order_size(UI_ORDER_DRAWER) == UI_DRAWER_COUNT + PLUGIN_QUICK_TOGGLE_CAPACITY);
+    ui_item_order_t order;
+    ui_order_resolve(UI_ORDER_DRAWER, "plugins", &order);
+    /* Power off is held back from the drawer for this release. */
+    assert(order.count == 10 && order.ids[7] == 19 && order.ids[8] == 5 && order.ids[9] == 6);
+    for (int i = 0; i < order.count; i++) assert(order.ids[i] != ui_order_find_key(UI_ORDER_DRAWER, "power_off"));
+    /* The legacy layout omitted most native ids. Preserve those hidden
+     * choices while appending available additions (BT DAC and USB DAC). */
+    ui_order_resolve(UI_ORDER_DRAWER, "plugin:test:6,wifi,!plugin:test:0,plugins", &order);
+    assert(order.count == 10 && order.ids[0] == 19 && order.ids[1] == 0 &&
+           order.ids[8] == 5 && order.ids[9] == 6);
+    char saved[UI_ORDER_TEXT_MAX];
+    assert(ui_order_to_text(UI_ORDER_DRAWER, &order, "plugin:test:6,wifi,!plugin:test:0,plugins", saved, sizeof(saved)));
+    assert(strstr(saved, "!bluetooth") != NULL);
+    ui_item_order_t restored;
+    ui_order_resolve(UI_ORDER_DRAWER, saved, &restored);
+    assert(restored.count == order.count);
+    assert(memcmp(restored.ids, order.ids, order.count) == 0);
+    /* New drawer saves mark hidden native tiles explicitly; a later native
+     * addition can then be appended without restoring any hidden tile. */
+    ui_order_resolve(UI_ORDER_DRAWER, "wifi,!bluetooth,plugins", &order);
+    bool has_bluetooth = false, has_gapless = false;
+    for (unsigned i = 0; i < order.count; ++i) {
+        has_bluetooth |= order.ids[i] == 1;
+        has_gapless |= order.ids[i] == 7;
+    }
+    assert(!has_bluetooth && has_gapless);
+    /* The version also distinguishes new orders with no hidden native tile. */
+    ui_order_resolve(UI_ORDER_DRAWER, "@drawer2,wifi,plugins", &order);
+    assert(order.count == UI_ORDER_MAX - 1); /* all but the held-back power tile */
+    assert(ui_order_to_text(UI_ORDER_DRAWER, &order, "@drawer2,wifi,plugins", saved, sizeof(saved)));
+    assert(strstr(saved, "@drawer2") == saved);
+    assert(strstr(saved + 1, "@drawer2") == NULL);
+    ui_order_resolve(UI_ORDER_DRAWER, "@drawer2,wifi,!bt_dac,plugins", &order);
+    for (unsigned i = 0; i < order.count; ++i) assert(order.ids[i] != 5);
+}
+
 int main(void) {
     const char * keys[] = { "plugin:example.gain_mode:0", "plugin:example.mseb:0", "plugin:compas.soundstage:0" };
     plugin_register_native_audio_quick_toggles();
@@ -61,39 +100,6 @@ int main(void) {
     assert(!plugin_quick_toggle_has_room());
     plugin_register_native_audio_quick_toggles();
     assert(plugin_quick_toggle_count == PLUGIN_QUICK_TOGGLE_CAPACITY);
-    ui_order_set_extras(UI_ORDER_DRAWER, order_count, order_key, order_label);
-    assert(ui_order_size(UI_ORDER_DRAWER) == UI_DRAWER_COUNT + PLUGIN_QUICK_TOGGLE_CAPACITY);
-    ui_item_order_t order;
-    ui_order_resolve(UI_ORDER_DRAWER, "plugins", &order);
-    assert(order.count == 10 && order.ids[7] == 18 && order.ids[8] == 5 && order.ids[9] == 6);
-    /* The legacy layout omitted most native ids. Preserve those hidden
-     * choices while appending the known tiles added later (BT DAC, USB DAC). */
-    ui_order_resolve(UI_ORDER_DRAWER, "plugin:test:6,wifi,!plugin:test:0,plugins", &order);
-    assert(order.count == 10 && order.ids[0] == 18 && order.ids[1] == 0 &&
-           order.ids[8] == 5 && order.ids[9] == 6);
-    char saved[UI_ORDER_TEXT_MAX];
-    assert(ui_order_to_text(UI_ORDER_DRAWER, &order, "plugin:test:6,wifi,!plugin:test:0,plugins", saved, sizeof(saved)));
-    assert(strstr(saved, "!bluetooth") != NULL);
-    ui_item_order_t restored;
-    ui_order_resolve(UI_ORDER_DRAWER, saved, &restored);
-    assert(restored.count == order.count);
-    assert(memcmp(restored.ids, order.ids, order.count) == 0);
-    /* New drawer saves mark hidden native tiles explicitly; a later native
-     * addition can then be appended without restoring any hidden tile. */
-    ui_order_resolve(UI_ORDER_DRAWER, "wifi,!bluetooth,plugins", &order);
-    bool has_bluetooth = false, has_gapless = false;
-    for (unsigned i = 0; i < order.count; ++i) {
-        has_bluetooth |= order.ids[i] == 1;
-        has_gapless |= order.ids[i] == 7;
-    }
-    assert(!has_bluetooth && has_gapless);
-    /* The version also distinguishes new orders with no hidden native tile. */
-    ui_order_resolve(UI_ORDER_DRAWER, "@drawer2,wifi,plugins", &order);
-    assert(order.count == UI_ORDER_MAX);
-    assert(ui_order_to_text(UI_ORDER_DRAWER, &order, "@drawer2,wifi,plugins", saved, sizeof(saved)));
-    assert(strstr(saved, "@drawer2") == saved);
-    assert(strstr(saved + 1, "@drawer2") == NULL);
-    ui_order_resolve(UI_ORDER_DRAWER, "@drawer2,wifi,!bt_dac,plugins", &order);
-    for (unsigned i = 0; i < order.count; ++i) assert(order.ids[i] != 5);
+    check_drawer_order();
     return 0;
 }

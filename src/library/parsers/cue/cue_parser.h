@@ -36,6 +36,7 @@ char **cue_sheet_references(const char *source_path, int track_count);
 bool cue_reference_is(const char *reference);
 bool cue_reference_parse(const char *reference, char *source_path_out, size_t source_out_size,
                          unsigned *ordinal_1based_out);
+bool cue_sheet_load(const char *source, cue_sheet_t *out);
 bool cue_reference_resolve(const char *reference, cue_sheet_t *out, unsigned *ordinal_1based_out);
 bool cue_reference_audio_path(const char *reference, char *audio_path_out, size_t out_size);
 

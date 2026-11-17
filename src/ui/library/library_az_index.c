@@ -255,7 +255,7 @@ static bool register_strip(lv_obj_t * screen, lv_obj_t * list, metadata_db_az_ki
 #endif
     int32_t line_h = lv_font_get_line_height(strip_font);
     lv_obj_set_style_text_font(strip, strip_font, 0);
-    lv_obj_set_width(strip, BOARD_SCALE_PX(30));
+    lv_obj_set_width(strip, BOARD_SCALE_PX_MIN(30, 24));
     lv_obj_add_style(strip, &style_theme_text_primary, 0);
     /* Centred: right-aligned glyphs of different widths make a ragged column. */
     lv_obj_set_style_text_align(strip, LV_TEXT_ALIGN_CENTER, 0);

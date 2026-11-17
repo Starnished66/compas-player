@@ -152,7 +152,7 @@ static void plugin_order_editor_build_rows(void) {
         lv_obj_t * visible_switch = lv_switch_create(row);
         plugin_order_editor_switches[id] = visible_switch;
         lv_obj_add_style(visible_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-        lv_obj_set_size(visible_switch, switch_width, BOARD_SCALE_PX(28));
+        setting_toggle_size(visible_switch, switch_width, BOARD_SCALE_PX(28), 10);
         lv_obj_align(visible_switch, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(6), 0);
         lv_obj_add_event_cb(visible_switch, plugin_order_editor_toggle_cb, LV_EVENT_VALUE_CHANGED,
                             (void *)(intptr_t)id);

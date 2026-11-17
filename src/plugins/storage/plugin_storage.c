@@ -96,60 +96,6 @@ static bool entry_path(char * out, size_t out_size, const char * plugin_id, cons
     return n > 0 && (size_t) n < out_size;
 }
 
-/* Collapse ".", "..", and duplicate slashes without requiring the path to
- * exist -- realpath() cannot be used for a file that has not been created
- * yet, and a naive "/plugins/" substring match would also hit the SD card
- * .plugins/ script directory. */
-static bool normalize_path(const char * in, char * out, size_t out_size) {
-    if (!in || !in[0] || out_size < 2) return false;
-    char abs[PATH_MAX];
-    if (in[0] == '/') {
-        if (snprintf(abs, sizeof(abs), "%s", in) >= (int) sizeof(abs)) return false;
-    } else {
-        char cwd[PATH_MAX];
-        if (!getcwd(cwd, sizeof(cwd))) return false;
-        if (snprintf(abs, sizeof(abs), "%s/%s", cwd, in) >= (int) sizeof(abs)) return false;
-    }
-
-    char * stack[PATH_MAX / 2];
-    int nstack = 0;
-    char * p = abs;
-    while (*p == '/') p++;
-    while (*p) {
-        char * start = p;
-        while (*p && *p != '/') p++;
-        size_t seglen = (size_t) (p - start);
-        char * next = p;
-        while (*next == '/') next++;
-        if (seglen == 1 && start[0] == '.') {
-            p = next;
-            continue;
-        }
-        if (seglen == 2 && start[0] == '.' && start[1] == '.') {
-            if (nstack > 0) nstack--;
-            p = next;
-            continue;
-        }
-        start[seglen] = '\0';
-        if (nstack >= (int) (sizeof(stack) / sizeof(stack[0]))) return false;
-        stack[nstack++] = start;
-        p = next;
-    }
-
-    size_t used = 0;
-    out[used++] = '/';
-    out[used] = '\0';
-    for (int i = 0; i < nstack; i++) {
-        size_t seglen = strlen(stack[i]);
-        if (used + (used > 1 ? 1 : 0) + seglen >= out_size) return false;
-        if (used > 1) out[used++] = '/';
-        memcpy(out + used, stack[i], seglen);
-        used += seglen;
-        out[used] = '\0';
-    }
-    return true;
-}
-
 static bool path_is_under(const char * path, const char * root) {
     size_t n = strlen(root);
     if (n == 0) return false;
@@ -158,84 +104,89 @@ static bool path_is_under(const char * path, const char * root) {
     return path[n] == '\0' || path[n] == '/';
 }
 
-/* Follow one existing path component. realpath() refuses dangling
- * symlinks (ENOENT if the target is missing), but io.open("w") through
- * that same symlink still creates the target -- so readlink the link
- * itself and lexically join. */
-static bool resolve_existing_component(const char * path, char * out, size_t out_size, int depth) {
-    if (depth > 32) return false;
-    struct stat st;
-    if (lstat(path, &st) != 0) return false;
-    if (S_ISLNK(st.st_mode)) {
-        char target[PATH_MAX];
-        ssize_t nr = readlink(path, target, sizeof(target) - 1);
-        if (nr <= 0) return false;
-        target[nr] = '\0';
-        char joined[PATH_MAX];
-        if (target[0] == '/') {
-            if (snprintf(joined, sizeof(joined), "%s", target) >= (int) sizeof(joined)) return false;
-        } else {
-            char dir[PATH_MAX];
-            if (snprintf(dir, sizeof(dir), "%s", path) >= (int) sizeof(dir)) return false;
-            char * slash = strrchr(dir, '/');
-            if (!slash) return false;
-            if (slash == dir) slash[1] = '\0';
-            else *slash = '\0';
-            if (snprintf(joined, sizeof(joined), "%s/%s", dir, target) >= (int) sizeof(joined)) return false;
-        }
-        char norm[PATH_MAX];
-        if (!normalize_path(joined, norm, sizeof(norm))) return false;
-        if (lstat(norm, &st) == 0)
-            return resolve_existing_component(norm, out, out_size, depth + 1);
-        if (snprintf(out, out_size, "%s", norm) >= (int) out_size) return false;
-        return true;
-    }
-    char resolved[PATH_MAX];
-    if (!realpath(path, resolved)) return false;
-    if (snprintf(out, out_size, "%s", resolved) >= (int) out_size) return false;
+/* Resolve an absolute path in kernel order. Symlinks are expanded before a
+ * following `..` is processed; nonexistent suffixes stay lexical so paths
+ * that are about to be created can still be checked. */
+static bool expand_symlink_path(const char *candidate, char *pending, const char *remaining) {
+    char target[PATH_MAX], joined[PATH_MAX];
+    ssize_t nr = readlink(candidate, target, sizeof(target) - 1);
+    if (nr < 0 || nr >= (ssize_t) sizeof(target) - 1) return false;
+    target[nr] = '\0';
+    int written = snprintf(joined, sizeof(joined), "%s%s%s", target,
+                           *remaining ? "/" : "", remaining);
+    if (written < 0 || written >= (int) sizeof(joined)) return false;
+    strcpy(pending, joined);
     return true;
 }
 
-/* Resolve the longest existing prefix, following symlinks (including
- * dangling ones). Needed so a lexical name outside PLUGIN_STORAGE_ROOT
- * that lands in that tree -- a shipped symlink, or /proc/self/root --
- * is still reserved. */
-static bool resolve_nearest_existing_ancestor(const char * path, char * out, size_t out_size) {
-    char buf[PATH_MAX];
-    if (!path || !path[0] || snprintf(buf, sizeof(buf), "%s", path) >= (int) sizeof(buf)) return false;
-    size_t n = strlen(buf);
-    while (n > 1 && buf[n - 1] == '/') buf[--n] = '\0';
-    for (;;) {
-        if (resolve_existing_component(buf, out, out_size, 0)) return true;
-        char * slash = strrchr(buf, '/');
-        if (!slash) return false;
-        if (slash == buf) {
-            buf[1] = '\0';
-            return resolve_existing_component(buf, out, out_size, 0);
+static bool resolve_absolute_path(const char *input, char *out, size_t out_size) {
+    if (!input || input[0] != '/' || out_size < 2) return false;
+    char pending[PATH_MAX];
+    if (snprintf(pending, sizeof(pending), "%s", input) >= (int) sizeof(pending)) return false;
+    strcpy(out, "/");
+    bool missing[PATH_MAX / 2];
+    size_t depth = 0, missing_count = 0;
+    int links = 0;
+    const char *p = pending;
+    while (*p) {
+        while (*p == '/') p++;
+        if (!*p) break;
+        const char *start = p;
+        while (*p && *p != '/') p++;
+        size_t n = (size_t)(p - start);
+        while (*p == '/') p++;
+        if (n == 1 && start[0] == '.') continue;
+        if (n == 2 && start[0] == '.' && start[1] == '.') {
+            if (depth) {
+                if (missing[--depth]) missing_count--;
+                char *slash = strrchr(out, '/');
+                if (slash != out) *slash = '\0';
+                else out[1] = '\0';
+            }
+            continue;
         }
-        *slash = '\0';
+        if (depth >= sizeof(missing) / sizeof(missing[0])) return false;
+        char candidate[PATH_MAX];
+        int written = snprintf(candidate, sizeof(candidate), "%s%s%.*s", out,
+                               strcmp(out, "/") == 0 ? "" : "/", (int)n, start);
+        if (written < 0 || written >= (int) sizeof(candidate)) return false;
+        bool is_missing = missing_count != 0;
+        struct stat st;
+        if (!is_missing && lstat(candidate, &st) != 0) {
+            if (errno != ENOENT) return false;
+            is_missing = true;
+        }
+        if (!is_missing && S_ISLNK(st.st_mode)) {
+            if (++links > 40 || !expand_symlink_path(candidate, pending, p)) return false;
+            if (pending[0] == '/') { strcpy(out, "/"); depth = missing_count = 0; }
+            p = pending;
+            continue;
+        }
+        if (snprintf(out, out_size, "%s", candidate) >= (int)out_size) return false;
+        if (is_missing) missing_count++;
+        missing[depth++] = is_missing;
     }
+    return true;
+}
+
+static bool resolve_path(const char * path, char * out, size_t out_size) {
+    if (!path || !path[0]) return false;
+    char absolute[PATH_MAX];
+    if (path[0] == '/') {
+        if (snprintf(absolute, sizeof(absolute), "%s", path) >= (int) sizeof(absolute)) return false;
+    } else {
+        char cwd[PATH_MAX];
+        if (!getcwd(cwd, sizeof(cwd)) ||
+            snprintf(absolute, sizeof(absolute), "%s/%s", cwd, path) >= (int) sizeof(absolute)) return false;
+    }
+    return resolve_absolute_path(absolute, out, out_size);
 }
 
 bool plugin_storage_path_is_reserved(const char * path) {
     if (!path || !path[0]) return false;
-    char path_n[PATH_MAX], root_n[PATH_MAX];
     char path_r[PATH_MAX], root_r[PATH_MAX];
-    if (!normalize_path(PLUGIN_STORAGE_ROOT, root_n, sizeof(root_n))) return false;
-    if (!normalize_path(path, path_n, sizeof(path_n))) return false;
-    if (path_is_under(path_n, root_n)) return true;
-
-    /* Never collapse a not-yet-created reserved root to its nearest existing
-     * ancestor. On this firmware /data resolves through /usr/data, so doing
-     * that while /usr/data/plugins did not yet exist broadened the reserved
-     * tree to all of /usr/data -- including the mounted SD card at
-     * /usr/data/mnt/sd_0. Keep the exact normalized root until it exists;
-     * path_r still follows existing/dangling symlinks and therefore catches
-     * an external path that actually resolves into that exact tree. */
-    if (!resolve_existing_component(root_n, root_r, sizeof(root_r), 0)) {
-        snprintf(root_r, sizeof(root_r), "%s", root_n);
-    }
-    if (!resolve_nearest_existing_ancestor(path_n, path_r, sizeof(path_r))) return false;
+    if (!resolve_path(PLUGIN_STORAGE_ROOT, root_r, sizeof(root_r)) || !resolve_path(path, path_r, sizeof(path_r)))
+        return true;
     return path_is_under(path_r, root_r);
 }
 

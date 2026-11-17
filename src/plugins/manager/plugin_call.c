@@ -125,6 +125,35 @@ static lua_CFunction real_io_input = NULL;
 static lua_CFunction real_io_output = NULL;
 static lua_CFunction real_os_remove = NULL;
 static lua_CFunction real_os_rename = NULL;
+static lua_CFunction real_setmetatable = NULL;
+static lua_CFunction real_getmetatable = NULL;
+
+/* Lua suppresses instruction hooks while invoking __gc. Preserve ordinary
+ * metatables but reject plugin finalizers that can otherwise escape the
+ * plugin_call execution budget. */
+static int l_plugin_setmetatable(lua_State * L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (!lua_isnoneornil(L, 2)) {
+        luaL_checktype(L, 2, LUA_TTABLE);
+        lua_pushliteral(L, "__gc");
+        lua_rawget(L, 2);
+        bool has_finalizer = !lua_isnil(L, -1);
+        lua_pop(L, 1);
+        if (has_finalizer) return luaL_error(L, "plugin metatables may not define __gc");
+    }
+    return plugin_call_native(L, real_setmetatable);
+}
+
+/* The standard IO library exposes a mutable metatable for file userdata.
+ * Plugins could replace its already-registered native __gc method and then
+ * hang inside finalization, where the Lua instruction hook is disabled. */
+static int l_plugin_getmetatable(lua_State * L) {
+    if (lua_type(L, 1) == LUA_TUSERDATA) {
+        lua_pushnil(L);
+        return 1;
+    }
+    return plugin_call_native(L, real_getmetatable);
+}
 
 static int l_guarded_io_open(lua_State * L) {
     const char * path = luaL_optstring(L, 1, "");
@@ -205,6 +234,18 @@ static int l_guarded_os_rename(lua_State * L) {
     return plugin_call_native(L, real_os_rename);
 }
 
+static void wrap_c_field(lua_State *L, int table, const char *name,
+                         lua_CFunction *real, lua_CFunction wrapper) {
+    table = lua_absindex(L, table);
+    lua_getfield(L, table, name);
+    if (lua_iscfunction(L, -1)) *real = lua_tocfunction(L, -1);
+    lua_pop(L, 1);
+    if (*real) {
+        lua_pushcfunction(L, wrapper);
+        lua_setfield(L, table, name);
+    }
+}
+
 void sandbox_plugin_lua_state(lua_State * L) {
     lua_pushnil(L); lua_setglobal(L, "load");
     lua_pushnil(L); lua_setglobal(L, "loadstring");
@@ -214,6 +255,11 @@ void sandbox_plugin_lua_state(lua_State * L) {
     lua_pushnil(L); lua_setglobal(L, "package");
     lua_pushnil(L); lua_setglobal(L, "debug");
 
+    lua_pushglobaltable(L);
+    wrap_c_field(L, -1, "setmetatable", &real_setmetatable, l_plugin_setmetatable);
+    wrap_c_field(L, -1, "getmetatable", &real_getmetatable, l_plugin_getmetatable);
+    lua_pop(L, 1);
+
     lua_getglobal(L, "os");
     if (lua_istable(L, -1)) {
         static const char * dangerous_os[] = { "execute", "getenv", "exit", "tmpname" };
@@ -222,14 +268,8 @@ void sandbox_plugin_lua_state(lua_State * L) {
             lua_setfield(L, -2, dangerous_os[i]);
         }
 
-        lua_getfield(L, -1, "remove");
-        if (lua_iscfunction(L, -1)) real_os_remove = lua_tocfunction(L, -1);
-        lua_pop(L, 1);
-        lua_getfield(L, -1, "rename");
-        if (lua_iscfunction(L, -1)) real_os_rename = lua_tocfunction(L, -1);
-        lua_pop(L, 1);
-        if (real_os_remove) { lua_pushcfunction(L, l_guarded_os_remove); lua_setfield(L, -2, "remove"); }
-        if (real_os_rename) { lua_pushcfunction(L, l_guarded_os_rename); lua_setfield(L, -2, "rename"); }
+        wrap_c_field(L, -1, "remove", &real_os_remove, l_guarded_os_remove);
+        wrap_c_field(L, -1, "rename", &real_os_rename, l_guarded_os_rename);
     }
     lua_pop(L, 1);
 
@@ -238,22 +278,10 @@ void sandbox_plugin_lua_state(lua_State * L) {
         lua_pushnil(L);
         lua_setfield(L, -2, "popen"); /* the one io.* function that's a shell-exec primitive, not file I/O */
 
-        lua_getfield(L, -1, "open");
-        if (lua_iscfunction(L, -1)) real_io_open = lua_tocfunction(L, -1);
-        lua_pop(L, 1);
-        lua_getfield(L, -1, "lines");
-        if (lua_iscfunction(L, -1)) real_io_lines = lua_tocfunction(L, -1);
-        lua_pop(L, 1);
-        lua_getfield(L, -1, "input");
-        if (lua_iscfunction(L, -1)) real_io_input = lua_tocfunction(L, -1);
-        lua_pop(L, 1);
-        lua_getfield(L, -1, "output");
-        if (lua_iscfunction(L, -1)) real_io_output = lua_tocfunction(L, -1);
-        lua_pop(L, 1);
-        if (real_io_open) { lua_pushcfunction(L, l_guarded_io_open); lua_setfield(L, -2, "open"); }
-        if (real_io_lines) { lua_pushcfunction(L, l_guarded_io_lines); lua_setfield(L, -2, "lines"); }
-        if (real_io_input) { lua_pushcfunction(L, l_guarded_io_input); lua_setfield(L, -2, "input"); }
-        if (real_io_output) { lua_pushcfunction(L, l_guarded_io_output); lua_setfield(L, -2, "output"); }
+        wrap_c_field(L, -1, "open", &real_io_open, l_guarded_io_open);
+        wrap_c_field(L, -1, "lines", &real_io_lines, l_guarded_io_lines);
+        wrap_c_field(L, -1, "input", &real_io_input, l_guarded_io_input);
+        wrap_c_field(L, -1, "output", &real_io_output, l_guarded_io_output);
     }
     lua_pop(L, 1);
 }

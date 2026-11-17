@@ -87,12 +87,16 @@ static int fail(lua_State * L, const char * msg) {
     return 2;
 }
 
+static bool json_level_ok(lua_State *L, int depth, const json_limits_t *lim, const char **err) {
+    if (!lua_checkstack(L, 4)) *err = "json nesting exceeds Lua stack capacity";
+    else if (depth > lim->max_nesting) *err = "json too deeply nested";
+    else return true;
+    return false;
+}
+
 static bool push_cjson(lua_State * L, const cJSON * node, int depth, const json_limits_t * lim, int * entries,
                        const char ** err) {
-    if (depth > lim->max_nesting) {
-        *err = "json too deeply nested";
-        return false;
-    }
+    if (!json_level_ok(L, depth, lim, err)) return false;
     if (!node || cJSON_IsNull(node)) {
         lua_pushnil(L);
         return true;
@@ -148,10 +152,7 @@ static bool push_cjson(lua_State * L, const cJSON * node, int depth, const json_
 
 static cJSON * lua_to_cjson(lua_State * L, int index, int depth, const json_limits_t * lim, int * entries,
                             const char ** err) {
-    if (depth > lim->max_nesting) {
-        *err = "json too deeply nested";
-        return NULL;
-    }
+    if (!json_level_ok(L, depth, lim, err)) return NULL;
     int type = lua_type(L, index);
     switch (type) {
         case LUA_TNIL:

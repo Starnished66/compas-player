@@ -70,10 +70,23 @@ void close_device(void) {
     atomic_store_explicit(&local_output_active, false, memory_order_release);
 }
 
+void audio_output_clear_pending(void) {
+    if (sdl_dev != 0) SDL_ClearQueuedAudio(sdl_dev);
+}
+
+void audio_output_drain_pending(void) {
+    if (sdl_dev == 0) return;
+    /* A queued SDL tail is at most one second; bound the wait in case the
+     * host audio device stops consuming data during shutdown. */
+    for (unsigned int waited = 0; waited < 1200 && SDL_GetQueuedAudioSize(sdl_dev); waited += 10)
+        usleep(10000);
+}
+
 bool ensure_device(unsigned int channels, unsigned int sample_rate) {
     atomic_store_explicit(&local_output_active, true, memory_order_release);
     bool device_open = (sdl_dev != 0);
     if (device_open && device_channels == channels && device_sample_rate == sample_rate) return true;
+    if (device_open) audio_output_drain_pending();
     close_device();
     atomic_store_explicit(&local_output_active, true, memory_order_release);
     return open_device(channels, sample_rate);
@@ -93,6 +106,8 @@ void write_device(const int16_t * buf, uint64_t frames, unsigned int channels) {
     }
 }
 #else
+void audio_output_clear_pending(void) {}
+void audio_output_drain_pending(void) {}
 /* Target build: thin wrappers around the shared audio_output module (see
  * audio_output.h) for output routing and format configuration. */
 bool ensure_device_format(unsigned int channels, unsigned int sample_rate, bool want_s24) {

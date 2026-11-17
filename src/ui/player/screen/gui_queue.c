@@ -183,6 +183,34 @@ static lv_obj_t * queue_label(const char * text) {
     return row;
 }
 
+static void queue_cue_row(const char *path, cue_sheet_t *cache, char *cache_src, char *title, char *subtitle) {
+    unsigned ordinal = 0;
+    char source[PATH_MAX];
+    bool resolved = cue_reference_parse(path, source, sizeof(source), &ordinal);
+    if (resolved && strcmp(source, cache_src) != 0) {
+        cue_sheet_free(cache);
+        cache_src[0] = '\0';
+        resolved = cue_sheet_load(source, cache);
+        if (resolved) snprintf(cache_src, PATH_MAX, "%s", source);
+    }
+    if (resolved && ordinal > 0 && ordinal <= (unsigned) cache->track_count) {
+        const cue_track_t * track = &cache->tracks[ordinal - 1];
+        if (track->title[0]) snprintf(title, 128, "%s", track->title);
+        else snprintf(title, 128, TR("Track %d"), track->number);
+        const char * performer = track->performer[0] ? track->performer : cache->performer;
+        if (performer[0] || cache->title[0]) {
+            char display_artist[121], display_album[121];
+            utf8_truncate_safe(display_artist, performer[0] ? performer : TR("Unknown artist"), sizeof(display_artist));
+            utf8_truncate_safe(display_album, cache->title[0] ? cache->title : TR("Unknown album"), sizeof(display_album));
+            snprintf(subtitle, 256, "%s · %s", display_artist, display_album);
+        } else subtitle[0] = '\0';
+    } else {
+        char folder[128];
+        get_display_names(path, title, 128, folder, sizeof(folder));
+        subtitle[0] = '\0';
+    }
+}
+
 void populate_queue_screen(void) {
     if (!queue_list) return;
     int * order = NULL, count, current;
@@ -214,6 +242,8 @@ void populate_queue_screen(void) {
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, queue_page_cb, LV_EVENT_CLICKED, (void *) (intptr_t) -QUEUE_PAGE_SIZE);
     }
+    cue_sheet_t cue_cache = {0};
+    char cue_cache_source[PATH_MAX] = "";
     int end = queue_page + QUEUE_PAGE_SIZE;
     if (end > count) end = count;
     int pending = gui_player_get_queued_count();
@@ -282,25 +312,7 @@ void populate_queue_screen(void) {
                 snprintf(subtitle, sizeof(subtitle), "%s · %s", display_artist, display_album);
             } else subtitle[0] = '\0';
         } else if (cue_reference_is(path)) {
-            cue_sheet_t sheet = {0};
-            unsigned ordinal = 0;
-            if (cue_reference_resolve(path, &sheet, &ordinal) && ordinal <= (unsigned) sheet.track_count) {
-                const cue_track_t * track = &sheet.tracks[ordinal - 1];
-                if (track->title[0]) snprintf(title, sizeof(title), "%s", track->title);
-                else snprintf(title, sizeof(title), TR("Track %d"), track->number);
-                const char * performer = track->performer[0] ? track->performer : sheet.performer;
-                if (performer[0] || sheet.title[0]) {
-                    char display_artist[121], display_album[121];
-                    utf8_truncate_safe(display_artist, performer[0] ? performer : TR("Unknown artist"), sizeof(display_artist));
-                    utf8_truncate_safe(display_album, sheet.title[0] ? sheet.title : TR("Unknown album"), sizeof(display_album));
-                    snprintf(subtitle, sizeof(subtitle), "%s · %s", display_artist, display_album);
-                } else subtitle[0] = '\0';
-            } else {
-                char folder[128];
-                get_display_names(path, title, sizeof(title), folder, sizeof(folder));
-                subtitle[0] = '\0';
-            }
-            cue_sheet_free(&sheet);
+            queue_cue_row(path, &cue_cache, cue_cache_source, title, subtitle);
         } else if (metadata_db_get_song_by_path(path, &song)) {
             gui_library_format_song_identity(&song, title, sizeof(title),
                                               subtitle, sizeof(subtitle));
@@ -311,7 +323,14 @@ void populate_queue_screen(void) {
         }
         snprintf(numbered_title, sizeof(numbered_title), "%d. %s", i + 1, title);
         if (queue_editing && i > current) {
+            /* Keep the destructive target close to 40 px on the compact
+             * V1; retain a little extra hit area without stealing the drag
+             * handle's gesture region. */
+#if defined(BOARD_TEMPOTEC_V1)
+            const int32_t action_slot = BOARD_SCALE_PX(60);
+#else
             const int32_t action_slot = BOARD_SCALE_PX(44);
+#endif
             const int32_t action_reserve = BOARD_SCALE_PX(34) + action_slot + BOARD_SCALE_PX(8);
             lv_obj_t * row = build_music_list_row(queue_list, numbered_title, subtitle, action_reserve);
             int slot = i - queue_page;
@@ -391,6 +410,7 @@ void populate_queue_screen(void) {
         lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(row, queue_page_cb, LV_EVENT_CLICKED, (void *) (intptr_t) QUEUE_PAGE_SIZE);
     }
+    cue_sheet_free(&cue_cache);
     free(order);
 }
 

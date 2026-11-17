@@ -13,7 +13,8 @@ objcopy --redefine-sym main=compas_original_main "$repo/build_host/app/main.o" "
 mapfile -t objs < <(find "$repo/build_host" -name '*.o' ! -path '*/app/main.o' ! -path '*/CMakeFiles/*' -print | sort)
 gcc -std=c11 -DHOST_BUILD=1 -I"$repo" -I"$repo/lvgl/src" -I"$repo/cJSON" \
     -c "$repo/src/network/remote/control/tests/test_remote_dac_state.c" -o "$runtime/test.o"
-g++ -Wl,--wrap=gui_shell_bt_dac_owns_output -Wl,--wrap=gui_shell_usb_dac_owns_output \
+g++ -Wl,--wrap=audio_get_current_format_info -Wl,--wrap=metadata_db_album_sort_available \
+    -Wl,--wrap=gui_shell_bt_dac_owns_output -Wl,--wrap=gui_shell_usb_dac_owns_output \
     -Wl,--wrap=usb_dac_bridge_get_stream_info "$runtime/test.o" "$runtime/main.o" "${objs[@]}" \
     "$repo/build_host/libwavpack/libwavpack.a" "$repo/build_host/libsndfile/libsndfile.a" \
     $(sdl2-config --libs) -lpthread -lm -ldl -o "$runtime/test"

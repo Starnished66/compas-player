@@ -220,6 +220,8 @@ void compact_list_refetch(lv_obj_t * list);
  * Changed rows are repainted in one pass, rows that look the same are left alone. Returns false
  * (nothing done) when the list has no valid cache or a page fetch is in flight: use
  * compact_list_refetch() then. UI thread only. */
+/* UI thread only. Copies a displayed page identity without fetching the provider. */
+bool compact_list_copy_cached_row(lv_obj_t *list, int index, compact_list_page_row_t *out);
 bool compact_list_rederive_cached(lv_obj_t * list, bool (*fn)(int index, compact_list_page_row_t * row, void * ctx),
                                   void * ctx);
 /* Main loop, after a worker published: make every list's finished page fetch due now. */

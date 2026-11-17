@@ -19,8 +19,24 @@ static void check_reverse(const player_settings_t *settings, bool expected) {
     assert(settings->artist_albums_sort_reverse == expected);
     assert(settings->album_artist_albums_sort_reverse == expected);
 }
+static void check_book_positions(void) {
+    player_settings_t settings, loaded;
+    set_defaults(&settings);
+    strcpy(settings.book_positions[0].path, "/Books/One.txt");
+    settings.book_positions[0].scroll = 1234;
+    strcpy(settings.book_positions[1].path, "/Books/Two.txt");
+    settings.book_positions[1].scroll = 5678;
+    assert(settings_write_file(&settings));
+    assert(settings_load(&loaded));
+    assert(!strcmp(loaded.book_positions[0].path, "/Books/One.txt"));
+    assert(loaded.book_positions[0].scroll == 1234);
+    assert(!strcmp(loaded.book_positions[1].path, "/Books/Two.txt"));
+    assert(loaded.book_positions[1].scroll == 5678);
+}
+
 int main(void) {
     assert(mkdir(INTERNAL_COMPAS_DIR, 0700) == 0);
+    check_book_positions();
     player_settings_t settings, loaded;
     set_defaults(&settings);
     check_reverse(&settings, false);
@@ -40,6 +56,22 @@ int main(void) {
     settings_write_file(&loaded);
     assert(settings_load(&settings));
     check_reverse(&settings, true);
+    settings.album_sort_mode = 8;
+    settings.album_sort_reverse = true;
+    settings_write_file(&settings);
+    assert(settings_load(&loaded));
+    assert(loaded.album_sort_mode == 8 && !loaded.album_sort_reverse);
+    file = fopen(SETTINGS_FILE_PATH, "w");
+    assert(file);
+    fputs("album_sort_mode=8\nalbum_sort_reverse=1\n", file);
+    assert(fclose(file) == 0);
+    assert(settings_load(&loaded));
+    assert(loaded.album_sort_mode == 8 && !loaded.album_sort_reverse);
+    assert(loaded.artist_albums_sort_mode == 0 && loaded.album_artist_albums_sort_mode == 0);
+    loaded.album_sort_mode = 4; /* Reserved reverse bit is not a saved base mode. */
+    settings_write_file(&loaded);
+    assert(settings_load(&settings));
+    assert(settings.album_sort_mode == 0);
     puts("reverse settings: ok");
     return 0;
 }

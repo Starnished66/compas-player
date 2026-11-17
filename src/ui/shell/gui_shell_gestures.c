@@ -372,6 +372,9 @@ static bool quick_drawer_expansion_region_hit_test(lv_point_t point) {
 #endif
     int32_t pad_x = BOARD_SCALE_PX(40);
     int32_t pad_y = BOARD_SCALE_PY(4);
+#if defined(BOARD_TEMPOTEC_V1)
+    pad_y = BOARD_V1_DRAWER_HANDLE_PAD;
+#endif
     return point.x >= handle.x1 - pad_x && point.x <= handle.x2 + pad_x &&
            point.y >= handle.y1 - pad_y && point.y <= handle.y2 + pad_y;
 }

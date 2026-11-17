@@ -6,6 +6,10 @@
 #include <stdint.h>
 
 #ifdef HOST_BUILD
+static inline bool bt_pairing_agent_pending_pin(char *name, size_t size, uint32_t *id) {
+    (void)name; (void)size; (void)id; return false;
+}
+static inline void bt_pairing_agent_answer_pin(uint32_t id, const char *pin) { (void)id; (void)pin; }
 static inline void bt_pairing_agent_cancel_prompts(void) {}
 static inline bool bt_pairing_agent_activate(void) { return false; }
 static inline void bt_pairing_agent_allow_pairing_for(unsigned int ms) { (void) ms; }
@@ -23,9 +27,12 @@ static inline bool bt_pairing_agent_display_code(char * name, size_t name_size, 
     return false;
 }
 #else
+/* Legacy PIN input uses the same expiring, single-request queue as confirmation. */
+bool bt_pairing_agent_pending_pin(char *name, size_t size, uint32_t *id);
+void bt_pairing_agent_answer_pin(uint32_t id, const char *pin);
 /* In-process BlueZ pairing agent (org.bluez.Agent1) with DisplayYesNo capability, so a peer
  * that demands MITM protection (some car head units) gets an authenticated key: numeric
- * comparison is confirmed by the user on the player (see below), legacy PIN requests are answered with "0000".
+ * comparison is confirmed by the user on the player (see below), legacy PIN requests prompt for the accessory's PIN.
  * Registers it and makes it the default agent; blocking with short timeouts, safe to call
  * repeatedly (one round trip once registered; re-registers after a bluetoothd restart). False
  * when the bus or bluetoothd is unavailable, so the caller can fall back to bt-agent. */

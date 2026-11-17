@@ -44,7 +44,11 @@ static bool cancel_register(struct http_cancel_token * cancel, int fd) {
     if (!cancel) return true;
     pthread_mutex_lock(&cancel->mutex);
     bool already = cancel->cancel_requested;
-    if (!already) cancel->fd = fd;
+    if (!already) {
+        if (cancel->fd < 0) cancel->fd = fd;
+        else if (cancel->secondary_fd < 0) cancel->secondary_fd = fd;
+        else already = true; /* more than two concurrent connections: fail closed */
+    }
     pthread_mutex_unlock(&cancel->mutex);
     return !already;
 }
@@ -57,6 +61,7 @@ static void cancel_unregister_and_close(struct http_cancel_token * cancel, int f
     }
     pthread_mutex_lock(&cancel->mutex);
     if (cancel->fd == fd) cancel->fd = -1;
+    if (cancel->secondary_fd == fd) cancel->secondary_fd = -1;
     close(fd);
     pthread_mutex_unlock(&cancel->mutex);
 }
@@ -370,6 +375,15 @@ bool http_conn_open(http_conn_t * conn, const char * host, const char * port, bo
 }
 
 /* Re-clamp before every socket operation, including buffered reader refills. */
+void http_conn_end_deadline(http_conn_t *conn, uint32_t body_timeout_ms) {
+    conn->deadline_ms = 0;
+    conn->read_timeout_ms = body_timeout_ms;
+    struct timeval tv = { .tv_sec = body_timeout_ms / 1000,
+                          .tv_usec = (body_timeout_ms % 1000) * 1000 };
+    setsockopt(conn->net.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(conn->net.fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
 static bool conn_apply_deadline(http_conn_t *conn) {
     if (!conn->deadline_ms) return true;
     uint64_t now = monotonic_now_ms();
@@ -423,6 +437,7 @@ void http_conn_close(http_conn_t * conn) {
     if (cancel) {
         pthread_mutex_lock(&cancel->mutex);
         if (cancel->fd == conn->net.fd) cancel->fd = -1;
+        if (cancel->secondary_fd == conn->net.fd) cancel->secondary_fd = -1;
         mbedtls_net_free(&conn->net);
         pthread_mutex_unlock(&cancel->mutex);
     } else {

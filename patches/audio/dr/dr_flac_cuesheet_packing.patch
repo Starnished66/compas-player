@@ -1,0 +1,19 @@
+diff --git a/dr_flac.h b/dr_flac.h
+index 3a234ed..1b1bbe0 100644
+--- a/dr_flac.h
++++ b/dr_flac.h
+@@ -1224,12 +1224,14 @@ typedef struct
+ } drflac_cuesheet_track_iterator;
+
+ /* The order of members here is important because we map this directly to the raw data within the CUESHEET metadata block. */
++#pragma pack(push, 1) /* CUESHEET index points follow variable-length track data and may be unaligned. */
+ typedef struct
+ {
+     drflac_uint64 offset;
+     drflac_uint8 index;
+     drflac_uint8 reserved[3];
+ } drflac_cuesheet_track_index;
++#pragma pack(pop)
+
+ typedef struct
+ {

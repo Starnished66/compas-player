@@ -109,6 +109,7 @@ static lv_obj_t * header_button_create(lv_obj_t * scr, lv_align_t alignment, lv_
      * the icon itself stays centered at its normal size. */
     lv_obj_t * btn = lv_obj_create(scr);
     lv_obj_set_size(btn, HEADER_BUTTON_WIDTH, HEADER_BUTTON_WIDTH);
+    if (HEADER_BUTTON_WIDTH < BOARD_MIN_TOUCH_PX) lv_obj_set_ext_click_area(btn, (BOARD_MIN_TOUCH_PX - HEADER_BUTTON_WIDTH + 1) / 2);
     lv_obj_align(btn, alignment, 0, STATUS_BAR_CLEARANCE + (TITLE_ROW_HEIGHT - HEADER_BUTTON_WIDTH) / 2);
     lv_obj_set_style_bg_opa(btn, 0, 0);
     lv_obj_set_style_border_width(btn, 0, 0);

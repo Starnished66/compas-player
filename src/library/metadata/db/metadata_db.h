@@ -37,8 +37,17 @@ typedef enum {
     METADATA_DB_ALBUM_SORT_RECENT = 1,
     METADATA_DB_ALBUM_SORT_YEAR = 2,
     METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR = 3,
-    METADATA_DB_ALBUM_SORT_REVERSE = 4
+    METADATA_DB_ALBUM_SORT_REVERSE = 4,
+    METADATA_DB_ALBUM_SORT_RATING = 8
 } metadata_db_album_sort_t;
+
+static inline bool album_sort_mode_valid(int mode) {
+    return (mode >= 0 && mode <= 3) || mode == METADATA_DB_ALBUM_SORT_RATING;
+}
+static inline bool album_sort_mode_has_reverse(int mode) {
+    return album_sort_mode_valid(mode) && mode != METADATA_DB_ALBUM_SORT_RATING;
+}
+
 
 typedef enum {
     METADATA_DB_LOAD_SUCCESS_NORMAL,
@@ -83,6 +92,8 @@ metadata_db_load_outcome_t metadata_db_get_load_outcome(void);
  * when a rebuild owns the lock. */
 int32_t metadata_db_get_generation(void);
 bool metadata_db_try_get_generation(int32_t * out_generation);
+uint32_t metadata_db_get_incarnation(void);
+bool metadata_db_try_get_incarnation(uint32_t *out_incarnation);
 /* Copies the already-loaded persistent catalog identity without waiting for a
  * database operation or performing storage I/O. Returns false with an empty
  * output when the database/identity is unavailable or busy. */
@@ -268,10 +279,11 @@ bool metadata_db_walk_group_songs(metadata_db_group_kind_t kind, const char * na
  * a worker thread: the database lock is not held while visit runs, nor across the
  * whole scan. Returns false when visit stopped it, the database was replaced
  * mid-walk, cancel (optional) was set, or memory ran out; the matches seen so
- * far were still visited. */
+ * far were still visited. Unreadable/incomplete rows are skipped; optional
+ * complete is true only after an exhaustive walk without skipped rows. */
 bool metadata_db_walk_genre_songs(const char * genre, int max_songs,
                                   bool (*visit)(const song_row_t * song, void * user), void * user,
-                                  const atomic_bool * cancel);
+                                  const atomic_bool * cancel, bool *complete);
 
 bool metadata_db_get_song_by_id(int64_t id, song_row_t * out_row);
 bool metadata_db_get_song_by_path(const char * path, song_row_t * out_row);
@@ -412,7 +424,15 @@ int metadata_db_group_walk_page(metadata_db_group_walk_t * walk, bool by_albums,
 int metadata_db_get_albums_page_sorted(const char * artist_filter, metadata_db_album_sort_t sort,
                                       int offset, int max_rows, group_row_t * out_rows);
 int metadata_db_album_canonical_to_sorted(metadata_db_album_sort_t sort, int canonical_rank);
+/* Canonical album ranks grouped by rating 5..0, preserving canonical name order
+ * inside each group. Sections are counts for stars 0..5. */
+bool metadata_db_load_album_rating_order(int **out_ranks, int out_sections[6],
+                                         int *out_count, int32_t *out_generation);
+int metadata_db_get_albums_at_canonical_ranks(const int *ranks, int count, group_row_t *out_rows);
 bool metadata_db_album_sort_available(metadata_db_album_sort_t sort);
+/* Non-blocking form for pointer/scroll callbacks. Returns false when the DB
+ * guard could not be acquired; *out_available is set only on true. */
+bool metadata_db_try_album_sort_available(metadata_db_album_sort_t sort, bool *out_available);
 
 /* Exact Artist/Album-Artist drill-down variants. Unlike the legacy remote
  * helper above, these filter only the requested tag column. */

@@ -9,6 +9,7 @@
 #include "../network/subsonic/gui_subsonic_covers.h"
 #include "../player/screen/gui_lyrics.h"
 #include "../player/screen/gui_track_info.h"
+#include "../player/screen/gui_player.h"
 #include "../../hardware/indicators/backlight.h"
 #include "../../network/services/dlna_control.h"
 #include "../../hardware/power/battery.h"
@@ -299,6 +300,7 @@ static void notify_persistence_failures(void) {
 }
 
 static void poll_queue_and_info_jobs(void) {
+    idle_shutdown_poll_recovery();
     gui_queue_poll();
     gui_network_poll_airplay_overlay();
     gui_track_info_poll();
@@ -445,16 +447,9 @@ static void car_mode_sample_power(car_mode_state_t *s,
 
 static void car_mode_shutdown_if_pending(const car_mode_state_t *s) {
     if (s->car_shutdown_pending && !shutdown_background_work_active()) {
-        /* Stopped audio has no live position; keep the saved one. */
-        if (audio_is_playing() || audio_is_paused())
-            current_settings.last_position = audio_get_resume_position_seconds();
-        /* This save is intentionally synchronous: idle_shutdown_now() is
-         * imminent, so the final playback checkpoint must reach storage
-         * before power is removed. */
-        settings_save(&current_settings);
         if (!gui_network_usb_dac_shutdown()) return;
         (void) gui_shell_bt_dac_shutdown(false);
-        idle_shutdown_now(); /* full poweroff -- does not return, see idle_shutdown.h */
+        idle_shutdown_now(); /* asynchronous persistence gates poweroff */
     }
 }
 

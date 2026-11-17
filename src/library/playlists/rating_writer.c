@@ -246,6 +246,24 @@ void rating_writer_submit(const char * path, int stars) {
     pthread_mutex_unlock(&writer_mutex);
 }
 
+bool rating_writer_flush(void) {
+    pthread_once(&writer_once, writer_init);
+    if (!worker_ready) return true;
+    pthread_mutex_lock(&writer_mutex);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    for (int i = 0; i < queue_count; i++) queue[i].deadline = now;
+    pthread_cond_broadcast(&writer_cond);
+    struct timespec deadline = now;
+    deadline.tv_sec += 5;
+    while (queue_count > 0 || inflight_count > 0) {
+        if (pthread_cond_timedwait(&writer_cond, &writer_mutex, &deadline) != 0) break;
+    }
+    bool drained = queue_count == 0 && inflight_count == 0;
+    pthread_mutex_unlock(&writer_mutex);
+    return drained;
+}
+
 bool rating_writer_write_now(const char * path, int stars) {
     if (!path) return false;
     pthread_once(&writer_once, writer_init);
@@ -278,7 +296,7 @@ bool rating_writer_write_now(const char * path, int stars) {
     return saved;
 }
 
-int rating_writer_stars(const char * path) {
+int rating_writer_effective_stars(const char *path, int stored) {
     if (!path) return 0;
     pthread_mutex_lock(&writer_mutex);
     int queued = queue_find(path);
@@ -286,5 +304,10 @@ int rating_writer_stars(const char * path) {
     bool known = queued >= 0 || writing >= 0;
     int value = queued >= 0 ? queue[queued].stars : writing >= 0 ? inflight[writing].stars : 0;
     pthread_mutex_unlock(&writer_mutex);
-    return known ? value : metadata_db_song_rating_get(path);
+    return known ? value : stored;
+}
+
+int rating_writer_stars(const char *path) {
+    int pending = rating_writer_effective_stars(path, -1);
+    return pending >= 0 ? pending : metadata_db_song_rating_get(path);
 }

@@ -69,7 +69,7 @@ static char rating_request_path[PATH_MAX];
 static bool rating_track_known;
 static int pending_stars = -1;
 static char rating_popup_path[PATH_MAX];
-static bool metadata_ui_notify, metadata_notify_ready;
+static bool metadata_ui_notify, metadata_notify_ready, metadata_count_play;
 static track_metadata_t metadata_notify_payload;
 static bool selection_metadata_seed_valid;
 static char selection_metadata_seed_path[PATH_MAX];
@@ -188,9 +188,14 @@ void gui_player_open_rating_popup(const char * path) {
                           player_rating_changed, rating_popup_path);
 }
 
+/* Tap: 5 stars, or clear a 5. Hold: the rating popup. */
 void favorite_icon_event_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !gui_player_has_active_track()) return;
-    gui_player_open_rating_popup(gui_player_get_current_track_path());
+    lv_event_code_t code = lv_event_get_code(e);
+    if (!gui_player_has_active_track()) return;
+    const char * path = gui_player_get_current_track_path();
+    if (code == LV_EVENT_LONG_PRESSED) gui_player_open_rating_popup(path);
+    else if (code == LV_EVENT_SHORT_CLICKED)
+        gui_player_set_rating_path(path, gui_player_rating_path(path) == 5 ? 0 : 5);
 }
 
 static void meta_set_text(char * dst, size_t size, bool * has, const char * text) {
@@ -476,7 +481,7 @@ void prepare_track_metadata(int index, bool notify, bool probe, bool audio_tags,
     metadata_request_perf_us = ui_perf_now_us();
 #endif
     metadata_ui_notify = notify;
-    metadata_notify_ready = false;
+    metadata_count_play = metadata_notify_ready = false;
     plugin_now_playing_loaded = false;
     metadata_ui_audio_generation = audio_get_playback_generation();
     metadata_rating_revision = ++rating_ui_revision;
@@ -548,6 +553,7 @@ void request_track_audio_metadata(int index) {
         metadata_ui_request.read_audio = true;
         metadata_ui_request.audio_generation = audio_get_playback_generation();
     }
+    metadata_count_play = true;
     metadata_ui_audio_generation = audio_get_playback_generation();
     track_metadata_submit(TRACK_METADATA_CURRENT, &metadata_ui_request);
 }
@@ -591,8 +597,9 @@ void arm_next_track_for_audio(int index) {
 }
 
 static void poll_track_started_notification(void) {
-    if (!metadata_ui_notify || !metadata_notify_ready) return;
+    if (!metadata_ui_notify) return;
     if (audio_get_playback_generation() != metadata_ui_audio_generation) {
+        metadata_count_play = false;
         metadata_ui_notify = false;
         metadata_notify_ready = false;
         return;
@@ -600,7 +607,14 @@ static void poll_track_started_notification(void) {
     audio_playback_progress_t progress;
     if (!audio_get_playback_progress(metadata_ui_path, &progress) ||
         progress.generation != metadata_ui_audio_generation ||
-        progress.state != AUDIO_PLAYBACK_PROGRESS_ACTIVE ||
+        (progress.state != AUDIO_PLAYBACK_PROGRESS_ACTIVE &&
+         progress.state != AUDIO_PLAYBACK_PROGRESS_NATURAL_EOF &&
+         progress.state != AUDIO_PLAYBACK_PROGRESS_MANUAL_STOP)) return;
+    if (metadata_count_play) {
+        metadata_count_play = false;
+        track_metadata_count_play(metadata_ui_path);
+    }
+    if (!metadata_notify_ready || progress.state != AUDIO_PLAYBACK_PROGRESS_ACTIVE ||
         (!progress.is_playing && !progress.is_paused)) return;
 #ifndef HOST_BUILD
     hiby_sys_server_report_metadata(metadata_notify_payload.title, metadata_notify_payload.artist,

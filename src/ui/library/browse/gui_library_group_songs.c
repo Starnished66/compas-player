@@ -79,6 +79,7 @@ bool group_songs_edit_mode = false;
  * strcmp every entry again. The two setters below are the only writers of the entry array and
  * paths (the probe path only rewrites titles), and each bumps the generation. */
 static uint64_t group_songs_entries_generation;
+uint64_t group_songs_entries_generation_get(void) { return group_songs_entries_generation; }
 static struct {
     bool valid;
     uint64_t generation;
@@ -127,10 +128,14 @@ typedef struct {
     pthread_t thread;
     atomic_bool done;
     unsigned generation, revision;
+    uint64_t entries_generation;
+    bool most;
     group_song_entry_t *entries;
     int *stars, count;
 } group_favorites_job_t;
-static group_favorites_job_t *favorite_job;
+static group_favorites_job_t *favorite_job, *most_job;
+static bool most_refresh_pending;
+static void group_collection_schedule(bool most);
 static void group_favorites_schedule(void);
 
 static void group_favorites_clear(void) {
@@ -144,7 +149,8 @@ static void group_favorites_clear(void) {
 static void *group_favorites_load(void *data) {
     group_favorites_job_t *job = data;
     char **paths = NULL;
-    metadata_db_load_favorite_songs(&paths, &job->count, &job->stars);
+    if (job->most) metadata_db_load_top_played_songs(MOST_PLAYED_LIMIT, &paths, &job->count);
+    else metadata_db_load_favorite_songs(&paths, &job->count, &job->stars);
     job->entries = group_song_entries_take_paths(paths, job->count);
     if (!job->entries) job->count = 0;
     atomic_store_explicit(&job->done, true, memory_order_release);
@@ -153,10 +159,14 @@ static void *group_favorites_load(void *data) {
 
 /* A new list or teardown invalidates the result without blocking the UI. */
 static void group_favorites_job_poll(lv_timer_t *timer) {
-    group_favorites_job_t *job = favorite_job;
+    group_favorites_job_t *job = lv_timer_get_user_data(timer);
     if (!atomic_load_explicit(&job->done, memory_order_acquire)) return;
     pthread_join(job->thread, NULL);
-    if (group_songs_screen && job->generation == favorite_generation &&
+    if (job->most && !most_refresh_pending && group_songs_screen && group_songs_refresh_source == GROUP_SONGS_REFRESH_MOST_PLAYED &&
+        job->entries_generation == group_songs_entries_generation_get()) {
+        group_songs_replace_refreshed_entries(job->entries, job->count);
+        job->entries = NULL;
+    } else if (!job->most && group_songs_screen && job->generation == favorite_generation &&
         group_songs_refresh_source == GROUP_SONGS_REFRESH_FAVORITES) {
         free(favorite_stars);
         favorite_stars = job->stars;
@@ -171,27 +181,39 @@ static void group_favorites_job_poll(lv_timer_t *timer) {
     }
     free_group_song_entries(job->entries, job->count);
     free(job->stars);
+    if (job->most) most_job = NULL;
+    else favorite_job = NULL;
     free(job);
-    favorite_job = NULL;
     lv_timer_delete(timer);
+    if (most_refresh_pending && !most_job) {
+        most_refresh_pending = false;
+        if (group_songs_screen && group_songs_refresh_source == GROUP_SONGS_REFRESH_MOST_PLAYED)
+            group_collection_schedule(true);
+    }
 }
 
-static void group_favorites_schedule(void) {
-    if (favorite_job) return;
+static void group_collection_schedule(bool most) {
+    group_favorites_job_t **slot = most ? &most_job : &favorite_job;
+    if (*slot) { if (most) most_refresh_pending = true; return; }
     group_favorites_job_t *job = calloc(1, sizeof(*job));
     if (!job) return;
     atomic_init(&job->done, false);
+    job->most = most;
+    job->entries_generation = group_songs_entries_generation_get();
     job->generation = favorite_generation;
     job->revision = remote_state_revision();
-    lv_timer_t *timer = lv_timer_create(group_favorites_job_poll, 25, NULL);
+    lv_timer_t *timer = lv_timer_create(group_favorites_job_poll, 25, job);
     if (!timer) { free(job); return; }
     if (pthread_create(&job->thread, NULL, group_favorites_load, job)) {
         lv_timer_delete(timer);
         free(job);
         return;
     }
-    favorite_job = job;
+    *slot = job;
 }
+
+static void group_favorites_schedule(void) { group_collection_schedule(false); }
+void gui_library_refresh_most_played(void) { group_collection_schedule(true); }
 
 static void group_favorites_poll(lv_timer_t *timer) {
     (void)timer;
@@ -866,14 +888,9 @@ void refresh_group_songs_from_database(void) {
             favorite_revision = remote_state_revision() - 1;
             group_favorites_schedule();
             break;
-        case GROUP_SONGS_REFRESH_MOST_PLAYED: {
-            char ** paths = NULL;
-            int count = 0;
-            metadata_db_load_top_played_songs(MOST_PLAYED_LIMIT, &paths, &count);
-            group_songs_set_from_paths(paths, count);
-            populate_group_songs_rows();
+        case GROUP_SONGS_REFRESH_MOST_PLAYED:
+            gui_library_refresh_most_played();
             break;
-        }
         case GROUP_SONGS_REFRESH_M3U: {
             char ** paths = NULL;
             int count = 0;

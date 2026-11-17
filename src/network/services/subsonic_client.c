@@ -1049,3 +1049,41 @@ bool subsonic_get_lyrics(const subsonic_server_t * server, const char * song_id,
     if (cancel && http_cancel_token_is_cancelled(cancel)) { free(*text); *text = NULL; return false; }
     return ok;
 }
+
+/* Snapshot the selected endpoint policy independently of UI metadata. */
+static pthread_mutex_t stream_policy_mutex = PTHREAD_MUTEX_INITIALIZER;
+typedef struct stream_policy {
+    char prefix[sizeof(((subsonic_server_t *)0)->base_url) + 32];
+    struct stream_policy *next;
+} stream_policy_t;
+static stream_policy_t *stream_tls_exceptions;
+
+void subsonic_stream_policy_set(const char *base_url, bool verify_tls) {
+    char base[sizeof(((subsonic_server_t *)0)->base_url)] = "";
+    if (base_url && strlen(base_url) < sizeof(base))
+        subsonic_normalize_base_url(base_url, base, sizeof(base));
+    if (strncmp(base, "https://", 8)) return;
+    char prefix[sizeof(base) + 32];
+    snprintf(prefix, sizeof(prefix), "%s/rest/stream.view?", base);
+    pthread_mutex_lock(&stream_policy_mutex);
+    stream_policy_t **link = &stream_tls_exceptions;
+    while (*link && strcmp((*link)->prefix, prefix)) link = &(*link)->next;
+    if (verify_tls && *link) {
+        stream_policy_t *old = *link;
+        *link = old->next;
+        free(old);
+    } else if (!verify_tls && !*link) {
+        *link = calloc(1, sizeof(**link));
+        if (*link) snprintf((*link)->prefix, sizeof((*link)->prefix), "%s", prefix);
+    }
+    pthread_mutex_unlock(&stream_policy_mutex);
+}
+
+bool subsonic_stream_verify_tls(const char *url) {
+    pthread_mutex_lock(&stream_policy_mutex);
+    bool verify = true;
+    for (stream_policy_t *p = stream_tls_exceptions; url && p; p = p->next)
+        if (!strncmp(url, p->prefix, strlen(p->prefix))) { verify = false; break; }
+    pthread_mutex_unlock(&stream_policy_mutex);
+    return verify;
+}

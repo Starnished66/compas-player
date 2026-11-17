@@ -1,4 +1,6 @@
+#include "../../playlists/rating_writer.h"
 #include "metadata_db_internal.h"
+#include "album_rating.h"
 #include "song_rating.h"
 
 #include "../../browser/paths/path_cache.h"
@@ -19,6 +21,126 @@ static void free_paths(char ** paths, int n) {
 
 /* Match the rating-order loader's bounded guard holds. */
 #define RATING_ORDER_BATCH 64
+
+static void rating_ranks(const uint8_t *stars, int count, const int sections[6], int *ranks) {
+    int positions[6], offset = 0;
+    for (int s = 5; s >= 0; s--) {
+        positions[s] = offset;
+        offset += sections[s];
+    }
+    for (int rank = 0; rank < count; rank++) ranks[positions[stars[rank]]++] = rank;
+}
+typedef bool (*rating_bucket_fn)(uint8_t *, int, int, int *, void *);
+
+static int *build_rating_ranks(int count, int sections[6], rating_bucket_fn page, void *context) {
+    int *ranks = malloc(sizeof(*ranks) * (size_t)(count ? count : 1));
+    uint8_t *stars = malloc((size_t)(count ? count : 1));
+    bool ok = ranks && stars;
+    for (int first = 0; ok && first < count; first += RATING_ORDER_BATCH) {
+        int end = count - first > RATING_ORDER_BATCH ? first + RATING_ORDER_BATCH : count;
+        ok = page(stars, first, end, sections, context);
+    }
+    if (ok) rating_ranks(stars, count, sections, ranks);
+    else { free(ranks); ranks = NULL; memset(sections, 0, sizeof(int) * 6); }
+    free(stars);
+    return ranks;
+}
+
+typedef struct { char album[METADATA_DB_TEXT_MAX], album_artist[METADATA_DB_TEXT_MAX]; } album_rating_key_row_t;
+
+static bool album_rating_group_page(album_rating_key_row_t *rows, int first, int end,
+                                    int32_t generation, uint32_t incarnation) {
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready || tagcache_generation() != generation ||
+        metadata_db_db_incarnation != incarnation) return false;
+    for (int rank = first; rank < end; rank++) {
+        tagcache_group_t group;
+        if (!tagcache_group_at(TAGCACHE_GROUP_ALBUM, rank, &group)) return false;
+        snprintf(rows[rank - first].album, sizeof(rows[rank - first].album), "%s", group.name);
+        snprintf(rows[rank - first].album_artist, sizeof(rows[rank - first].album_artist), "%s", group.album_artist);
+    }
+    return true;
+}
+
+typedef struct {
+    rated_album_t *ratings;
+    int rating_count;
+    int32_t generation;
+    uint32_t incarnation;
+} album_rating_order_context_t;
+
+static int album_rating_identity_cmp(const void *a, const void *b) {
+    const rated_album_t *x = a, *y = b;
+    int cmp = strcmp(x->album_artist, y->album_artist);
+    return cmp ? cmp : strcmp(x->album, y->album);
+}
+
+static bool album_rating_bucket_page(uint8_t *stars, int first, int end, int *sections, void *context) {
+    album_rating_order_context_t *ctx = context;
+    album_rating_key_row_t rows[RATING_ORDER_BATCH];
+    if (!album_rating_group_page(rows, first, end, ctx->generation, ctx->incarnation)) return false;
+    for (int rank = first; rank < end; rank++) {
+        album_rating_key_row_t *row = &rows[rank - first];
+        char path[ALBUM_RATING_KEY_SIZE], identity[ALBUM_RATING_KEY_SIZE];
+        if (!album_rating_key(row->album_artist, row->album, path, sizeof(path))) return false;
+        snprintf(identity, sizeof(identity), "%s", path + strlen(ALBUM_RATING_PREFIX));
+        char *album = strchr(identity, '\t');
+        if (!album) return false;
+        *album++ = 0;
+        rated_album_t key = { .album_artist = identity, .album = album };
+        rated_album_t *found = ctx->rating_count ? bsearch(&key, ctx->ratings, (size_t)ctx->rating_count,
+            sizeof(*ctx->ratings), album_rating_identity_cmp) : NULL;
+        int rating = rating_writer_effective_stars(path, found ? found->stars : 0);
+        stars[rank] = (uint8_t)(rating < 0 ? 0 : rating > 5 ? 5 : rating);
+        sections[stars[rank]]++;
+    }
+    return true;
+}
+
+bool metadata_db_load_album_rating_order(int **out_ranks, int out_sections[6],
+                                         int *out_count, int32_t *out_generation) {
+    if (!out_ranks || !out_sections || !out_count || !out_generation) return false;
+    *out_ranks = NULL;
+    *out_count = 0;
+    memset(out_sections, 0, sizeof(int) * 6);
+    unsigned revision = remote_state_revision();
+    int count;
+    uint32_t incarnation;
+    {
+        METADATA_DB_GUARD;
+        if (!metadata_db_db_ready) return false;
+        count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+        *out_generation = tagcache_generation();
+        incarnation = metadata_db_db_incarnation;
+    }
+    if (count < 0) return false;
+    if (count == 0) {
+        METADATA_DB_GUARD;
+        return metadata_db_db_ready && tagcache_generation() == *out_generation &&
+               metadata_db_db_incarnation == incarnation && remote_state_revision() == revision;
+    }
+    album_rating_order_context_t context = { .generation = *out_generation, .incarnation = incarnation };
+    metadata_db_load_rated_albums(&context.ratings, &context.rating_count);
+    if (context.rating_count) qsort(context.ratings, (size_t)context.rating_count,
+                                    sizeof(*context.ratings), album_rating_identity_cmp);
+    int *ranks = build_rating_ranks(count, out_sections, album_rating_bucket_page, &context);
+    metadata_db_free_rated_albums(context.ratings, context.rating_count);
+    bool valid = ranks != NULL;
+    if (valid) {
+        METADATA_DB_GUARD;
+        valid = metadata_db_db_ready && tagcache_generation() == *out_generation &&
+                metadata_db_db_incarnation == incarnation;
+    }
+    valid = valid && remote_state_revision() == revision;
+    if (!valid) {
+        free(ranks);
+        memset(out_sections, 0, sizeof(int) * 6);
+        return false;
+    }
+    *out_ranks = ranks;
+    *out_count = count;
+    return true;
+}
 
 typedef struct {
     int32_t slots, generation;
@@ -74,6 +196,7 @@ static void library_scan_retry(void (*attempt)(library_scan_t *, void *), void *
 
 typedef struct {
     int32_t id, rating, playcount, last_played;
+    int32_t title_rank;
     char path[TAGCACHE_PATH_MAX];
 } library_slot_t;
 
@@ -103,7 +226,10 @@ static bool library_scan_slots(library_scan_t *scan, bool paths,
                 slot->rating = song.rating;
                 slot->playcount = song.playcount;
                 slot->last_played = song.last_played;
-                if (paths) snprintf(slot->path, sizeof(slot->path), "%s", song.path);
+                if (paths) {
+                    snprintf(slot->path, sizeof(slot->path), "%s", song.path);
+                    slot->title_rank = tagcache_title_rank_of_path(song.path);
+                }
             }
         }
         for (int i = 0; ok && i < copied; i++) ok = visit(&batch[i], user);
@@ -299,12 +425,14 @@ bool metadata_db_song_rating_set_durable(const char * path, int stars) {
 typedef struct {
     char * path;
     int stars;
+    int32_t title_rank;
 } rated_path_t;
 
 static int cmp_rated_path(const void * a, const void * b) {
     const rated_path_t * pa = a;
     const rated_path_t * pb = b;
     if (pa->stars != pb->stars) return pb->stars - pa->stars;
+    if (pa->title_rank != pb->title_rank) return pa->title_rank < pb->title_rank ? -1 : 1;
     return tagcache_cmp_ascii(pa->path, pb->path);
 }
 
@@ -327,7 +455,7 @@ static bool collect_rated_slot(const library_slot_t *song, void *user) {
     }
     char *path = strdup(song->path);
     if (!path) return false;
-    state->hits[state->count++] = (rated_path_t) { path, song_rating_stars(song->rating) };
+    state->hits[state->count++] = (rated_path_t) { path, song_rating_stars(song->rating), song->title_rank };
     return true;
 }
 
@@ -626,7 +754,8 @@ bool metadata_db_walk_song_identities(bool (*visit)(const char * path, int32_t m
 }
 
 static bool rating_bucket_page(uint8_t *stars, int first, int end, int sections[6],
-                                int32_t generation) {
+                                void *context) {
+    int32_t generation = *(int32_t *)context;
     METADATA_DB_GUARD;
     if (!metadata_db_db_ready || tagcache_generation() != generation) return false;
     for (int rank = first; rank < end; rank++) {
@@ -653,14 +782,6 @@ static bool rating_order_size(int *count, int32_t *generation) {
     return true;
 }
 
-static void rating_ranks(const uint8_t *stars, int count, const int sections[6], int *ranks) {
-    int positions[6], offset = 0;
-    for (int s = 5; s >= 0; s--) {
-        positions[s] = offset;
-        offset += sections[s];
-    }
-    for (int rank = 0; rank < count; rank++) ranks[positions[stars[rank]]++] = rank;
-}
 
 bool metadata_db_load_rating_order(int **out_ranks, int out_sections[6],
                                    int *out_count, int32_t *out_generation) {
@@ -670,21 +791,8 @@ bool metadata_db_load_rating_order(int **out_ranks, int out_sections[6],
     int count;
     if (!rating_order_size(&count, out_generation)) return false;
     if (count <= 0) return true;
-    int *ranks = malloc(sizeof(*ranks) * (size_t)count);
-    uint8_t *stars = malloc((size_t)count);
-    bool valid = ranks && stars;
-    for (int first = 0; valid && first < count; first += RATING_ORDER_BATCH) {
-        int end = count - first > RATING_ORDER_BATCH ? first + RATING_ORDER_BATCH : count;
-        valid = rating_bucket_page(stars, first, end, out_sections, *out_generation);
-    }
-    if (!valid) {
-        free(ranks);
-        free(stars);
-        memset(out_sections, 0, sizeof(int) * 6);
-        return false;
-    }
-    rating_ranks(stars, count, out_sections, ranks);
-    free(stars);
+    int *ranks = build_rating_ranks(count, out_sections, rating_bucket_page, out_generation);
+    if (!ranks) return false;
     *out_ranks = ranks;
     *out_count = count;
     return true;

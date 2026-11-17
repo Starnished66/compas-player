@@ -716,11 +716,7 @@ bool cue_reference_parse(const char *s, char *out, size_t cap, unsigned *ordinal
     *ordinal = (unsigned)v;
     return true;
 }
-bool cue_reference_resolve(const char *s, cue_sheet_t *out, unsigned *ord) {
-    char path[600];
-    unsigned n;
-    if (!cue_reference_parse(s, path, sizeof(path), &n) || !out)
-        return false;
+bool cue_sheet_load(const char *path, cue_sheet_t *out) {
     const char *e = strrchr(path, '.');
     const char *slash = strrchr(path, '/');
     const char *backslash = strrchr(path, '\\');
@@ -728,10 +724,15 @@ bool cue_reference_resolve(const char *s, cue_sheet_t *out, unsigned *ord) {
         slash = backslash;
     if (e && slash && e < slash)
         e = NULL;
-    bool ok =
-        e && !strcasecmp(e, ".cue") ? cue_parse_file(path, out) : cue_parse_embedded(path, out);
-    if (!ok)
+    return e && !strcasecmp(e, ".cue") ? cue_parse_file(path, out) : cue_parse_embedded(path, out);
+}
+
+bool cue_reference_resolve(const char *s, cue_sheet_t *out, unsigned *ord) {
+    char path[600];
+    unsigned n;
+    if (!cue_reference_parse(s, path, sizeof(path), &n) || !out)
         return false;
+    if (!cue_sheet_load(path, out)) return false;
     if (n > (unsigned)out->track_count) {
         cue_sheet_free(out);
         return false;

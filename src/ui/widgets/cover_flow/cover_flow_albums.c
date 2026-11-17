@@ -41,15 +41,20 @@ static bool set_item(cover_flow_item_t * item, const compact_list_page_row_t * r
 
 /* Reads up to `count` albums page by page; how many were read. */
 static int read_albums(cover_flow_item_t * items, int count) {
+
     compact_list_page_row_t * page = malloc(PAGE_ROWS * sizeof(*page));
-    int n = 0;
+    int n = 0, display_offset = 0;
     while (page && n < count) {
-        int want = count - n < PAGE_ROWS ? count - n : PAGE_ROWS;
-        int got = albums_fetch_page(NULL, n, want, page);
-        int used = 0;
-        while (used < got && set_item(&items[n + used], &page[used])) used++;
-        n += used;
-        if (used < want) break; /* the end of the list, or out of memory */
+        memset(page, 0, PAGE_ROWS * sizeof(*page));
+        int got = albums_fetch_page(NULL, display_offset, PAGE_ROWS, page);
+        if (got <= 0) break;
+        for (int i = 0; i < got && n < count; i++) {
+            if (page[i].is_section_header) continue;
+            if (!set_item(&items[n], &page[i])) { free(page); return n; }
+            n++;
+        }
+        display_offset += got;
+        if (got < PAGE_ROWS) break; /* reached the end of the displayed list */
     }
     free(page);
     return n;
@@ -64,7 +69,11 @@ void cover_flow_open_albums(void) {
     if (count == 0) {
         gui_library_open_albums(); /* the Albums screen's own empty state */
     } else {
-        cover_flow_params_t params = { TR("Cover Flow"), items, count, 0, on_select, on_hold, true };
+        cover_flow_params_t params = {
+            .title = TR("Cover Flow"), .items = items, .count = count,
+            .selected = 0, .on_select = on_select, .on_hold = on_hold,
+            .az_index = true, .face = NULL,
+        };
         (void) cover_flow_show(&params);
     }
     free_items(items, count);

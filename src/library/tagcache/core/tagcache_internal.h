@@ -79,7 +79,6 @@ enum tag_type {
 #define FLAG_WAV_ID3_TAGS 0x0002 /* persisted: WAV tags read with ID3 precedence */
 #define FLAG_ORIGINAL_YEAR_TAGS 0x0004 /* persisted: tags read with original-year precedence (one re-read of every file) */
 #define FLAG_SEEN 0x01000000 /* RAM-only, stripped before persist */
-#define FLAG_TAGS_INCOMPLETE 0x02000000 /* RAM-only: unique-tag seek missed on load */
 #define FLAG_RAM_ONLY (FLAG_SEEN | FLAG_TAGS_INCOMPLETE)
 #ifndef TAGCACHE_MAX_ENTRIES
 #define TAGCACHE_MAX_ENTRIES 524288

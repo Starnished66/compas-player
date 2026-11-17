@@ -18,6 +18,9 @@ void rating_writer_start(void);
 /* Debounced asynchronous write for the player's heart: rapid taps on one
  * path collapse into the last state, persisted off the calling thread. */
 void rating_writer_submit(const char * path, int stars);
+/* Forces every debounced request due and waits until the ordered writer has
+ * handed them to metadata persistence. Follow with tagcache_flush_numeric(). */
+bool rating_writer_flush(void);
 
 /* Synchronous durable write. Replaces a pending debounced write for path,
  * waits for one already being written, and returns whether the new state
@@ -28,6 +31,7 @@ bool rating_writer_write_now(const char * path, int stars);
 
 /* Effective state: a queued or in-flight write for path wins over the
  * stored rating. */
+int rating_writer_effective_stars(const char *path, int stored);
 int rating_writer_stars(const char * path);
 
 #endif /* RATING_WRITER_H */

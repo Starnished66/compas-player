@@ -560,12 +560,11 @@ void handle_legacy_playlist_post(int cfd, const char * path_only, const char * p
         char m3u_path[512];
         if (!playlist_m3u_path(name, m3u_path, sizeof(m3u_path))) {
             send_response(cfd, "400 Bad Request", "text/plain", "Bad Request");
-        } else if (playlist_files_contains(m3u_path, song_path)) {
-            send_response(cfd, "200 OK", "text/plain", "Song already in playlist");
         } else {
-            bool added = playlist_files_append(m3u_path, song_path);
+            bool duplicate = false;
+            bool added = playlist_files_add_if_absent(m3u_path, song_path, &duplicate);
             send_response(cfd, added ? "200 OK" : "500 Internal Server Error", "text/plain",
-                           added ? "OK" : "Failed to add to playlist");
+                           added ? (duplicate ? "Song already in playlist" : "OK") : "Failed to add to playlist");
         }
     }
 }

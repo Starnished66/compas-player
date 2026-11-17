@@ -15,7 +15,11 @@
 #define CF_SIDE_HEIGHT_PCT 80                /* its outer (near) edge, % of the centre cover's height */
 #define CF_FAR_HEIGHT_PCT 75                 /* its inner (far) edge, % of its outer edge */
 #define CF_FAR_SHADE_PCT 35                  /* darkening of its inner edge, % */
+#if defined(BOARD_TEMPOTEC_V1)
+#define CF_REFLECT_PCT 0
+#else
 #define CF_REFLECT_PCT 35                    /* reflection height, % of the cover's height */
+#endif
 #define CF_REFLECT_ALPHA_PCT 40              /* reflection opacity at the cover's bottom edge, % */
 #define CF_GAP_PX BOARD_SCALE_PX(4)          /* gap between the centre cover and the first tilted one */
 #define CF_PITCH_FAR BOARD_SCALE_PX(11)      /* spacing of the tilted covers beyond the first */

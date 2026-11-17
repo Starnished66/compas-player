@@ -17,6 +17,9 @@ static int batch_calls, shown_count;
 static bool replaced;
 static int expected_batch_count = 1;
 static char extra_paths[201][64];
+static lv_obj_t *album_list_for_restore;
+static int album_restore_count_argument = -1, album_provider_restore_count = -1;
+static int album_group_count = 4;
 static const char *name(int index) { return index == 0 ? "Needle cached" : "Needle missing"; }
 static library_search_group_item_t item(int index) {
     library_search_group_item_t result = {
@@ -61,6 +64,25 @@ void __wrap_compact_list_set_items(lv_obj_t *list, const compact_list_item_t *it
     }
     __real_compact_list_set_items(list, items, n);
 }
+void __real_compact_list_set_paged_provider(lv_obj_t *, compact_list_fetch_page_cb_t, void *, int);
+void __wrap_compact_list_set_paged_provider(lv_obj_t *list, compact_list_fetch_page_cb_t fetch,
+                                            void *ctx, int total) {
+    if (list == album_list_for_restore) album_provider_restore_count = total;
+    __real_compact_list_set_paged_provider(list, fetch, ctx, total);
+}
+void __wrap_metadata_db_get_group_counts(int *artists, int *album_artists, int *albums) {
+    if (artists) *artists = 2;
+    if (album_artists) *album_artists = 3;
+    if (albums) *albums = album_group_count;
+}
+int __wrap_gui_library_albums_paged_total(int normal_count) {
+    album_restore_count_argument = normal_count;
+    return normal_count + 2; /* mock one 5-star and one unrated header */
+}
+static int albums_restore_page(void *ctx, int offset, int count, compact_list_page_row_t rows[]) {
+    (void)ctx; (void)offset; (void)count; (void)rows;
+    return 0;
+}
 static bool has_text(lv_obj_t *obj, const char *text) {
     if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) return false;
     if (lv_obj_check_type(obj, &lv_label_class) && strstr(lv_label_get_text(obj), text)) return true;
@@ -76,7 +98,28 @@ static lv_obj_t *textarea(lv_obj_t *obj) {
     }
     return NULL;
 }
-int main(void) {
+static void check_album_search_restore(void) {
+    /* Closing a DB-backed Albums search restores displayed row count, which
+     * includes the rating section headers in its paged provider total. */
+    lv_obj_t *album_screen = lv_obj_create(NULL);
+    album_list_for_restore = build_compact_list_widget(album_screen, NULL, 0, NULL, NULL,
+                                                       LIST_ROW_WIDTH, false, NULL);
+    library_search_config_t albums_config = {
+        .screen = album_screen, .list = album_list_for_restore, .is_overlay_list = false,
+        .db_backed = true, .db_kind = METADATA_DB_AZ_ALBUM,
+        .restore_fetch_page = albums_restore_page,
+        .az_strip_for_screen = az, .refresh_now_playing = refresh,
+    };
+    library_search_register(SEARCH_BINDING_ALBUMS, &albums_config);
+    nav_push(album_screen);
+    library_search_open(SEARCH_BINDING_ALBUMS);
+    album_restore_count_argument = album_provider_restore_count = -1;
+    assert(search_close_if_active_for_screen(album_screen));
+    assert(album_restore_count_argument == album_group_count);
+    assert(album_provider_restore_count == album_group_count + 2);
+}
+
+static void initialize_test_ui(void) {
     lv_init();
     assert(ui_fonts_init());
     assert(lv_sdl_window_create(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT));
@@ -84,6 +127,10 @@ int main(void) {
     audio_init();
     gui_init(BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT);
     ui_thread = pthread_self();
+}
+
+int main(void) {
+    initialize_test_ui();
     lv_obj_t *screen = lv_obj_create(NULL);
     lv_obj_t *list = build_compact_list_widget(screen, NULL, 0, NULL, NULL, LIST_ROW_WIDTH, false, NULL);
     library_search_config_t config = {
@@ -176,5 +223,7 @@ int main(void) {
     assert(shown_count == 0 && !library_search_has_active_job());
     assert(!library_search_showing_results(SEARCH_BINDING_GROUP_SONGS));
     assert(search_close_if_active_for_screen(screen));
+
+    check_album_search_restore();
     puts("Group search shows rows immediately, batches missing subtitles and rejects stale fills");
 }

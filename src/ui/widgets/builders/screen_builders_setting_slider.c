@@ -179,3 +179,14 @@ lv_obj_t * build_settings_body(lv_obj_t * scr) {
     lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_OFF);
     return body;
 }
+
+void setting_slider_sync(const setting_slider_t *s, bool enabled, int32_t index) {
+    if (s->toggle) lv_obj_set_state(s->toggle, LV_STATE_CHECKED, enabled);
+    setting_slider_set_enabled(s, enabled);
+    setting_slider_set_index(s, index);
+}
+
+void setting_toggle_size(lv_obj_t *toggle, int32_t width, int32_t height, int32_t hit_padding) {
+    lv_obj_set_size(toggle, width, height);
+    lv_obj_set_ext_click_area(toggle, hit_padding);
+}

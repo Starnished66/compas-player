@@ -19,13 +19,13 @@ static setting_slider_t screen_dimming_ui;
  * needing more than whole minutes+seconds. */
 static void format_screen_timeout(char * buf, size_t buf_size, int seconds) {
     if (seconds < 60) {
-        snprintf(buf, buf_size, "%ds", seconds);
+        snprintf(buf, buf_size, TR("%ds"), seconds);
         return;
     }
     int minutes = seconds / 60;
     int remainder = seconds % 60;
-    if (remainder == 0) snprintf(buf, buf_size, "%dm", minutes);
-    else snprintf(buf, buf_size, "%dm %ds", minutes, remainder);
+    if (remainder == 0) snprintf(buf, buf_size, TR("%dm"), minutes);
+    else snprintf(buf, buf_size, TR("%dm %ds"), minutes, remainder);
 }
 
 /* Index of the closest shared timeout preset. */
@@ -59,8 +59,14 @@ static void screen_timeout_slider_event_cb(lv_event_t * e) {
     }
 }
 
+static void screen_timeout_loaded_cb(lv_event_t *e) {
+    (void)e;
+    setting_slider_sync(&screen_timeout_ui, current_settings.screen_timeout_enabled, screen_timeout_seconds_to_step_index(current_settings.screen_timeout_seconds));
+}
+
 static lv_obj_t * build_screen_timeout_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_add_event_cb(scr, screen_timeout_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
     build_screen_header(scr, TR("Screen timeout"), generic_back_cb, NULL, NULL);
@@ -116,6 +122,8 @@ static void screen_dim_delay_slider_event_cb(lv_event_t * e) {
 }
 
 static void screen_dimming_screen_loaded_cb(lv_event_t * e) {
+    (void)e;
+    setting_slider_sync(&screen_dimming_ui, current_settings.screen_dimming_enabled, screen_dim_delay_seconds_to_step_index(current_settings.screen_dim_delay_seconds));
     int effective_max_index = SCREEN_DIM_DELAY_STEP_COUNT - 1;
     if (current_settings.screen_timeout_enabled) {
         effective_max_index = -1;

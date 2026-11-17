@@ -3,6 +3,8 @@
 #include "../builders/screen_builders.h"
 #include <stdlib.h>
 
+extern lv_style_t style_theme_screen_bg;
+
 typedef struct {
     int stars;
     bool compact, filled_only;
@@ -10,6 +12,26 @@ typedef struct {
     star_rating_cb_t cb;
     void * user_data;
 } star_rating_state_t;
+
+/* Compact: the star sits top-left with the count in a chip over its lower
+ * right; unrated shows the outlined star alone, centred. */
+static void compact_show(lv_obj_t * control, const star_rating_state_t * state) {
+    lv_obj_t * star = lv_obj_get_child(control, 0);
+    lv_obj_t * chip = lv_obj_get_child(control, 1);
+    lv_obj_align(star, state->stars ? LV_ALIGN_TOP_LEFT : LV_ALIGN_CENTER, 0, 0);
+    if (!state->stars) {
+        lv_obj_add_flag(chip, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_remove_flag(chip, LV_OBJ_FLAG_HIDDEN);
+    lv_style_value_t dark = {.color = lv_color_black()};
+    lv_style_get_prop(&style_theme_screen_bg, LV_STYLE_BG_COLOR, &dark);
+    lv_obj_set_style_bg_color(chip, state->lit, 0);
+    lv_obj_set_style_border_color(chip, dark.color, 0);
+    lv_obj_t * digit = lv_obj_get_child(chip, 0);
+    lv_obj_set_style_text_color(digit, dark.color, 0);
+    lv_label_set_text_fmt(digit, "%d", state->stars);
+}
 
 void star_rating_set(lv_obj_t * control, int stars) {
     star_rating_state_t * state = lv_obj_get_user_data(control);
@@ -22,11 +44,7 @@ void star_rating_set(lv_obj_t * control, int stars) {
         lv_obj_set_style_image_recolor(image, i < state->stars ? state->lit : state->unlit, 0);
         lv_obj_set_style_image_recolor_opa(image, LV_OPA_COVER, 0);
     }
-    if (state->compact) {
-        lv_obj_t * digit = lv_obj_get_child(control, 1);
-        lv_label_set_text_fmt(digit, "%d", state->stars);
-        lv_obj_set_style_text_color(digit, state->unlit, 0);
-    }
+    if (state->compact) compact_show(control, state);
 }
 
 void star_rating_set_filled_only(lv_obj_t *control) {
@@ -86,6 +104,29 @@ static void add_star(lv_obj_t * control, int32_t px, int index) {
     lv_obj_add_event_cb(image, star_clicked, LV_EVENT_CLICKED, NULL);
 }
 
+/* The chip overhangs the star by a few percent, so the control is a little
+ * larger than the star and the pair stays centred in its parent. */
+static void add_chip(lv_obj_t * control, int32_t star_px) {
+    int32_t chip_px = LV_MAX(20, star_px / 2);
+    int32_t side = star_px + chip_px / 6;
+    lv_obj_remove_flag(control, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_layout(control, LV_LAYOUT_NONE);
+    lv_obj_set_size(control, side, side);
+    lv_obj_t * chip = lv_obj_create(control);
+    lv_obj_remove_style_all(chip);
+    lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(chip, chip_px, chip_px);
+    lv_obj_align(chip, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(chip, LV_MAX(2, chip_px / 12), 0);
+    lv_obj_set_style_border_opa(chip, LV_OPA_COVER, 0);
+    lv_obj_t * digit = lv_label_create(chip);
+    lv_obj_set_style_text_font(digit, &app_font_16, 0);
+    lv_obj_center(digit);
+    lv_obj_add_event_cb(chip, star_clicked, LV_EVENT_CLICKED, NULL);
+}
+
 lv_obj_t * star_rating_create(lv_obj_t * parent, int32_t star_px, bool compact) {
     star_rating_state_t * state = calloc(1, sizeof(*state));
     if (!state) return NULL;
@@ -102,10 +143,7 @@ lv_obj_t * star_rating_create(lv_obj_t * parent, int32_t star_px, bool compact) 
     lv_obj_set_user_data(control, state);
     lv_obj_add_event_cb(control, star_deleted, LV_EVENT_DELETE, NULL);
     for (int i = 1; i <= (compact ? 1 : 5); i++) add_star(control, star_px, i);
-    if (compact) {
-        lv_obj_t * label = lv_label_create(control);
-        lv_obj_add_event_cb(label, star_clicked, LV_EVENT_CLICKED, NULL);
-    }
+    if (compact) add_chip(control, star_px);
     star_rating_set(control, 0);
     star_rating_set_on_change(control, NULL, NULL);
     return control;

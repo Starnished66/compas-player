@@ -69,7 +69,7 @@ void gui_subsonic_sections_init(void) {
     album_list_labels[1] = TR_C("albums", "Recently added");
     album_list_labels[2] = TR_C("albums", "Recently Played");
     album_list_labels[3] = TR_C("albums", "Most played");
-    album_list_labels[4] = TR("Top Rated");
+    album_list_labels[4] = TR_C("albums", "Top rated");
     album_list_labels[5] = TR("Random");
     albums_chooser = build_chooser(TR("Albums"), album_list_labels, ALBUM_LIST_COUNT, albums_pick_cb);
     const char * favorites_labels[] = { TR("Artists"), TR("Albums"), TR("Songs") };

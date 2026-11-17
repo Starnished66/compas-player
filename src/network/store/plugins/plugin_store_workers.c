@@ -6,6 +6,8 @@
 #include "../../../plugins/manager/plugin_api_version.h"
 
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -159,6 +161,54 @@ static void cleanup_stage(const store_card_t * card, const char * path, int coun
     }
     if (ps_card_still(card) && ps_storage_path_writable(STORE_SD_ROOT, NULL, 0)) rmdir(path); /* only succeeds once empty */
 }
+static bool uninstall_stage_id(const char *name, char id[64]) {
+    if (strncmp(name, "uninstall-", 10)) return false;
+    const char *end = name + strlen(name);
+    for (int suffix = 0; suffix < 2; suffix++) {
+        const char *digits = end;
+        while (digits > name + 10 && digits[-1] >= '0' && digits[-1] <= '9') digits--;
+        if (digits == end || digits <= name + 10 || digits[-1] != '.') return false;
+        end = digits - 1;
+    }
+    size_t len = (size_t)(end - name - 10);
+    if (!len || len >= 64) return false;
+    memcpy(id, name + 10, len); id[len] = 0;
+    return ps_regex_id(id);
+}
+
+/* Recovery is best effort and never prevents a subsequent operation. */
+static void recover_uninstalls(const store_card_t *card,
+                               const plugin_store_plugin_t *rec, size_t rn) {
+    if (!ps_card_still(card) || !ps_mkdir_tree(STORE_SD_ROOT, STORE_WORK)) return;
+    DIR *dir = opendir(STORE_WORK);
+    if (!dir) return;
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        char id[64], stage[PATH_MAX];
+        if (!uninstall_stage_id(entry->d_name, id)) continue;
+        if (snprintf(stage, sizeof(stage), "%s/%s", STORE_WORK,
+                                         entry->d_name) >= (int)sizeof(stage)) continue;
+        struct stat st;
+        if (lstat(stage, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+        int at = ps_record_find(rec, rn, id);
+        for (int i = 0; at >= 0 && i < rec[at].file_count; i++) {
+            if (!ps_card_still(card) || !ps_storage_path_writable(STORE_SD_ROOT, NULL, 0)) break;
+            char dst[PATH_MAX], backup[PATH_MAX + 32];
+            if (rec[at].files[i].keep ||
+                !ps_path_for(dst, sizeof(dst), STORE_SD_ROOT, rec[at].files[i].dest) ||
+                !ps_parent_dirs_safe(STORE_SD_ROOT, rec[at].files[i].dest, false)) continue;
+            ps_stage_file(backup, sizeof(backup), stage, (size_t)i, "backup");
+            if (lstat(dst, &st) != 0 && errno == ENOENT &&
+                lstat(backup, &st) == 0 && S_ISREG(st.st_mode)) (void)rename(backup, dst);
+        }
+        /* An installed record means recovery is unfinished. Successful renames
+         * removed their backups; leave every other backup for the next attempt. */
+        if (at < 0) cleanup_stage(card, stage, PLUGIN_STORE_MAX_FILES);
+        else if (ps_card_still(card)) rmdir(stage);
+    }
+    closedir(dir);
+}
+
 /* Worker error exit: drops the installed-record copy and reports. */
 static void * worker_fail(plugin_store_plugin_t * rec, plugin_store_state_t state,
                           const char * error, bool changed) {
@@ -290,6 +340,7 @@ void * ps_install_worker(void * arg) {
         ps_finish(PLUGIN_STORE_FAILED, ps_record_error(record_status), false);
         return NULL;
     }
+    recover_uninstalls(&s.card, s.rec, s.rn);
     const char * error = install_precheck(&s);
     if (!error) {
         make_stage_path(s.stage, sizeof(s.stage), "", job.plugin.id);
@@ -304,11 +355,14 @@ void * ps_install_worker(void * arg) {
 static void restore_backups(const store_card_t * card, const char * stage,
                             const plugin_store_plugin_t * entry, const bool * backed, int upto) {
     for (int j = 0; j < upto; j++) {
-        if (backed[j] && ps_storage_path_writable(STORE_SD_ROOT, NULL, 0) && ps_card_still(card)) {
+        if (backed[j]) {
+            if (!ps_storage_path_writable(STORE_SD_ROOT, NULL, 0) || !ps_card_still(card)) return;
             char dst[PATH_MAX], bak[PATH_MAX + 32];
-            ps_path_for(dst, sizeof(dst), STORE_SD_ROOT, entry->files[j].dest);
+            if (!ps_path_for(dst, sizeof(dst), STORE_SD_ROOT, entry->files[j].dest) ||
+                !ps_parent_dirs_safe(STORE_SD_ROOT, entry->files[j].dest, false)) continue;
             ps_stage_file(bak, sizeof(bak), stage, (size_t) j, "backup");
-            rename(bak, dst);
+            struct stat st;
+            if (lstat(dst, &st) != 0 && errno == ENOENT) (void)rename(bak, dst);
         }
     }
 }
@@ -328,28 +382,31 @@ static bool uninstall_backup_one(uninstall_t * u, int i) {
     const plugin_store_file_t * f = &u->rec[u->found].files[i];
     char path[PATH_MAX], backup[PATH_MAX + 32];
     struct stat st;
-    if (!ps_path_for(path, sizeof(path), STORE_SD_ROOT, f->dest) ||
-        !ps_parent_dirs_safe(STORE_SD_ROOT, f->dest, false)) {
-        return true;
-    }
-    if (lstat(path, &st) == 0 && S_ISREG(st.st_mode)) {
-        ps_stage_file(backup, sizeof(backup), u->stage, (size_t) i, "backup");
-        unlink(backup);
-        if (rename(path, backup) != 0) return false;
-        u->backed[i] = true;
-    }
+    if (!ps_path_for(path, sizeof(path), STORE_SD_ROOT, f->dest)) return false;
+    if (lstat(path, &st) != 0) return errno == ENOENT;
+    if (!S_ISREG(st.st_mode) || !ps_parent_dirs_safe(STORE_SD_ROOT, f->dest, false)) return false;
+    ps_stage_file(backup, sizeof(backup), u->stage, (size_t) i, "backup");
+    if (lstat(backup, &st) == 0 || errno != ENOENT) return false;
+    if (rename(path, backup) != 0) return false;
+    u->backed[i] = true;
     return true;
 }
 
 /* Backs up every file the plugin owns. NULL on success, otherwise the message. */
 static const char * uninstall_backup(uninstall_t * u) {
+    const char * initial_guard = worker_guard_error(&u->card, u->error, sizeof(u->error));
+    if (initial_guard) return initial_guard;
     for (int i = 0; i < u->rec[u->found].file_count; i++) {
         if (u->rec[u->found].files[i].keep) {
             continue;
         }
         /* Another card or a read-only/host-shared mount: leave backups untouched. */
         const char * guard_message = worker_guard_error(&u->card, u->error, sizeof(u->error));
-        if (guard_message) return guard_message;
+        if (guard_message) {
+            restore_backups(&u->card, u->stage, &u->rec[u->found], u->backed,
+                            u->rec[u->found].file_count);
+            return guard_message;
+        }
         if (!uninstall_backup_one(u, i)) {
             restore_backups(&u->card, u->stage, &u->rec[u->found], u->backed, i);
             return TR("Could not remove a plugin file.");
@@ -393,15 +450,10 @@ static void uninstall_prune_folders(const char * dest) {
 
 /* The record no longer lists the plugin: the backups are not needed. */
 static void uninstall_drop_backups(const uninstall_t * u) {
-    if (!ps_storage_path_writable(STORE_SD_ROOT, NULL, 0) || !ps_card_still(&u->card)) return;
+    cleanup_stage(&u->card, u->stage, PLUGIN_STORE_MAX_FILES);
     for (int i = 0; i < u->rec[u->found].file_count; i++) {
-        if (!u->backed[i]) continue;
-        char bak[PATH_MAX + 32];
-        ps_stage_file(bak, sizeof(bak), u->stage, (size_t) i, "backup");
-        unlink(bak);
-        uninstall_prune_folders(u->rec[u->found].files[i].dest);
+        if (u->backed[i]) uninstall_prune_folders(u->rec[u->found].files[i].dest);
     }
-    rmdir(u->stage);
 }
 
 /* Writes the record without the plugin, then drops or restores the backups. */
@@ -426,6 +478,7 @@ void * ps_uninstall_worker(void * arg) {
         ps_finish(PLUGIN_STORE_FAILED, ps_record_error(record_status), false);
         return NULL;
     }
+    recover_uninstalls(&u.card, u.rec, u.rn);
     u.found = ps_record_find(u.rec, u.rn, id);
     if (u.found < 0) {
         return worker_fail(u.rec, PLUGIN_STORE_FAILED, TR("This plugin is not installed by the store."), false);
@@ -616,6 +669,7 @@ void * ps_update_all_worker(void * unused) {
         ps_finish(PLUGIN_STORE_FAILED, ps_record_error(record_status), false);
         return NULL;
     }
+    recover_uninstalls(&u.card, u.rec, u.rn);
     pthread_mutex_lock(&store_mutex);
     size_t index_count = last_index_count;
     snprintf(u.tag, sizeof(u.tag), "%s", last_tag);

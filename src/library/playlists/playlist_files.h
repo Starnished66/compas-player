@@ -76,6 +76,9 @@ playlist_import_status_t playlist_files_import_stream(const char * dir, const ch
  * file (but not its parent directory) if it doesn't already exist. Returns
  * false if the file can't be opened for appending. */
 bool playlist_files_append(const char * m3u_path, const char * song_path);
+/* Checks and appends under one playlist lock. Returns false on I/O failure;
+ * *already_present is true when no write was needed. */
+bool playlist_files_add_if_absent(const char *m3u_path, const char *song_path, bool *already_present);
 /* Atomically appends paths supplied by a bounded/streaming caller. Existing
  * contents and supplied entries are published together or left untouched. */
 bool playlist_files_append_stream(const char * m3u_path, int count,

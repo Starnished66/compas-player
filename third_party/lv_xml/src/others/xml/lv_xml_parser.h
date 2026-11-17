@@ -55,6 +55,7 @@ struct _lv_xml_parser_state_t {
     const char ** parent_attrs;
     lv_xml_component_scope_t * parent_scope;
     lv_xml_parser_section_t section;
+    int invalid_metadata;
 };
 
 /**********************

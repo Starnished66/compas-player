@@ -37,6 +37,7 @@ static const struct {
     { SORTING_CONTEXT_ALBUMS, 1, { N_("Recently added"), N_("Oldest added") } },
     { SORTING_CONTEXT_ALBUMS, 2, { N_("Release year (oldest first)"), N_("Release year (newest first)") } },
     { SORTING_CONTEXT_ALBUMS, 3, { N_("Album artist (A–Z)"), N_("Album artist (Z–A)") } },
+    { SORTING_CONTEXT_ALBUMS, METADATA_DB_ALBUM_SORT_RATING, { N_("Rating"), NULL } },
     { SORTING_CONTEXT_ALL_SONGS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },
     { SORTING_CONTEXT_ALL_SONGS, 1, { N_("Rating"), NULL } },
     { SORTING_CONTEXT_ARTISTS, 0, { N_("Name (A–Z)"), N_("Name (Z–A)") } },

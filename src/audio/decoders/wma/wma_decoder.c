@@ -109,7 +109,7 @@ static bool huff_build(huff_tree_t * t, const uint32_t * codes, const uint8_t * 
     return true;
 }
 
-static bool huff_build_from_lengths(huff_tree_t * t, const uint8_t * lens, const uint8_t * symbols, int offset,
+static bool huff_build_from_table(huff_tree_t * t, const uint8_t (*tab)[2], int offset,
                                      int n) {
     t->nodes = malloc(sizeof(huff_node_t) * (size_t) (2 * n + 1));
     if (!t->nodes) return false;
@@ -117,9 +117,9 @@ static bool huff_build_from_lengths(huff_tree_t * t, const uint8_t * lens, const
     huff_new_node(t);
     uint32_t code = 0;
     for (int i = 0; i < n; i++) {
-        int len = lens[i];
+        int len = tab[i][1];
         uint32_t bits = code >> (32 - len);
-        huff_insert(t, bits, len, (int) symbols[i] + offset);
+        huff_insert(t, bits, len, (int) tab[i][0] + offset);
         code += 1u << (32 - len);
     }
     return true;
@@ -1080,7 +1080,7 @@ wma_decoder_t * wma_open_file(const char * path) {
     }
 
     if (s->use_noise_coding) {
-        if (!huff_build_from_lengths(&s->hgain_vlc, &wma_hgain_hufftab[0][1], &wma_hgain_hufftab[0][0], -18, 37)) {
+        if (!huff_build_from_table(&s->hgain_vlc, wma_hgain_hufftab, -18, 37)) {
             wma_close(s);
             return NULL;
         }

@@ -1655,6 +1655,14 @@ void compact_list_refetch(lv_obj_t * list) {
     compact_list_update_window(list, data);
 }
 
+bool compact_list_copy_cached_row(lv_obj_t *list, int index, compact_list_page_row_t *out) {
+    COMPACT_LIST_DATA_OR_RETURN("copy_cached_row", false);
+    int at = index - data->cache_start;
+    if (!out || !data->fetch_page || at < 0 || at >= data->cache_count) return false;
+    *out = data->cache_rows[at];
+    return true;
+}
+
 bool compact_list_rederive_cached(lv_obj_t * list, bool (*fn)(int index, compact_list_page_row_t * row, void * ctx),
                                   void * ctx) {
     COMPACT_LIST_DATA_OR_RETURN("rederive_cached", false);

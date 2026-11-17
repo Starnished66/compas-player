@@ -24,27 +24,6 @@ lv_obj_t * a2dp_status_icon;
 lv_obj_t * usb_audio_status_icon;
 lv_obj_t * play_pause_status_icon;
 lv_obj_t * bt_codec_status_icon;
-static lv_obj_t * library_scan_status_icon;
-static gui_popup_t library_scan_stop_popup;
-static void library_scan_stop_cb(lv_event_t * e) {
-    (void) e;
-    gui_popup_hide(&library_scan_stop_popup);
-    gui_library_cancel_scan();
-}
-static void library_scan_status_click_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    gui_popup_confirm(&library_scan_stop_popup, TR("Stop updating the library?"),
-                      TR("Changes found so far may not be saved."), TR("Stop"), library_scan_stop_cb);
-}
-void gui_shell_set_library_scan_indicator(bool active) {
-    if (library_scan_status_icon) {
-        bool was_hidden = lv_obj_has_flag(library_scan_status_icon, LV_OBJ_FLAG_HIDDEN);
-        if (was_hidden == !active) return;
-        lv_obj_set_flag(library_scan_status_icon, LV_OBJ_FLAG_HIDDEN, !active);
-        if (!active) gui_popup_hide(&library_scan_stop_popup);
-        sync_bt_codec_status_icon();
-    }
-}
 void gui_shell_set_status_bar_screen_context(lv_obj_t * screen) {
     if (!status_bar_band) return;
     shell_theme_styles_init();
@@ -234,17 +213,6 @@ void build_status_bar(void) {
     lv_obj_set_style_pad_column(volume_topbar_group, 0, 0);
 #endif
     lv_obj_remove_flag(volume_topbar_group, LV_OBJ_FLAG_SCROLLABLE);
-
-    library_scan_status_icon = lv_obj_create(volume_topbar_group);
-    lv_obj_remove_style_all(library_scan_status_icon);
-    lv_obj_set_size(library_scan_status_icon, BOARD_SCALE_PX(36), STATUS_BAR_CLEARANCE);
-    lv_obj_add_flag(library_scan_status_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(library_scan_status_icon, library_scan_status_click_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_add_flag(library_scan_status_icon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_t * scan_glyph = lv_label_create(library_scan_status_icon);
-    lv_label_set_text(scan_glyph, LV_SYMBOL_REFRESH);
-    style_topbar_text(scan_glyph, topbar_digit_font());
-    lv_obj_center(scan_glyph);
 
     /* Normalize against the sprite's measured visible glyph bounds. */
     volume_topbar_icon = lv_image_create(volume_topbar_group);
@@ -655,8 +623,6 @@ void topbar_teardown(void) {
     usb_audio_status_icon = NULL;
     play_pause_status_icon = NULL;
     bt_codec_status_icon = NULL;
-    library_scan_status_icon = NULL;
-    gui_popup_teardown(&library_scan_stop_popup);
     topbar_layout_teardown();
     battery_topbar_anchored_width = -1;
     last_topbar_hidden_elements = UINT32_MAX;

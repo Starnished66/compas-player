@@ -2,6 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 
+static void trim_album_suffix(char *value) {
+    size_t length = strlen(value);
+    while (length > 0 && (value[length - 1] == ' ' || value[length - 1] == '\t'))
+        value[--length] = '\0';
+}
+
 void library_scan_tags_from_track(const track_metadata_t * meta, cached_tags_t * out) {
     memset(out, 0, sizeof(*out));
     out->track_number = meta->has_track_number ? meta->track_number : -1;
@@ -10,6 +16,7 @@ void library_scan_tags_from_track(const track_metadata_t * meta, cached_tags_t *
     snprintf(out->title, sizeof(out->title), "%s", meta->has_title ? meta->title : "");
     snprintf(out->artist, sizeof(out->artist), "%s", meta->has_artist ? meta->artist : "Unknown Artist");
     snprintf(out->album, sizeof(out->album), "%s", meta->has_album ? meta->album : "Unknown Album");
+    trim_album_suffix(out->album);
     const char * album_artist = meta->has_album_artist ? meta->album_artist
                                : (meta->has_artist ? meta->artist : "Unknown Artist");
     snprintf(out->album_artist, sizeof(out->album_artist), "%s", album_artist);

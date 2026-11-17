@@ -238,7 +238,7 @@ static lv_obj_t * build_ui_order_screen(void) {
         lv_obj_t * visible_switch = lv_switch_create(row);
         ui_order_visible_buttons[id] = visible_switch;
         lv_obj_add_style(visible_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
-        lv_obj_set_size(visible_switch, switch_width, BOARD_SCALE_PX(28));
+        setting_toggle_size(visible_switch, switch_width, BOARD_SCALE_PX(28), 10);
         lv_obj_align(visible_switch, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(6), 0);
         lv_obj_add_event_cb(visible_switch, ui_order_control_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)id);
     }

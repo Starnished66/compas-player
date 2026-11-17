@@ -43,6 +43,7 @@ static peq_band_t bands[PEQ_NUM_BANDS];
 static biquad_coeffs_t coeffs[PEQ_NUM_BANDS];
 static biquad_state_t state[PEQ_NUM_BANDS][PEQ_MAX_CHANNELS];
 static bool last_call_was_s32 = false;
+static int last_processed_channels;
 static atomic_bool bypass = false;
 static atomic_bool mono_enabled = false;
 static double preamp_db = 0.0;
@@ -229,8 +230,8 @@ static void get_response_db(const double * frequencies_hz, double * response_db,
     }
 
     double preamp = include_preamp && isfinite(preamp_db) ? preamp_db : 0.0;
-    if (preamp > 300.0) preamp = 300.0;
-    if (preamp < -300.0) preamp = -300.0;
+    if (preamp > 30.0) preamp = 30.0;
+    if (preamp < -30.0) preamp = -30.0;
     const double nyquist = (double) sample_rate / 2.0;
     for (size_t i = 0; i < count; i++) {
         double f = frequencies_hz[i];
@@ -304,9 +305,29 @@ void peq_reset_equalizer(void) {
 bool peq_get_bypass(void) { return bypass; }
 void peq_set_bypass(bool b) { bypass = b; }
 
+static double clamp_gain(double db) {
+    return db < -30.0 ? -30.0 : db > 30.0 ? 30.0 : db;
+}
+
+static bool band_params_valid(double f, double g, double q) {
+    return isfinite(f) && f >= 1.0 && f <= 24000.0 && isfinite(g) &&
+           isfinite(q) && q >= 0.01 && q <= 100.0;
+}
+
+static bool parse_finite(const char *s, double *out) {
+    char *end;
+    double value = strtod(s, &end);
+    if (end == s) return false;
+    while (*end == ' ' || *end == '\t' || *end == '\r') end++;
+    if (*end || !isfinite(value)) return false;
+    *out = value;
+    return true;
+}
+
 double peq_get_preamp_db(void) { return preamp_db; }
 void peq_set_preamp_db(double db) {
-    preamp_db = db;
+    if (!isfinite(db)) return;
+    preamp_db = clamp_gain(db);
     peq_publish();
 }
 
@@ -571,8 +592,9 @@ const peq_band_t * peq_get_band(int index) {
 
 void peq_set_band(int index, double freq_hz, double gain_db, double q) {
     if (index < 0 || index >= PEQ_NUM_BANDS) return;
+    if (!band_params_valid(freq_hz, gain_db, q)) return;
     bands[index].freq_hz = freq_hz;
-    bands[index].gain_db = gain_db;
+    bands[index].gain_db = clamp_gain(gain_db);
     bands[index].q = q;
     peq_publish();
 }
@@ -639,8 +661,12 @@ static inline float limiter_next(float peak, float ceiling, float attack, float 
     }
 CONVERT_GROUP(s16_to_float, int16_t, float, , (float))
 CONVERT_GROUP(s32_to_float, int32_t, float, , (float))
-CONVERT_GROUP(float_to_s16, float, int16_t, , (int16_t))
-CONVERT_GROUP(float_to_s32, float, int32_t, , (int32_t))
+static void float_to_s16(int16_t * dst, const float * src, size_t count) {
+    for (size_t k = 0; k < count; ++k) dst[k] = (int16_t) lrintf(src[k]);
+}
+static void float_to_s32(int32_t * dst, const float * src, size_t count) {
+    for (size_t k = 0; k < count; ++k) dst[k] = (int32_t) lrintf(src[k]);
+}
 
 
 /* Per-block settings for EQ, crossfeed and final width. */
@@ -732,8 +758,11 @@ static void chain_chunk(chain_t * c, float * f, size_t frames) {
     }
     /* Discard non-finite samples to prevent NaN or Inf from poisoning the
      * limiter gain or cascading through biquad filters. */
-    for (size_t i = 0; i < samples; i++)
-        if (!isfinite(f[i])) f[i] = 0.0f;
+    bool reset = false;
+    for (size_t i = 0; i < samples; i++) {
+        if (!isfinite(f[i])) { f[i] = 0.0f; reset = true; }
+    }
+    if (reset) memset(state, 0, sizeof(state));
     if (c->cross_active) {
         for (size_t i = 0; i < frames; i++)
             crossfeed_frame(f + i * ch, c->cross_target, c->cross_step, c->ceiling);
@@ -838,12 +867,15 @@ static bool plan_block(plan_t * p, size_t frame_count, int channels, unsigned in
 /* Shared body of peq_process and peq_process_s32; MSEB has already run. */
 static void process_block(void * buf, bool s32, size_t frame_count, int channels,
                           unsigned int sample_rate, bool mseb_active) {
+    if (channels < 1 || channels > PEQ_MAX_CHANNELS) return;
     take_published();
     sync_mseb_ownership(mseb_active);
     plan_t plan;
     if (!plan_block(&plan, frame_count, channels, sample_rate, s32, mseb_active)) return;
 
-    if (last_call_was_s32 != s32) {
+    if (last_call_was_s32 != s32 || channels != last_processed_channels) {
+        last_processed_channels = channels;
+        limiter_gain = 1.0f;
         memset(state, 0, sizeof(state));
         crossfeed_lp[0] = 0.0f;
         crossfeed_lp[1] = 0.0f;
@@ -853,9 +885,6 @@ static void process_block(void * buf, bool s32, size_t frame_count, int channels
     }
 
     if (live_coeffs_stale || sample_rate != coeffs_sample_rate) recompute_all_coeffs(sample_rate);
-
-    if (channels < 1) return;
-    if (channels > PEQ_MAX_CHANNELS) channels = PEQ_MAX_CHANNELS;
 
     chain_t chain;
     chain_begin(&chain, channels, plan.eq_off, plan.cross_active, plan.width_active,
@@ -895,25 +924,20 @@ bool peq_load_from_path(const char * path) {
             continue;
         }
         if (strcmp(key, "preamp") == 0) {
-            preamp_db = atof(value);
+            double parsed;
+            if (parse_finite(value, &parsed)) preamp_db = clamp_gain(parsed);
             continue;
         }
 
         if (strcmp(key, "stereo_width") == 0) {
-            char * end;
-            double parsed = strtod(value, &end);
-            bool parsed_number = end != value;
-            while (*end == ' ' || *end == '\t' || *end == '\r') end++;
-            if (parsed_number && *end == '\0' && isfinite(parsed)) loaded_width = parsed;
+            double parsed;
+            if (parse_finite(value, &parsed)) loaded_width = parsed;
             continue;
         }
 
         if (strcmp(key, "crossfeed") == 0) {
-            char * end;
-            double parsed = strtod(value, &end);
-            bool parsed_number = end != value;
-            while (*end == ' ' || *end == '\t' || *end == '\r') end++;
-            if (parsed_number && *end == '\0' && isfinite(parsed)) loaded_crossfeed = parsed;
+            double parsed;
+            if (parse_finite(value, &parsed)) loaded_crossfeed = parsed;
             continue;
         }
 
@@ -934,11 +958,15 @@ bool peq_load_from_path(const char * path) {
         int index;
         char field[16];
         if (sscanf(key, "band%d_%15s", &index, field) == 2 && index >= 0 && index < PEQ_NUM_BANDS) {
-            if (strcmp(field, "freq") == 0) bands[index].freq_hz = atof(value);
-            else if (strcmp(field, "gain") == 0) bands[index].gain_db = atof(value);
-            else if (strcmp(field, "q") == 0) bands[index].q = atof(value);
-            else if (strcmp(field, "type") == 0) bands[index].type = (peq_band_type_t) atoi(value);
-            else if (strcmp(field, "enabled") == 0) bands[index].enabled = (strcmp(value, "1") == 0);
+            double parsed;
+            if (!parse_finite(value, &parsed)) continue;
+            peq_band_t band = bands[index];
+            if (strcmp(field, "freq") == 0) band.freq_hz = parsed;
+            else if (strcmp(field, "gain") == 0) band.gain_db = clamp_gain(parsed);
+            else if (strcmp(field, "q") == 0) band.q = parsed;
+            else if (strcmp(field, "type") == 0) band.type = (peq_band_type_t) atoi(value);
+            else if (strcmp(field, "enabled") == 0) band.enabled = (strcmp(value, "1") == 0);
+            if (band_params_valid(band.freq_hz, band.gain_db, band.q)) bands[index] = band;
         }
     }
 

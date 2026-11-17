@@ -265,6 +265,7 @@ lv_obj_t * build_genres_screen(void);
 lv_obj_t * build_recently_added_screen(void);
 void cancel_album_load(void);
 int count_genres_from_database(void);
+void gui_library_genre_count_refresh(void);
 void format_song_identity(const song_row_t * row, char * out, size_t size);
 extern lv_obj_t * genre_albums_list;
 void genre_albums_row_click_cb(int index);
@@ -334,10 +335,12 @@ void playlist_start_selected(bool shuffle);
 extern int playlist_start_source;
 void populate_group_songs_rows(void);
 void refresh_group_songs_from_database(void);
+void gui_library_refresh_most_played(void);
 void group_songs_replace_refreshed_entries(group_song_entry_t * entries, int count);
 void refresh_group_songs_now_playing_indicator(void);
 void refresh_group_thumbnail_binding(void);
 void set_group_songs_entries_owned(group_song_entry_t * entries, int count);
+uint64_t group_songs_entries_generation_get(void);
 void show_group_songs_editable(const char * name, const group_song_entry_t * entries, int count,
                                        const char * editable_m3u_path, bool music_submenu);
 void show_group_songs_take_ownership(const char * name, group_song_entry_t * entries, int count,
@@ -354,6 +357,7 @@ void gui_library_scan_join_for_shutdown(void);
 void library_prompt_card_changed(void);
 void library_prompt_requeue_visible(void);
 extern _Atomic bool library_rescan_active; /* read by the thumbnail warmer thread and the remote settings */
+extern bool library_rescan_success_pending;
 void library_rescan_free_target_paths(void);
 extern library_rescan_mode_t library_rescan_mode;
 extern gui_busy_handle_t library_rescan_token;
@@ -381,3 +385,16 @@ void all_songs_rating_play(int song_pos);
 void all_songs_rating_start(void);
 void all_songs_rearm(void);
 void all_songs_rating_teardown(void);
+
+bool albums_rating_mode(void);
+bool albums_rating_active(void);
+bool albums_rating_snapshot_loaded(void);
+int albums_rating_total(void);
+bool albums_rating_resolve_row(int row, group_row_t *out);
+int albums_rating_display_row(int canonical_rank);
+int albums_rating_fetch_page(void *ctx, int offset, int count, compact_list_page_row_t rows[]);
+void albums_rating_start(void);
+void albums_rating_rearm(void);
+void albums_rating_teardown(void);
+
+group_song_entry_t *group_song_entries_take_paths(char **paths, int count);

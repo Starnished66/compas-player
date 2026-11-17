@@ -298,6 +298,9 @@ void fill_album_cover_key(compact_list_page_row_t * out, const group_row_t * row
  * corrected (album, album_artist) grouping. */
 int albums_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]) {
     (void) ctx;
+    int rated = albums_rating_fetch_page(ctx, offset, count, out_rows);
+    if (rated >= 0) return rated;
+    if (rated == -2) return 0; /* stale canonical snapshot; let its poller rebuild it */
     group_row_t * rows = malloc(sizeof(group_row_t) * (size_t) count);
     int n = rows ? metadata_db_get_albums_page_sorted(NULL, effective_album_sort(), offset, count, rows) : 0;
     for (int i = 0; i < n; i++) {
@@ -883,6 +886,7 @@ lv_obj_t * build_albums_screen(void) {
     compact_list_set_trailing_click(albums_list, album_row_long_press_cb);
     compact_list_set_press_cb(albums_list, album_row_press_cb);
     compact_list_set_paged_provider(albums_list, albums_fetch_page, NULL, album_count);
+    if (albums_rating_mode()) albums_rating_start();
     finalize_screen_navigation(scr);
     return scr;
 }
@@ -919,8 +923,89 @@ lv_obj_t * build_album_artist_screen(void) {
     return scr;
 }
 
+typedef struct {
+    char genre[METADATA_DB_TEXT_MAX];
+    int view;
+    char artist[128];
+} genre_browse_query_t;
+typedef struct {
+    pthread_t thread;
+    atomic_bool done;
+    uint64_t request;
+    int count, albums;
+    bool all;
+    genre_browse_query_t query;
+} genre_count_job_t;
+typedef struct {
+    genre_count_job_t *job;
+    uint64_t request;
+    bool pending;
+    genre_browse_query_t query;
+} genre_count_task_t;
+static genre_count_task_t genre_count_tasks[2];
+static int genre_display_count;
+static lv_timer_t *genre_count_timer;
+static int genre_groups_count(const genre_browse_query_t *query, bool albums);
+static void genre_groups_count_land(const genre_count_job_t *job);
+
+static void *genre_count_worker(void *data) {
+    genre_count_job_t *job = data;
+    worker_lower_priority(WORKER_NICE_BACKGROUND);
+    job->count = job->all ? metadata_db_get_genre_count() : genre_groups_count(&job->query, false);
+    if (!job->all && job->query.artist[0]) job->albums = genre_groups_count(&job->query, true);
+    atomic_store_explicit(&job->done, true, memory_order_release);
+    ui_wake_notify();
+    return NULL;
+}
+
+static void genre_count_launch(genre_count_task_t *task, bool all) {
+    if (task->job || !task->pending) return;
+    genre_count_job_t *job = calloc(1, sizeof(*job));
+    if (!job) return;
+    job->request = task->request; job->query = task->query; job->all = all;
+    atomic_init(&job->done, false);
+    if (pthread_create(&job->thread, NULL, genre_count_worker, job) != 0) { free(job); return; }
+    task->pending = false;
+    task->job = job;
+}
+
+static void genre_count_poll(lv_timer_t *timer) {
+    bool active = false;
+    for (int i = 0; i < 2; i++) {
+        genre_count_task_t *task = &genre_count_tasks[i];
+        genre_count_job_t *job = task->job;
+        if (job && atomic_load_explicit(&job->done, memory_order_acquire)) {
+            pthread_join(job->thread, NULL);
+            if (job->request == task->request) {
+                if (job->all) {
+                    genre_display_count = job->count;
+                    rearm_library_list(genres_list, genres_fetch_page, job->count);
+                } else genre_groups_count_land(job);
+            }
+            free(job); task->job = NULL;
+        }
+        genre_count_launch(task, i == 0);
+        active |= task->job != NULL || task->pending;
+    }
+    if (!active) lv_timer_pause(timer);
+}
+
+static void genre_count_schedule(int index, const genre_browse_query_t *query) {
+    genre_count_task_t *task = &genre_count_tasks[index];
+    if (query) task->query = *query;
+    task->request++; task->pending = true;
+    if (!genre_count_timer) genre_count_timer = lv_timer_create(genre_count_poll, 25, NULL);
+    if (!genre_count_timer) return;
+    genre_count_launch(task, index == 0);
+    lv_timer_resume(genre_count_timer);
+}
+
+void gui_library_genre_count_refresh(void) { genre_count_schedule(0, NULL); }
+
 int count_genres_from_database(void) {
-    return metadata_db_get_genre_count();
+    if (!genre_count_tasks[0].job && !genre_count_tasks[0].pending)
+        genre_count_schedule(0, NULL);
+    return genre_display_count;
 }
 
 int genres_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]) {
@@ -983,7 +1068,7 @@ static bool genre_collect_song(const song_row_t * song, void * user) {
 static group_song_entry_t * load_genre_entries(const char * genre, int * out_count, const atomic_bool * cancel) {
     *out_count = 0;
     genre_collect_t collect = { .cancel = cancel };
-    bool walked = metadata_db_walk_genre_songs(genre, GENRE_SONGS_CAP, genre_collect_song, &collect, cancel);
+    bool walked = metadata_db_walk_genre_songs(genre, GENRE_SONGS_CAP, genre_collect_song, &collect, cancel, NULL);
     if (!walked || collect.failed || collect.count <= 0) {
         free_group_song_entries(collect.entries, collect.count);
         return NULL;
@@ -1262,11 +1347,6 @@ lv_obj_t * genre_albums_title_label = NULL;
 lv_obj_t * genre_view_screen = NULL;
 lv_obj_t * genre_view_options[GENRE_VIEW_COUNT];
 static pthread_mutex_t genre_browse_mutex = PTHREAD_MUTEX_INITIALIZER;
-typedef struct {
-    char genre[METADATA_DB_TEXT_MAX];
-    int view;
-    char artist[128];
-} genre_browse_query_t;
 static genre_browse_query_t genre_browse_current;
 
 static genre_browse_query_t genre_browse_snapshot(void) {
@@ -1343,6 +1423,18 @@ static int genre_groups_count(const genre_browse_query_t * query, bool albums_of
     return total;
 }
 
+static void genre_groups_count_land(const genre_count_job_t *job) {
+    genre_browse_query_t current = genre_browse_snapshot();
+    if (job->query.view != current.view || strcmp(job->query.genre, current.genre) ||
+        strcmp(job->query.artist, current.artist)) return;
+    rearm_library_list(genre_groups_list, genre_groups_fetch_page, job->count);
+    if (current.artist[0]) rearm_library_list(genre_albums_list, genre_albums_fetch_page, job->albums);
+}
+
+static void genre_groups_count_schedule(const genre_browse_query_t *query) {
+    if (query && query->genre[0]) genre_count_schedule(1, query);
+}
+
 /* Genre rows carry the scanner's album identity; resolve the real album
  * group (with the legacy empty album-artist key as fallback) so the album
  * screen gets its full track count. */
@@ -1371,12 +1463,20 @@ static void show_genre_list(lv_obj_t * screen, lv_obj_t * list, lv_obj_t * title
     nav_push(screen);
 }
 
+static bool genre_displayed_group(lv_obj_t *list, int index, group_row_t *out) {
+    compact_list_page_row_t row;
+    if (!compact_list_copy_cached_row(list, index, &row)) return false;
+    memset(out, 0, sizeof(*out));
+    snprintf(out->name, sizeof(out->name), "%.*s", (int)sizeof(out->name) - 1, row.label);
+    snprintf(out->album_artist, sizeof(out->album_artist), "%.*s", (int)sizeof(out->album_artist) - 1, row.subtitle);
+    out->first_song_id = row.identity;
+    return true;
+}
+
 void genre_albums_row_click_cb(int index) {
     if (library_rescan_active) return;
-    genre_browse_query_t query = genre_browse_snapshot();
     group_row_t row;
-    if (metadata_db_get_genre_groups_page(METADATA_DB_GROUP_ALBUM, query.genre, genre_view_artist_kind(query.view),
-                                          query.artist, index, 1, &row, NULL) != 1) return;
+    if (!genre_displayed_group(genre_albums_list, index, &row)) return;
     open_genre_album(&row);
 }
 
@@ -1385,8 +1485,7 @@ void genre_groups_row_click_cb(int index) {
     genre_browse_query_t query = genre_browse_snapshot();
     metadata_db_group_kind_t kind = genre_view_group_kind(query.view);
     group_row_t row;
-    if (metadata_db_get_genre_groups_page(kind, query.genre, METADATA_DB_GROUP_ARTIST, NULL,
-                                          index, 1, &row, NULL) != 1) return;
+    if (!genre_displayed_group(genre_groups_list, index, &row)) return;
     if (kind == METADATA_DB_GROUP_ALBUM) {
         open_genre_album(&row);
         return;
@@ -1396,7 +1495,8 @@ void genre_groups_row_click_cb(int index) {
     query = genre_browse_current;
     pthread_mutex_unlock(&genre_browse_mutex);
     show_genre_list(genre_albums_screen, genre_albums_list, genre_albums_title_label, row.name,
-                    genre_albums_fetch_page, genre_groups_count(&query, true));
+                    genre_albums_fetch_page, 0);
+    genre_groups_count_schedule(&query);
 }
 
 static void show_genre_groups(const char * genre_name, int view) {
@@ -1407,16 +1507,15 @@ static void show_genre_groups(const char * genre_name, int view) {
     genre_browse_query_t query = genre_browse_current;
     pthread_mutex_unlock(&genre_browse_mutex);
     show_genre_list(genre_groups_screen, genre_groups_list, genre_groups_title_label, genre_name,
-                    genre_groups_fetch_page, genre_groups_count(&query, false));
+                    genre_groups_fetch_page, 0);
+    genre_groups_count_schedule(&query);
 }
 
 /* Library reloads keep these screens; re-read whatever they show. */
 void rearm_genre_browse_lists(void) {
     genre_browse_query_t query = genre_browse_snapshot();
     if (!query.genre[0]) return;
-    rearm_library_list(genre_groups_list, genre_groups_fetch_page, genre_groups_count(&query, false));
-    if (query.artist[0])
-        rearm_library_list(genre_albums_list, genre_albums_fetch_page, genre_groups_count(&query, true));
+    genre_groups_count_schedule(&query);
 }
 
 lv_obj_t * build_genre_browse_screen(lv_obj_t ** out_list, lv_obj_t ** out_title,

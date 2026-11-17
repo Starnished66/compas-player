@@ -23,6 +23,7 @@ static int stats_change;
 static bool stats_changed, persistent_staleness;
 static int stale_batches, held_discards;
 uint32_t tagcache_stats_revision(void) { return atomic_load(&stats_revision); }
+int32_t tagcache_title_rank_of_path(const char *path) { (void)path; return 0; }
 /* Writers need the guard, so churn lands only where it is really released;
  * held_discards stands in for the numeric worker, which never takes it. */
 static __thread int db_depth;

@@ -312,25 +312,23 @@ static int request_wait_readable(int fd, const struct timespec * deadline) {
 /* Routes added after the original API. Returns false for any other path. */
 static bool handle_extension_route(int cfd, const char * method, const char * path_only, const char * path,
                                    long long content_length) {
-    bool get = strcmp(method, "GET") == 0, post = strcmp(method, "POST") == 0;
-    if (get && strcmp(path_only, "/api/folders/roots") == 0) handle_folder_roots_request(cfd);
-    else if (get && strcmp(path_only, "/api/folders") == 0) handle_folder_list_request(cfd, path);
-    else if (post && strcmp(path_only, "/api/folders/play") == 0) handle_folder_play_request(cfd, path);
-    else if (get && strcmp(path_only, "/api/recent") == 0) handle_recent_request(cfd, path);
-    else if (get && strcmp(path_only, "/api/ratings/state") == 0) handle_rating_state_request(cfd, path);
-    else if (post && strcmp(path_only, "/api/ratings/set") == 0) handle_rating_edit_request(cfd, path);
-    else if (get && strcmp(path_only, "/api/favorites/state") == 0) handle_favorite_state_request(cfd, path);
-    else if (post && strcmp(path_only, "/api/favorites/add") == 0) handle_favorite_edit_request(cfd, path, true);
-    else if (post && strcmp(path_only, "/api/favorites/remove") == 0) handle_favorite_edit_request(cfd, path, false);
-    else if (post && strcmp(path_only, "/api/queue/move") == 0) handle_queue_edit_request(cfd, path, true);
-    else if (post && strcmp(path_only, "/api/queue/play") == 0) handle_queue_edit_request(cfd, path, false);
-    else if (post && strcmp(path_only, "/api/playlists/create") == 0) handle_playlist_create_request(cfd, path);
-    else if (post && strcmp(path_only, "/api/playlists/rename") == 0) handle_playlist_rename_request(cfd, path);
-    else if (post && strcmp(path_only, "/api/playlists/delete") == 0) handle_playlist_delete_request(cfd, path);
-    else if (post && strcmp(path_only, "/api/playlists/remove") == 0) handle_playlist_entry_request(cfd, path, false);
-    else if (post && strcmp(path_only, "/api/playlists/move") == 0) handle_playlist_entry_request(cfd, path, true);
-    else if (post && strcmp(path_only, "/api/playlists/import") == 0)
-        handle_playlist_import_request(cfd, path, content_length);
+    if (strcmp(path_only, "/api/folders/roots") == 0) handle_folder_roots_request(cfd);
+    else if (strcmp(path_only, "/api/folders") == 0) handle_folder_list_request(cfd, path);
+    else if (strcmp(path_only, "/api/folders/play") == 0) handle_folder_play_request(cfd, path);
+    else if (strcmp(path_only, "/api/recent") == 0) handle_recent_request(cfd, path);
+    else if (strcmp(path_only, "/api/ratings/state") == 0) handle_rating_state_request(cfd, path);
+    else if (strcmp(path_only, "/api/ratings/set") == 0) handle_rating_edit_request(cfd, path);
+    else if (strcmp(path_only, "/api/favorites/state") == 0) handle_favorite_state_request(cfd, path);
+    else if (strcmp(path_only, "/api/favorites/add") == 0) handle_favorite_edit_request(cfd, path, true);
+    else if (strcmp(path_only, "/api/favorites/remove") == 0) handle_favorite_edit_request(cfd, path, false);
+    else if (strcmp(path_only, "/api/queue/move") == 0) handle_queue_edit_request(cfd, path, true);
+    else if (strcmp(path_only, "/api/queue/play") == 0) handle_queue_edit_request(cfd, path, false);
+    else if (strcmp(path_only, "/api/playlists/create") == 0) handle_playlist_create_request(cfd, path);
+    else if (strcmp(path_only, "/api/playlists/rename") == 0) handle_playlist_rename_request(cfd, path);
+    else if (strcmp(path_only, "/api/playlists/delete") == 0) handle_playlist_delete_request(cfd, path);
+    else if (strcmp(path_only, "/api/playlists/remove") == 0) handle_playlist_entry_request(cfd, path, false);
+    else if (strcmp(path_only, "/api/playlists/move") == 0) handle_playlist_entry_request(cfd, path, true);
+    else if (strcmp(path_only, "/api/playlists/import") == 0) handle_playlist_import_request(cfd, path, content_length);
     else if (strcmp(path_only, "/api/library/sorting") == 0) handle_library_sorting_route(cfd, method, path);
     else if (strcmp(path_only, "/api/library/albums") == 0 && query_param_present(path, "scope"))
         handle_scoped_albums_route(cfd, method, path);
@@ -643,6 +641,20 @@ static void handle_legacy_get(int cfd, const char * path_only, const char * path
     }
 }
 
+static const char *route_method(const char *path) {
+    static const char *get_paths[] = {"/api/folders/roots", "/api/folders", "/api/recent", "/api/ratings/state", "/api/favorites/state", "/", "/api/status", "/api/import", "/api/catalog", "/api/catalog/covers",
+        "/api/catalog/art", "/api/library", "/api/library/artists", "/api/library/album_artists",
+        "/api/library/genres", "/api/library/albums", "/api/art", "/api/playlists/songs", "/api/queue"};
+    static const char *post_paths[] = {"/api/folders/play", "/api/ratings/set", "/api/favorites/add", "/api/favorites/remove", "/api/queue/move", "/api/queue/play", "/api/playlists/create", "/api/playlists/rename", "/api/playlists/delete", "/api/playlists/remove", "/api/playlists/move", "/api/playlists/import", "/api/playlists/add", "/api/playback/toggle", "/api/playback/next",
+        "/api/playback/prev", "/api/playback/mode", "/api/playback/seek", "/api/playback/volume",
+        "/api/playback/play", "/api/playback/queue", "/api/queue/remove", "/api/queue/clear", "/api/screenshot"};
+    for (unsigned i = 0; i < sizeof(get_paths) / sizeof(*get_paths); ++i)
+        if (!strcmp(path, get_paths[i])) return "GET";
+    for (unsigned i = 0; i < sizeof(post_paths) / sizeof(*post_paths); ++i)
+        if (!strcmp(path, post_paths[i])) return "POST";
+    return NULL; /* /playlists supports both; unknown paths retain 404 */
+}
+
 static void handle_legacy_route(int cfd, const char * method, const char * path_only, const char * path) {
     if (strcmp(method, "GET") == 0) {
         handle_legacy_get(cfd, path_only, path);
@@ -677,6 +689,11 @@ static bool route_v1_alias(int cfd, const char * method, char * path_only, bool 
 /* Routes a request that passed authorization. */
 static void route_authorized(int cfd, const char * method, const char * path_only, const char * path,
                              const request_headers_t * headers, bool trusted) {
+    const char *expected = route_method(path_only);
+    if (expected && strcmp(method, expected)) {
+        send_response(cfd, "405 Method Not Allowed", "text/plain", "Method Not Allowed");
+        return;
+    }
     if (headers->content_length_invalid) {
         send_response(cfd, "400 Bad Request", "text/plain", "Bad Content-Length");
         return;

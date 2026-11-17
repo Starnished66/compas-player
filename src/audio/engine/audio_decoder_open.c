@@ -9,6 +9,7 @@
 #include "../effects/peq.h"
 #include "../timing/audio_tempo.h"
 #include "../../network/http/stream/http_stream_file.h"
+#include "../../network/services/subsonic_client.h"
 #include "../../library/remote/remote_track.h"
 #include "../../library/metadata/parsing/metadata.h"
 #include "../../library/parsers/cue/cue_parser.h"
@@ -464,8 +465,15 @@ static bool open_network_mp3(decoder_t * dec, bool remote, const remote_track_me
     return true;
 }
 
+static http_stream_t *open_network_stream(const char *path, const remote_track_meta_t *remote, uint64_t generation) {
+    bool radio = !remote && strstr(path, "/rest/stream.view?") == NULL;
+    bool verify = remote ? remote->verify_tls : subsonic_stream_verify_tls(path);
+    return http_stream_open(remote ? remote->stream_url : path, verify, radio, generation);
+}
+
 static bool decoder_open_internal(decoder_t * dec, const char * path,
-                                  const remote_track_meta_t * remote_snapshot) {
+                                  const remote_track_meta_t * remote_snapshot,
+                                  uint64_t generation, bool generation_is_explicit) {
     memset(dec, 0, sizeof(*dec));
     dec->open_error = AUDIO_ERROR_DECODER_FAILED;
 
@@ -498,10 +506,8 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
          * prescans. Other formats still require a finite file/container.
          * Absent a recognized hint, path extension, or audio Content-Type,
          * MP3 remains the default for ordinary internet-radio URLs. */
-        /* Subsonic's generated endpoint and provider tracks are finite songs. */
-        bool radio = !remote && strstr(path, "/rest/stream.view?") == NULL;
-        dec->net_stream = http_stream_open(remote ? remote_meta.stream_url : path,
-                                           remote ? remote_meta.verify_tls : true, radio);
+        dec->net_stream = open_network_stream(path, remote ? &remote_meta : NULL,
+                                              generation_is_explicit ? generation : 0);
         if (!dec->net_stream) return false;
 
         net_format_t format;
@@ -819,7 +825,7 @@ static bool decoder_open_policy(decoder_t * dec, const char * path, bool wait_fo
         }
     }
     errno = 0;
-    if (!decoder_open_internal(dec, open_path, snapshot)) {
+    if (!decoder_open_internal(dec, open_path, snapshot, generation, generation_is_explicit)) {
         int saved_errno = errno;
         if (!is_stream_url(path) && !remote_track_path_is_remote(path) &&
             (saved_errno == ENOENT || saved_errno == ENOTDIR || saved_errno == EACCES))
@@ -901,8 +907,8 @@ bool decoder_open_for_generation(decoder_t * dec, const char * path, uint64_t ge
 
 /* NEXT decoders are opened on the output thread while the current track is
  * playing. They may only consume a fresh URL; resolving here would stall audio. */
-bool decoder_open_next(decoder_t * dec, const char * path) {
-    return decoder_open_for_playback(dec, path, false, 0, false);
+bool decoder_open_next(decoder_t * dec, const char * path, uint64_t generation) {
+    return decoder_open_for_playback(dec, path, false, generation, true);
 }
 
 audio_codec_t public_codec_for_decoder(const decoder_t * dec) {

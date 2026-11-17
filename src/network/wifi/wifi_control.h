@@ -51,7 +51,8 @@ int wifi_control_get_results(wifi_network_t * out, int max_count);
  * a few seconds for association, call off the UI thread. Returns true once
  * wpa_cli accepted the configuration -- doesn't itself confirm association
  * succeeded (poll wifi_get_status() afterward for that). */
-bool wifi_control_connect(const char * ssid, const char * password);
+void wifi_control_finish_connect(bool associated);
+bool wifi_control_connect_with_id(const char *ssid, const char *password, int *out_id);
 
 /* Drops the current association (wpa_cli disconnect) without touching the
  * saved network profile -- wpa_supplicant stays in a disconnected state
@@ -90,6 +91,7 @@ bool wifi_control_connect_saved(int id);
 
 typedef struct {
     char ssid[WIFI_MAX_SSID_LEN];
+    int network_id; /* supplicant profile ID, -1 if absent */
     char ip[16];
     char gateway[16];
     char mac[18];

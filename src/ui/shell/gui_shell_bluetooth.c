@@ -926,7 +926,8 @@ void poll_bt_apply_output_settings(void) {
     if (bt_apply_output_settings_rerun && !bt_apply_output_settings_job.active)
         start_bt_apply_output_settings(current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended(),
                                        current_settings.bt_volume_sync_enabled);
-    if (bt_dac_power_off_pending && !gui_shell_bt_dac_busy()) {
+    if (bt_dac_power_off_pending && !bt_apply_output_settings_job.active &&
+        !bt_apply_output_settings_rerun && !gui_shell_bt_dac_owns_output()) {
         bt_request_power(false, true);
         bt_dac_power_off_pending = false;
     }

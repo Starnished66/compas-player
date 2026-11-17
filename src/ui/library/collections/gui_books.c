@@ -2,6 +2,8 @@
 #include "../../text/i18n/i18n.h"
 #include "../../application/gui.h"
 #include <stdio.h>
+#include <limits.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
@@ -46,8 +48,7 @@ static lv_obj_t * books_screen = NULL;
 static void rescan_books(void);
 static void populate_books_files_screen(void);
 
-static char * text_reader_current_content = NULL; /* owned; replaced (freed) on every new file opened */
-static char text_reader_current_path[600] = ""; /* the currently open book's path -- what the favorite icon below toggles */
+static char text_reader_current_path[PATH_MAX] = ""; /* the currently open book's path -- what the favorite icon below toggles */
 
 static lv_obj_t * books_files_screen = NULL;
 static lv_obj_t * books_files_list;
@@ -91,34 +92,64 @@ static void text_reader_favorite_icon_event_cb(lv_event_t * e) {
     refresh_text_reader_favorite_icon();
 }
 
-static void open_text_reader(const char * path) {
-    free(text_reader_current_content);
-    bool truncated = false;
-    text_reader_current_content = text_reader_load(path, &truncated);
+static int book_position_index(void) {
+    for (int i = 0; i < 16; i++)
+        if (!strcmp(current_settings.book_positions[i].path, text_reader_current_path)) return i;
+    return -1;
+}
 
-    if (!text_reader_current_content) {
-        lv_label_set_text(text_reader_content_label, TR("Could not open this file."));
+static void book_position_save(lv_event_t *event) {
+    (void)event;
+    if (!text_reader_scroll || !text_reader_current_path[0] || strlen(text_reader_current_path) >= 512) return;
+    int index = book_position_index();
+    int scroll = lv_obj_get_scroll_y(text_reader_scroll);
+    if (scroll < 0) scroll = 0;
+    if (index >= 0 && current_settings.book_positions[index].scroll == scroll) return;
+    if (index < 0) index = 15;
+    memmove(&current_settings.book_positions[1], &current_settings.book_positions[0],
+            (size_t)index * sizeof(current_settings.book_positions[0]));
+    snprintf(current_settings.book_positions[0].path, 512, "%s", text_reader_current_path);
+    current_settings.book_positions[0].scroll = scroll;
+    settings_save_async(&current_settings);
+}
+
+static void book_position_restore(void) {
+    int index = book_position_index();
+    int scroll = index >= 0 ? current_settings.book_positions[index].scroll : 0;
+    lv_obj_update_layout(text_reader_scroll);
+    lv_obj_scroll_to_y(text_reader_scroll, scroll > 0 ? scroll : 0, LV_ANIM_OFF);
+}
+
+static void open_text_reader(const char * path) {
+    bool truncated = false;
+    char * content = text_reader_load(path, &truncated);
+
+    if (!content) {
+        lv_label_set_text(text_reader_content_label, errno == EILSEQ ? TR("Unsupported text encoding. Use UTF-8.") : TR("Could not open this file."));
+    } else if (!content[0]) {
+        lv_label_set_text(text_reader_content_label, TR("This file is empty."));
     } else if (truncated) {
         /* Prepend a plain-text note rather than reaching for a separate
          * toast/label widget -- simplest way to say "there's more" for a
          * feature this basic. */
-        char * buf = malloc(strlen(text_reader_current_content) + 256);
+        char * buf = malloc(strlen(content) + 256);
         if (buf) {
-            snprintf(buf, strlen(text_reader_current_content) + 256,
+            snprintf(buf, strlen(content) + 256,
                      TR("[File truncated at %d KB; showing the first part only]\n\n%s"),
-                     TEXT_READER_MAX_BYTES / 1024, text_reader_current_content);
-            free(text_reader_current_content);
-            text_reader_current_content = buf;
+                     TEXT_READER_MAX_BYTES / 1024, content);
+            free(content);
+            content = buf;
         }
-        lv_label_set_text(text_reader_content_label, text_reader_current_content);
+        lv_label_set_text(text_reader_content_label, content);
     } else {
-        lv_label_set_text(text_reader_content_label, text_reader_current_content);
+        lv_label_set_text(text_reader_content_label, content);
     }
 
+    free(content);
     lv_label_set_text(text_reader_title_label, basename_of(path));
     snprintf(text_reader_current_path, sizeof(text_reader_current_path), "%s", path);
     refresh_text_reader_favorite_icon();
-    lv_obj_scroll_to_y(text_reader_scroll, 0, LV_ANIM_OFF);
+    book_position_restore();
     nav_push(text_reader_screen);
 }
 
@@ -194,7 +225,7 @@ static void books_refresh_timer_cb(lv_timer_t * timer) {
     if (atomic_load_explicit(&w->done, memory_order_acquire)) {
         books_scan_commit(w);
         books_refresh_finish();
-        if (lv_screen_active() == books_files_screen) populate_books_files_screen();
+        if (books_files_screen) populate_books_files_screen();
         show_info_toast(TR("Books refreshed"));
         return;
     }
@@ -203,7 +234,7 @@ static void books_refresh_timer_cb(lv_timer_t * timer) {
     fprintf(stderr, "Warning: timed out scanning %s for .txt files (possible filesystem corruption) -- treating as empty\n", BOOKS_ROOT_DIR);
     metadata_db_book_replace_all(NULL, 0);
     books_refresh_finish();
-    if (lv_screen_active() == books_files_screen) populate_books_files_screen();
+    if (books_files_screen) populate_books_files_screen();
     show_error_toast(TR("Could not read the Books folder"));
 }
 
@@ -302,6 +333,11 @@ static lv_obj_t * build_books_files_screen(void) {
     return scr;
 }
 
+static void book_position_bind(lv_obj_t *screen) {
+    lv_obj_add_event_cb(text_reader_scroll, book_position_save, LV_EVENT_SCROLL_END, NULL);
+    lv_obj_add_event_cb(screen, book_position_save, LV_EVENT_SCREEN_UNLOADED, NULL);
+}
+
 static lv_obj_t * build_text_reader_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
@@ -327,6 +363,7 @@ static lv_obj_t * build_text_reader_screen(void) {
     lv_obj_set_style_bg_opa(text_reader_scroll, LV_OPA_50, LV_PART_SCROLLBAR);
     lv_obj_add_style(text_reader_scroll, gui_theme_accent_style(), LV_PART_SCROLLBAR);
 
+    book_position_bind(scr);
     text_reader_content_label = lv_label_create(text_reader_scroll);
     lv_label_set_long_mode(text_reader_content_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(text_reader_content_label, lv_pct(100));
@@ -409,6 +446,8 @@ void gui_books_teardown(void) {
         free(books_refresh_work);
     }
     books_refresh_finish();
+    if (text_reader_scroll) book_position_save(NULL);
+    text_reader_scroll = NULL;
     books_refresh_icon = NULL;
     if (books_files_screen) { lv_obj_delete(books_files_screen); books_files_screen = NULL; }
     if (text_reader_screen) { lv_obj_delete(text_reader_screen); text_reader_screen = NULL; }
@@ -419,9 +458,9 @@ void gui_books_rescan(void) {
     rescan_books();
 }
 
-/* A background scan replaces the book cache; redraw the list if it is showing. */
+/* Keep the persistent list current even while its reader covers it. */
 void gui_books_refresh_visible(void) {
-    if (books_files_screen && lv_screen_active() == books_files_screen) populate_books_files_screen();
+    if (books_files_screen) populate_books_files_screen();
 }
 
 lv_obj_t * gui_books_get_screen(void) {

@@ -58,6 +58,9 @@ bool http_conn_open_ex(http_conn_t * conn, const char * host, const char * port,
                         uint32_t connect_timeout_ms, uint32_t read_timeout_ms,
                         struct http_cancel_token * cancel, http_conn_error_t * out_error);
 
+/* Ends the opening deadline and resets socket timeouts for body reads. */
+void http_conn_end_deadline(http_conn_t *conn, uint32_t body_timeout_ms);
+
 /* Like open_ex, with one deadline covering DNS, connect, TLS and later I/O. */
 bool http_conn_open_deadline_ex(http_conn_t *conn, const char *host, const char *port,
     bool https, bool verify_tls, uint32_t connect_timeout_ms, uint32_t read_timeout_ms,

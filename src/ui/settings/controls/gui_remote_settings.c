@@ -8,6 +8,7 @@
 #include "../../library/browse/gui_library.h"
 #include "../../player/screen/gui_player.h"
 #include "../../player/transport/player_seek_input.h"
+#include "../gui_settings.h"
 #include "../../shell/gui_notifications.h"
 #include "../../shell/gui_shell.h"
 #include "../../text/i18n/i18n.h"
@@ -122,7 +123,10 @@ static void apply_change(const setting_desc_t * d, int value) {
         else if (strcmp(key, "usb_dsd_output") == 0) audio_output_set_usb_dsd_mode(value);
         else if (strcmp(key, "dsd_gain_db") == 0) audio_output_set_dsd_gain_db(value);
 #endif
-        else if (strcmp(key, "brightness_percent") == 0) backlight_request_normal_percent(value);
+        else if (strcmp(key, "brightness_percent") == 0) {
+            backlight_request_normal_percent(value);
+            gui_settings_sync_brightness(value);
+        }
         else if (strcmp(key, "screen_dimming_enabled") == 0 && !value) backlight_set_dimmed(false);
         else if (strcmp(key, "show_battery_percent") == 0) gui_shell_apply_topbar_settings();
         else if (strcmp(key, "hw_seek_step_seconds") == 0) player_seek_input_set_hw_step_seconds(value);

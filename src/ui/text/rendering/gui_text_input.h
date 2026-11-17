@@ -11,6 +11,8 @@ bool gui_text_input_init(void);
  * call gui_text_input_init() again from a clean slate. */
 void gui_text_input_teardown(void);
 
+uint32_t gui_text_input_generation(void);
+
 void show_text_entry(const char * title, const char * initial_text, bool is_password, bool numeric,
                      text_entry_done_cb_t done_cb, void * user_data);
 

@@ -78,7 +78,7 @@ static inline void mix_crossfade(const int16_t * buf_cur, const int16_t * buf_ne
             float mixed = (float) buf_cur[idx] * fade_cur + (float) buf_next[idx] * fade_next;
             if (mixed > 32767.0f) mixed = 32767.0f;
             if (mixed < -32768.0f) mixed = -32768.0f;
-            buf_out[idx] = (int16_t) mixed;
+            buf_out[idx] = (int16_t) lrintf(mixed);
         }
     }
 }
@@ -100,7 +100,7 @@ static inline void mix_crossfade_s32(const int32_t * buf_cur, const int32_t * bu
             float mixed = (float) buf_cur[idx] * fade_cur + (float) buf_next[idx] * fade_next;
             if (mixed > 8388607.0f) mixed = 8388607.0f;
             if (mixed < -8388608.0f) mixed = -8388608.0f;
-            buf_out[idx] = (int32_t) mixed;
+            buf_out[idx] = (int32_t) lrintf(mixed);
         }
     }
 }

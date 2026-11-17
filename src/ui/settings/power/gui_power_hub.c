@@ -7,6 +7,7 @@
 #include "../../shell/gui_notifications.h"
 #include "../gui_settings.h"
 #include "../../shell/gui_shell.h"
+#include "../../player/screen/gui_player.h"
 #include "../../appearance/gui_theme.h"
 #include "../../text/i18n/i18n.h"
 #include "../../../core/system/lifecycle/idle_shutdown.h"
@@ -232,12 +233,20 @@ static void power_restart_selector_long_press_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
     power_restart_selector_long_press_fired = true;
     power_action_pending = -1;
+    if (gui_player_queue_write_busy()) {
+        show_info_toast(TR("Queue checkpoint is still saving"));
+        return;
+    }
     char error[128] = {0};
     if (!idle_shutdown_reboot_to_bootloader(error, sizeof(error)))
         show_error_toast(error[0] ? error : TR("Could not restart into the boot selector"));
 }
 
 static void power_finish(int action) {
+    if (gui_player_queue_write_busy()) {
+        show_info_toast(TR("Queue checkpoint is still saving"));
+        return;
+    }
     (void) gui_shell_bt_dac_shutdown(false);
     if (action == 0) idle_shutdown_now();
     else idle_shutdown_reboot_now();

@@ -4,6 +4,7 @@
 #include "../widgets/builders/screen_builders.h"
 #include "../../network/bluetooth/control/bt_pairing_agent.h"
 #include <stdio.h>
+#include "../text/rendering/gui_text_input.h"
 #include "gui_network_internal.h"
 
 /* ---- Bluetooth pairing prompts -------------------------------------------
@@ -23,6 +24,12 @@ typedef struct {
 
 static pairing_popup_t confirm_popup;
 static pairing_popup_t display_popup;
+static uint32_t pin_shown_id;
+static uint32_t pin_input_generation;
+
+static void pairing_pin_entered(const char *text, void *data) {
+    bt_pairing_agent_answer_pin((uint32_t)(uintptr_t)data, text);
+}
 
 static lv_obj_t * pairing_label(lv_obj_t * popup, lv_style_t * color_style, gui_font_role_t font_role) {
     lv_obj_t * label = lv_label_create(popup);
@@ -92,6 +99,20 @@ void poll_bt_pairing(void) {
     char code[17];
     uint32_t passkey = 0;
     uint32_t id = 0;
+    if (bt_pairing_agent_pending_pin(name, sizeof(name), &id)) {
+        if (id != pin_shown_id) {
+            pin_shown_id = id;
+            char title[128];
+            snprintf(title, sizeof(title), "%s: %s", TR("Bluetooth pairing"), name);
+            show_text_entry(title, NULL, false, false, pairing_pin_entered, (void *)(uintptr_t)id);
+            pin_input_generation = gui_text_input_generation();
+        }
+        gui_keep_screen_awake_for_prompt();
+    } else if (pin_shown_id) {
+        if (lv_screen_active() == gui_text_input_get_screen() &&
+            gui_text_input_generation() == pin_input_generation) nav_pop();
+        pin_shown_id = 0;
+    }
     bool present = bt_pairing_agent_pending_confirmation(name, sizeof(name), &passkey, &id);
     if (present) snprintf(code, sizeof(code), "%06u", (unsigned) passkey);
     sync_pairing_popup(&confirm_popup, present, id, name, code);

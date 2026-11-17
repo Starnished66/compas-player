@@ -1,6 +1,10 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+#define BOARD_MIN_TOUCH_PX 40
+#define BOARD_SCALE_PX_MIN(px, minimum) (BOARD_SCALE_PX(px) < (minimum) ? (minimum) : BOARD_SCALE_PX(px))
+#define BOARD_V1_DRAWER_HANDLE_PAD 12
+
 /* Board-specific constants selected by the Makefile's BOARD variable
  * (BOARD_DEFINE -> -DBOARD_R1 / -DBOARD_R3PROII). Screen dimensions here are
  * real, device-confirmed values, not placeholders:

@@ -982,7 +982,7 @@ static void search_close_internal(search_binding_t * b, bool restore_provider) {
             switch (b->db_kind) {
                 case METADATA_DB_AZ_ARTIST: total = artist_count; break;
                 case METADATA_DB_AZ_ALBUM_ARTIST: total = album_artist_count; break;
-                case METADATA_DB_AZ_ALBUM: total = album_count; break;
+                case METADATA_DB_AZ_ALBUM: total = gui_library_albums_paged_total(album_count); break;
                 case METADATA_DB_AZ_ALL_SONGS:
                     total = b->id == SEARCH_BINDING_ALL_SONGS ? all_songs_paged_total()
                                                              : (int)metadata_db_get_song_count();

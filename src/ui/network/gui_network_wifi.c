@@ -106,24 +106,25 @@ static void wifi_refresh_after_link_change(void) {
 /* wifi_control_connect*() returning true only confirms wpa_cli accepted the
  * configuration, not that association happened. Poll the real link state for
  * a few seconds before calling it a success. */
-static bool wifi_wait_for_association(bool accepted) {
+static bool wifi_wait_for_association(bool accepted, const char *ssid, int network_id) {
     bool associated = false;
     if (accepted) {
         for (int i = 0; i < 10 && !associated; i++) {
-            int level;
-            associated = wifi_get_status(&level);
+            wifi_info_t info;
+            associated = wifi_control_get_info(&info) && info.network_id == network_id && strcmp(info.ssid, ssid) == 0;
             if (!associated) usleep(500000);
         }
     }
+    wifi_control_finish_connect(accepted && associated);
     return accepted && associated;
 }
 
 static void * wifi_connect_thread_func(void * arg) {
     wifi_connect_request_t * req = (wifi_connect_request_t *) arg;
-    bool accepted = wifi_control_connect(req->ssid, req->password[0] != '\0' ? req->password : NULL);
+    int network_id = -1;
+    bool accepted = wifi_control_connect_with_id(req->ssid, req->password[0] != '\0' ? req->password : NULL, &network_id);
+    wifi_connect_succeeded = wifi_wait_for_association(accepted, req->ssid, network_id);
     free(req);
-
-    wifi_connect_succeeded = wifi_wait_for_association(accepted);
     atomic_store_explicit(&wifi_connect_done_flag, true, memory_order_release); /* written last -- poll_wifi_connect only checks this flag */
     return NULL;
 }
@@ -176,14 +177,14 @@ static volatile bool wifi_connect_saved_succeeded = false;
 
 typedef struct {
     int id;
+    char ssid[WIFI_MAX_SSID_LEN];
 } wifi_connect_saved_request_t;
 
 static void * wifi_connect_saved_thread_func(void * arg) {
     wifi_connect_saved_request_t * req = (wifi_connect_saved_request_t *) arg;
     bool accepted = wifi_control_connect_saved(req->id);
+    wifi_connect_saved_succeeded = wifi_wait_for_association(accepted, req->ssid, req->id);
     free(req);
-
-    wifi_connect_saved_succeeded = wifi_wait_for_association(accepted);
     atomic_store_explicit(&wifi_connect_saved_done_flag, true, memory_order_release); /* written last -- poll_wifi_connect_saved only checks this flag */
     return NULL;
 }
@@ -196,6 +197,7 @@ void start_wifi_connect_saved(int id, const char * ssid) {
     wifi_connect_saved_request_t * req = malloc(sizeof(*req));
     if (!req) return;
     req->id = id;
+    snprintf(req->ssid, sizeof(req->ssid), "%s", ssid);
 
     atomic_store_explicit(&wifi_connect_saved_done_flag, false, memory_order_relaxed);
     wifi_connect_saved_active = true;

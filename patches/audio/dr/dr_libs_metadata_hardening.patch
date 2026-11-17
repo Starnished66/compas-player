@@ -30,7 +30,7 @@
 +            fmt.bitsPerSample  = sampleSizeInBits;
 +            fmt.blockAlign     = (drwav_uint16)(fmt.channels * fmt.bitsPerSample / 8);
              fmt.avgBytesPerSec = fmt.blockAlign * fmt.sampleRate;
- 
+
 +            if (fmt.blockAlign == 0 && compressionFormat == DR_WAVE_FORMAT_DVI_ADPCM) {
 +                fmt.blockAlign = 34 * fmt.channels;
 +            }
@@ -41,7 +41,7 @@
 @@ -3649,8 +3643,15 @@
                  }
              }
- 
+
 -            /* If the form type is AIFC there will be some additional data in the chunk. We need to seek past it. */
 -            if (isAIFCFormType) {
 +            /* In AIFF, samples are padded to 8 byte boundaries. We need to round up our bits per sample here. */
@@ -59,7 +59,7 @@
 @@ -3808,7 +3809,16 @@
                  break;
              }
- 
+
 -            /* Move to the end of the chunk so we can keep iterating. */
 +            /* Move to the end of the chunk so we can keep iterating.
 +               Compas: a malformed chunk can make the parser report having
@@ -75,7 +75,7 @@
                  drwav_free(metadataParser.pMetadata, &pWav->allocationCallbacks);
                  return DRWAV_FALSE;
 @@ -7192,35 +7202,31 @@
- 
+
  DRWAV_API void drwav_f32_to_s16(drwav_int16* pOut, const float* pIn, size_t sampleCount)
  {
 +    int r;
@@ -99,7 +99,7 @@
 +        pOut[i] = (short)r;
      }
  }
- 
+
  DRWAV_API void drwav_f64_to_s16(drwav_int16* pOut, const double* pIn, size_t sampleCount)
  {
 +    int r;
@@ -123,25 +123,25 @@
 +        pOut[i] = (short)r;
      }
  }
- 
+
 @@ -8105,7 +8111,7 @@
      }
- 
+
      for (i = 0; i < sampleCount; ++i) {
 -        *pOut++ = ((int)pIn[i] - 128) * 16777216;
 +        *pOut++ = ((int)pIn[i] - 128) << 24;
      }
  }
- 
+
 @@ -8118,7 +8124,7 @@
      }
- 
+
      for (i = 0; i < sampleCount; ++i) {
 -        *pOut++ = (drwav_int32)pIn[i] * 65536;
 +        *pOut++ = pIn[i] << 16;
      }
  }
- 
+
 @@ -8143,34 +8149,26 @@
  DRWAV_API void drwav_f32_to_s32(drwav_int32* pOut, const float* pIn, size_t sampleCount)
  {
@@ -165,7 +165,7 @@
 +        *pOut++ = (drwav_int32)(2147483648.0f * pIn[i]);
      }
  }
- 
+
  DRWAV_API void drwav_f64_to_s32(drwav_int32* pOut, const double* pIn, size_t sampleCount)
  {
      size_t i;
@@ -188,25 +188,25 @@
 +        *pOut++ = (drwav_int32)(2147483648.0 * pIn[i]);
      }
  }
- 
+
 @@ -8183,7 +8181,7 @@
      }
- 
+
      for (i = 0; i < sampleCount; ++i) {
 -        *pOut++ = (drwav_int32)drwav__alaw_to_s16(pIn[i]) * 65536;
 +        *pOut++ = ((drwav_int32)drwav__alaw_to_s16(pIn[i])) << 16;
      }
  }
- 
+
 @@ -8196,7 +8194,7 @@
      }
- 
+
      for (i= 0; i < sampleCount; ++i) {
 -        *pOut++ = (drwav_int32)drwav__mulaw_to_s16(pIn[i]) * 65536;
 +        *pOut++ = ((drwav_int32)drwav__mulaw_to_s16(pIn[i])) << 16;
      }
  }
- 
+
 @@ -8701,9 +8699,6 @@
    - Fix an underflow error with badly formed ADPCM encoded files.
    - Fix an underflow error with badly formed W64 files.
@@ -215,5 +215,5 @@
 -  - Fix an error with AIFF files with an unusual bit depth.
 -  - Fix some NaN conversion errors when converting from floating point to s16 and s32.
    - Add some bound checking when processing metadata chunks.
- 
+
  v0.14.5 - 2026-03-03

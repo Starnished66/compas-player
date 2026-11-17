@@ -337,9 +337,8 @@ bool playlist_files_scan_complete(const char * root, char *** out_paths, int * o
     return true;
 }
 
-bool playlist_files_append(const char * path, const char * song_path) {
+static bool playlist_files_append_locked(const char * path, const char * song_path) {
     if (!song_path || !song_path[0] || strchr(song_path, '\n') || strchr(song_path, '\r')) return false;
-    pthread_mutex_lock(&playlist_files_mutex);
     char dir[PATH_MAX], temp[PATH_MAX], rel[PATH_MAX];
     bool ok = dir_of(path, dir, sizeof(dir)) &&
               snprintf(temp, sizeof(temp), "%s/.playlist-XXXXXX", dir) < (int) sizeof(temp);
@@ -365,6 +364,12 @@ bool playlist_files_append(const char * path, const char * song_path) {
     if (ok) ok = rename(temp, path) == 0;
     if (!ok && fd >= 0) unlink(temp);
     if (ok) fsync_dir(dir);
+    return ok;
+}
+
+bool playlist_files_append(const char *path, const char *song_path) {
+    pthread_mutex_lock(&playlist_files_mutex);
+    bool ok = playlist_files_append_locked(path, song_path);
     pthread_mutex_unlock(&playlist_files_mutex);
     return ok;
 }
@@ -419,13 +424,16 @@ bool playlist_files_append_stream(const char * path, int count,
  * dropped onto the SD card by hand could have \r\n line endings. */
 
 
-bool playlist_files_contains(const char * m3u_path, const char * song_path) {
+static bool playlist_files_contains_locked(const char * m3u_path, const char * song_path) {
     FILE * f = fopen(m3u_path, "r");
     if (!f) return false;
 
     char line[PATH_MAX];
     bool found = false;
+    bool first = true;
     while (fgets(line, sizeof(line), f)) {
+        if (first && library_utf8_bom_skip(line) == 3) memmove(line, line + 3, strlen(line + 3) + 1);
+        first = false;
         library_trim_eol(line);
         if (line[0] == '\0') continue;
 
@@ -445,56 +453,28 @@ bool playlist_files_contains(const char * m3u_path, const char * song_path) {
     return found;
 }
 
+bool playlist_files_contains(const char *m3u_path, const char *song_path) {
+    pthread_mutex_lock(&playlist_files_mutex);
+    bool found = playlist_files_contains_locked(m3u_path, song_path);
+    pthread_mutex_unlock(&playlist_files_mutex);
+    return found;
+}
+
+bool playlist_files_add_if_absent(const char *m3u_path, const char *song_path, bool *already_present) {
+    if (already_present) *already_present = false;
+    pthread_mutex_lock(&playlist_files_mutex);
+    bool found = playlist_files_contains_locked(m3u_path, song_path);
+    bool ok = found || playlist_files_append_locked(m3u_path, song_path);
+    if (found && already_present) *already_present = true;
+    pthread_mutex_unlock(&playlist_files_mutex);
+    return ok;
+}
+
+static bool playlist_files_remove_locked(const char *m3u_path, const char *song_path);
+
 bool playlist_files_remove(const char * m3u_path, const char * song_path) {
     pthread_mutex_lock(&playlist_files_mutex);
-    FILE * f = fopen(m3u_path, "r");
-    if (!f) {
-        pthread_mutex_unlock(&playlist_files_mutex);
-        return false;
-    }
-
-    char tmp_path[PATH_MAX + 8];
-    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", m3u_path);
-    FILE * out = fopen(tmp_path, "w");
-    if (!out) {
-        fclose(f);
-        pthread_mutex_unlock(&playlist_files_mutex);
-        return false;
-    }
-
-    char line[PATH_MAX];
-    while (fgets(line, sizeof(line), f)) {
-        library_trim_eol(line);
-        if (line[0] == '\0') continue; /* drop blank lines while rewriting anyway */
-
-        /* Same absolute-vs-relative resolve needed here as
-         * playlist_files_contains() -- song_path (the caller's target to
-         * remove) is always absolute, but line may now be a relative
-         * entry. */
-        char full_path[PATH_MAX];
-        playlist_files_resolve_path(m3u_path, line, full_path, sizeof(full_path));
-        if (strcmp(full_path, song_path) == 0) continue; /* the entry being removed */
-        if (fprintf(out, "%s\n", line) < 0) {
-            fclose(f);
-            fclose(out);
-            unlink(tmp_path);
-            pthread_mutex_unlock(&playlist_files_mutex);
-            return false;
-        }
-    }
-    bool ok = !ferror(f);
-    if (fclose(f) != 0) ok = false;
-    if (ok) ok = fflush(out) == 0;
-    if (ok) ok = fsync(fileno(out)) == 0;
-    if (fclose(out) != 0) ok = false;
-
-    if (ok) ok = rename(tmp_path, m3u_path) == 0;
-    if (ok) {
-        char dir_path[PATH_MAX];
-        if (dir_of(m3u_path, dir_path, sizeof(dir_path))) fsync_dir(dir_path);
-    } else {
-        unlink(tmp_path);
-    }
+    bool ok = playlist_files_remove_locked(m3u_path, song_path);
     pthread_mutex_unlock(&playlist_files_mutex);
     return ok;
 }
@@ -773,6 +753,32 @@ static bool write_entry_blocks(const char * path, const playlist_blocks_t * list
     return ok;
 }
 
+static bool delete_entries_locked(const char *path, const int *indexes, int index_count, int entry_count);
+
+static bool playlist_files_remove_locked(const char *m3u_path, const char *song_path) {
+    playlist_blocks_t list;
+    if (!read_entry_blocks(m3u_path, &list)) { free_entry_blocks(&list); return false; }
+    int *indexes = list.count ? malloc((size_t)list.count * sizeof(*indexes)) : NULL;
+    if (list.count && !indexes) { free_entry_blocks(&list); return false; }
+    int count = 0;
+    for (int i = 0; i < list.count; i++) {
+        char *block = list.blocks[i];
+        size_t end = strlen(block);
+        while (end && (block[end - 1] == '\n' || block[end - 1] == '\r')) end--;
+        block[end] = 0;
+        char *entry = strrchr(block, '\n');
+        entry = entry ? entry + 1 : block;
+        char full[PATH_MAX];
+        playlist_files_resolve_path(m3u_path, entry, full, sizeof(full));
+        if (!strcmp(full, song_path)) indexes[count++] = i;
+    }
+    int entries = list.count;
+    free_entry_blocks(&list);
+    bool ok = delete_entries_locked(m3u_path, indexes, count, entries);
+    free(indexes);
+    return ok;
+}
+
 /* Caller holds playlist_files_mutex. */
 static bool edit_entry_locked(const char * path, int from, int to) {
     if (from < 0) return false;
@@ -883,6 +889,11 @@ void playlist_files_resolve_path(const char * m3u_path, const char * line, char 
     if (!out_full_path || out_size == 0) return;
     out_full_path[0] = '\0';
     if (!line) return;
+    char normalized[PATH_MAX];
+    if (strlen(line) >= sizeof(normalized)) return;
+    strcpy(normalized, line);
+    for (char *p = normalized; *p; p++) if (*p == '\\') *p = '/';
+    line = normalized;
     if (line[0] == '/') {
         int n = snprintf(out_full_path, out_size, "%s", line);
         if (n < 0 || (size_t) n >= out_size) {

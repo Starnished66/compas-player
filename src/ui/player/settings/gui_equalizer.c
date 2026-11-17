@@ -246,7 +246,7 @@ static void eq_field_label_click_cb(lv_event_t * e) {
             break;
         case EQ_FIELD_Q:
         default:
-            title = "Q (0.1 to 10)";
+            title = TR("Q (0.1 to 10)");
             band = peq_get_band(current_eq_band);
             snprintf(buf, sizeof(buf), "%.2f", band ? band->q : 0.0);
             break;
@@ -792,7 +792,7 @@ static void populate_eq_profiles_screen(void) {
             lv_obj_set_size(delete_icon, BOARD_SCALE_PX(34), BOARD_SCALE_PX(34));
             lv_image_set_inner_align(delete_icon, LV_IMAGE_ALIGN_CONTAIN);
             lv_obj_align(delete_icon, LV_ALIGN_RIGHT_MID, -BOARD_SCALE_PX(20), 0);
-            lv_obj_set_ext_click_area(delete_icon, BOARD_SCALE_PX(6));
+            lv_obj_set_ext_click_area(delete_icon, (BOARD_MIN_TOUCH_PX - BOARD_SCALE_PX(34) + 1) / 2);
 #else
             lv_obj_align(delete_icon, LV_ALIGN_RIGHT_MID, -20, 0);
 #endif

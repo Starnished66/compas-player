@@ -8,8 +8,13 @@
 static unsigned char wire[16384];
 static size_t wire_len, cursor;
 static bool requested;
-bool __wrap_http_conn_open(http_conn_t * conn, const char * host, const char * port, bool https, bool verify) {
-    (void)host; (void)port; (void)https; (void)verify;
+bool __wrap_http_conn_open_deadline_ex(http_conn_t * conn, const char * host, const char * port,
+                                      bool https, bool verify, uint32_t connect_timeout,
+                                      uint32_t read_timeout, struct http_cancel_token * cancel,
+                                      http_conn_error_t * error, uint64_t deadline) {
+    (void)host; (void)port; (void)https; (void)verify; (void)connect_timeout;
+    (void)read_timeout; (void)cancel; (void)deadline;
+    if (error) *error = HTTP_CONN_OK;
     memset(conn, 0, sizeof(*conn)); conn->net.fd = -1; cursor = 0;
     return true;
 }
@@ -68,7 +73,7 @@ int main(void) {
     uint64_t previous_id = 0;
     for (int mode = 0; mode < 3; ++mode) {
         response(mode == 1, mode < 2);
-        http_stream_t * stream = http_stream_open("http://station.test/live", true, true);
+        http_stream_t * stream = http_stream_open("http://station.test/live", true, true, 0);
         assert(stream && requested && !http_stream_can_seek(stream));
         unsigned char audio[64]; size_t n = http_stream_read(stream, audio, sizeof(audio));
         assert(n == 16 && !memcmp(audio, "ABCDEFGHIJKLMNOP", 16));
@@ -86,13 +91,13 @@ int main(void) {
         assert(!http_stream_metadata_for_url("http://station.test/live", &state));
     }
     wire_len = (size_t)sprintf((char *)wire, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-3/4\r\nContent-Length: 4\r\nicy-metaint: 0\r\n\r\nABCD");
-    http_stream_t * song = http_stream_open("https://server.test/rest/stream.view?id=1", true, false);
+    http_stream_t * song = http_stream_open("https://server.test/rest/stream.view?id=1", true, false, 0);
     assert(song && !requested && http_stream_can_seek(song) && http_stream_length(song) == 4);
     http_stream_close(song);
     const char * invalid[] = { "no", "4294967296", "-1" };
     for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
         wire_len = (size_t)sprintf((char *)wire, "HTTP/1.1 200 OK\r\nicy-metaint: %s\r\n\r\n", invalid[i]);
-        assert(!http_stream_open("http://station.test/live", true, true));
+        assert(!http_stream_open("http://station.test/live", true, true, 0));
     }
     puts("ICY parsing, chunk and read boundaries, audio stripping and stream lifetime passed");
 }

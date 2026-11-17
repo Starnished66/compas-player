@@ -115,6 +115,9 @@ static metadata_db_album_sort_t requested_album_sort(void) {
 }
 
 metadata_db_album_sort_t effective_album_sort(void) {
+    /* The Albums Rating view owns an asynchronous canonical-rank snapshot.
+     * Until it lands, the ordinary NAME order is the matching safe fallback. */
+    if (albums_rating_mode()) return METADATA_DB_ALBUM_SORT_NAME;
     metadata_db_album_sort_t sort = requested_album_sort();
     return metadata_db_album_sort_available(sort) ? sort :
         (metadata_db_album_sort_t)(sort & METADATA_DB_ALBUM_SORT_REVERSE);
@@ -617,7 +620,14 @@ typedef const char * (*az_index_name_of_t)(int display_index);
  * pointer-indev lookup. Keep this wrapper for the existing public callback. */
 static bool az_index_strip_allowed(lv_obj_t * list) {
     if (list == all_songs_list && all_songs_rating_mode()) return false;
-    return list != albums_list || (effective_album_sort() & ~METADATA_DB_ALBUM_SORT_REVERSE) == METADATA_DB_ALBUM_SORT_NAME;
+    if (list != albums_list) return true;
+    if (albums_rating_mode()) return false;
+    metadata_db_album_sort_t requested = requested_album_sort();
+    if ((requested & ~METADATA_DB_ALBUM_SORT_REVERSE) == METADATA_DB_ALBUM_SORT_NAME) return true;
+    bool available;
+    if (!metadata_db_try_album_sort_available(requested, &available)) return false;
+    if (!available) return true; /* effective_album_sort() falls back to name */
+    return false;
 }
 
 void poll_az_index_drag(lv_timer_t * timer) {
@@ -636,7 +646,15 @@ bool resolve_album_display_row(int index, group_row_t * out) {
         if (!library_search_try_map_filtered_row(SEARCH_BINDING_ALBUMS, index, &canonical)) return false;
         return metadata_db_get_albums_page_filtered(NULL, canonical, 1, out) == 1;
     }
+    if (albums_rating_mode()) {
+        if (albums_rating_active()) return albums_rating_resolve_row(index, out);
+        if (albums_rating_snapshot_loaded()) return false; /* stale header offsets must not select another album */
+    }
     return resolve_album_sorted_row(index, out);
+}
+
+int gui_library_albums_paged_total(int normal_count) {
+    return albums_rating_mode() && albums_rating_active() ? albums_rating_total() : normal_count;
 }
 
 static lv_obj_t * search_az_strip_for_screen(lv_obj_t *screen) {
@@ -712,9 +730,7 @@ void gui_library_apply_sorting(gui_library_sort_scope_t scope) {
         file_browser_set_sort_mode((file_browser_sort_mode_t) current_settings.file_sort_mode);
     } else if (scope == GUI_LIBRARY_SORT_ALBUMS && albums_list) {
         if (library_search_is_active(SEARCH_BINDING_ALBUMS)) search_close_if_active_for_screen(albums_screen);
-        int artists = 0, album_artists = 0, albums = 0;
-        metadata_db_get_group_counts(&artists, &album_artists, &albums);
-        compact_list_set_paged_provider(albums_list, albums_fetch_page, NULL, albums);
+        albums_rating_rearm();
         compact_list_scroll_to_index(albums_list, 0);
         library_az_index_set_reverse(albums_screen, (effective_album_sort() & METADATA_DB_ALBUM_SORT_REVERSE) != 0);
         lv_obj_t * az_strip = library_az_index_strip_for_screen(albums_screen);
@@ -787,7 +803,7 @@ static void apply_now_playing_indicator_result(const now_playing_lookup_result_t
     if (albums_list) {
         int display_row = library_search_showing_results(SEARCH_BINDING_ALBUMS)
             ? library_search_find_filtered_row(SEARCH_BINDING_ALBUMS, album_row)
-            : album_sorted_row;
+            : albums_rating_active() ? albums_rating_display_row(album_row) : album_sorted_row;
         compact_list_set_now_playing(albums_list, display_row);
     }
     if (album_artist_list)
@@ -918,11 +934,12 @@ void refresh_library_lists_in_place(void) {
     all_songs_rearm();
     songs_play_bar_refresh(all_songs_list, &all_songs_bar, PLAY_ALL_SOURCE_ALL_SONGS);
     rearm_library_list(artists_list, artists_fetch_page, artist_count);
-    rearm_library_list(albums_list, albums_fetch_page, album_count);
+    if (albums_rating_mode()) albums_rating_rearm();
+    else rearm_library_list(albums_list, albums_fetch_page, album_count);
     rearm_library_list(album_artist_list, album_artists_fetch_page, album_artist_count);
     rearm_library_list(recently_added_list, recently_added_fetch_page, song_count);
     songs_play_bar_refresh(recently_added_list, &recent_bar, PLAY_ALL_SOURCE_RECENTLY_ADDED);
-    rearm_library_list(genres_list, genres_fetch_page, count_genres_from_database());
+    gui_library_genre_count_refresh();
     rearm_genre_browse_lists();
     refresh_targeted_nested_views();
 }
@@ -1553,6 +1570,11 @@ static void library_teardown_diag_end(void) {
     library_diag_fd = -1;
 }
 
+static void teardown_rating_lists(void) {
+    all_songs_rating_teardown();
+    albums_rating_teardown();
+}
+
 void gui_library_teardown(void) {
     favorite_albums_teardown();
     pthread_mutex_lock(&now_playing_lookup_mutex);
@@ -1641,7 +1663,7 @@ void gui_library_teardown(void) {
      * clearing them; the component never dereferences them here. */
     library_thumbnails_forget_list(files_search_list);
     library_thumbnails_forget_list(group_songs_search_list);
-    all_songs_rating_teardown();
+    teardown_rating_lists();
     library_thumbnails_forget_list(all_songs_list);
     library_thumbnails_forget_list(recently_added_list);
     library_thumbnails_forget_list(artists_list);
@@ -1708,7 +1730,7 @@ void gui_library_start_boot_thumbnail_warmup(void) {
 bool gui_library_has_background_work(void) {
     library_thumbnail_status_t thumbnails;
     library_thumbnails_get_status(&thumbnails);
-    return gui_folder_actions_busy() || library_rescan_active ||
+    return gui_folder_actions_busy() || library_rescan_active || library_rescan_success_pending ||
            album_load_job || album_load_pending || thumbnails.lazy_active ||
            thumbnails.warmup_active || thumbnails.cover_active || gui_library_sd_format_is_active() || library_search_has_active_job() ||
            remote_collection_busy() || (group_probe_job && !track_probe_job_done(group_probe_job));
@@ -1718,10 +1740,8 @@ bool gui_library_navigation_blocked(void) {
     /* These operations use a modal progress/completion screen. Thumbnail
      * decoding, post-scan cache warming, and search are deliberately absent:
      * they are cancellable/optional workers and do not own the active screen. */
-    bool cover_reload = library_rescan_active &&
-        (library_rescan_mode == LIBRARY_RESCAN_REFRESH_COVERS_ALL ||
-         library_rescan_mode == LIBRARY_RESCAN_REFRESH_COVERS_ALBUM);
-    return gui_folder_actions_busy() || cover_reload || gui_library_sd_format_is_active();
+    return gui_folder_actions_busy() || library_rescan_active || library_rescan_success_pending ||
+           gui_library_sd_format_is_active();
 }
 
 void gui_library_prepare_for_ui_reload(bool preserve_artwork) {

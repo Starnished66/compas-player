@@ -64,6 +64,8 @@ void gui_library_apply_sorting(gui_library_sort_scope_t scope);
 /* The Albums list as Cover Flow reuses it. The page is in the Albums screen's order
  * (rows have the album, its album artist and, as identity, a song for the cover). */
 int albums_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
+/* Full displayed Albums row count, including rating section headers when active. */
+int gui_library_albums_paged_total(int normal_count);
 void gui_library_open_albums(void);
 /* An album by name and album artist: open it, or its long-press menu. Nothing if it is gone. */
 void gui_library_open_album(const char * name, const char * album_artist);

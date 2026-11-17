@@ -9,6 +9,7 @@
 #include "gui_settings_internal.h"
 
 static lv_obj_t * settings_usb_dac_charging_switch;
+static lv_obj_t * charge_limit_switch, *safe_charge_switch, *charge_led_switch;
 static lv_obj_t * settings_usb_dac_charging_row;
 #if BOARD_R1_HARDWARE
 static void usb_dac_charging_switch_event_cb(lv_event_t * e);
@@ -63,7 +64,7 @@ static void sleep_timer_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     bool active = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
     quick_drawer_sleep_timer_set_active(active);
-    sleep_timer_apply_visibility(active);
+    gui_settings_sync_sleep_timer_toggle();
 }
 
 /* This only sets the duration the quick-drawer sleep icon/enable toggle
@@ -279,8 +280,16 @@ static void build_idle_timeout_controls(lv_obj_t * content) {
     });
 }
 
+static void idle_shutdown_loaded_cb(lv_event_t *e) {
+    (void)e;
+    setting_slider_sync(&idle_shutdown_ui, current_settings.idle_shutdown_enabled, idle_shutdown_minutes_to_step_index(current_settings.idle_shutdown_minutes));
+    idle_action_apply_selection(current_settings.idle_suspend_enabled);
+    ui_set_greyed(idle_action_section, !current_settings.idle_shutdown_enabled);
+}
+
 static lv_obj_t * build_idle_shutdown_screen(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_add_event_cb(scr, idle_shutdown_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
     build_screen_header(scr, TR("Idle shutdown"), generic_back_cb, NULL, NULL);
@@ -323,18 +332,27 @@ static void idle_shutdown_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) nav_push(idle_shutdown_screen);
 }
 
+static void power_screen_loaded_cb(lv_event_t *e) {
+    (void)e;
+    lv_obj_set_state(charge_limit_switch, LV_STATE_CHECKED, current_settings.charge_limiter_enabled);
+    lv_obj_set_state(safe_charge_switch, LV_STATE_CHECKED, current_settings.safe_charging_enabled);
+    lv_obj_set_state(charge_led_switch, LV_STATE_CHECKED, current_settings.led_indicator_enabled);
+    gui_settings_sync_usb_dac_charging_toggle();
+}
+
 static lv_obj_t * build_settings_power_screen(void) {
     lv_obj_t * list;
     lv_obj_t * scr = build_subsonic_list_screen(TR("Power"), NULL, &list);
+    lv_obj_add_event_cb(scr, power_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     add_pill_chevron_row(list, TR("Idle shutdown"), idle_shutdown_row_cb);
     add_section_header(list, TR("Charging"));
     pill_list_item_t items[] = {
         { TR("Charge limit (85%)"), PILL_ACCESSORY_TOGGLE,
-          current_settings.charge_limiter_enabled, NULL, charge_limiter_switch_event_cb, NULL },
+          current_settings.charge_limiter_enabled, NULL, charge_limiter_switch_event_cb, NULL, &charge_limit_switch },
         { TR("Safe charging (500mA)"), PILL_ACCESSORY_TOGGLE,
-          current_settings.safe_charging_enabled, NULL, safe_charging_switch_event_cb, NULL },
+          current_settings.safe_charging_enabled, NULL, safe_charging_switch_event_cb, NULL, &safe_charge_switch },
         { TR("LED charge indicator"), PILL_ACCESSORY_TOGGLE,
-          current_settings.led_indicator_enabled, NULL, led_indicator_switch_event_cb, NULL },
+          current_settings.led_indicator_enabled, NULL, led_indicator_switch_event_cb, NULL, &charge_led_switch },
 #if BOARD_R1_HARDWARE
         {
             .label = TR("Disable charging\nin USB DAC mode"),
@@ -402,4 +420,5 @@ void gui_settings_sync_sleep_timer_toggle(void) {
     bool active = quick_drawer_sleep_timer_is_active();
     lv_obj_set_state(sleep_timer_ui.toggle, LV_STATE_CHECKED, active);
     sleep_timer_apply_visibility(active);
+    setting_slider_set_index(&sleep_timer_ui, sleep_timer_minutes_to_step_index(current_settings.sleep_timer_minutes));
 }

@@ -223,4 +223,8 @@ bool subsonic_get_lyrics(const subsonic_server_t * server, const char * song_id,
                          const char * artist, const char * title, char ** text,
                          bool * synced, http_cancel_token_t * cancel);
 
+/* Captures the selected server policy; reads are thread-safe. */
+void subsonic_stream_policy_set(const char *base_url, bool verify_tls);
+bool subsonic_stream_verify_tls(const char *url);
+
 #endif /* SUBSONIC_CLIENT_H */

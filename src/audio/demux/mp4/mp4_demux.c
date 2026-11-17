@@ -245,7 +245,7 @@ static bool parse_stsd(mp4_demux_t * d, box_header_t stsd) {
          * structure, not a plain sub-box). */
         for (uint32_t pos = 0; pos + 8 <= config_region_size;) {
             uint32_t box_size = audio_read_u32be(config_region + pos);
-            if (box_size < 8 || pos + box_size > config_region_size) break;
+            if (box_size < 8 || box_size > config_region_size - pos) break;
 
             if (memcmp(config_region + pos + 4, "esds", 4) == 0) {
                 uint32_t p = pos + 8 + 4; /* box header(8) + FullBox version/flags(4) */

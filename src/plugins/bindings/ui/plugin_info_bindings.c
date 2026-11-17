@@ -20,7 +20,7 @@ static const char * const plugin_capabilities[] = {
     "ui.music_layout", "ui.quick_drawer_layout",
     "ui.progress", "network.http.download_progress", "ui.list", "ui.settings", "ui.row_width", "ui.text_input", "ui.confirmation", "ui.toast", "ui.screenshot", "ui.theme",
     "filesystem.sd", "filesystem.realpath", "playback.control", "playback.state", "playback.events",
-    "library.artist_albums", "library.paged", "library.album_cover", "network.http.sync", "network.http.async",
+    "library.artist_albums", "library.paged", "library.album_cover", "network.http.async",
     "network.http.download", "filesystem.mkdir", "crypto.md5", "audio.peq", "data.json",
     "storage.namespaced", "storage.secrets", "playback.remote", "playback.remote_resolve", "filesystem.playlists", "library.refresh",
     "ui.home_layout", "ui.theme_refresh", "ui.reload", "ui.home_tiles", "ui.launcher_layout",

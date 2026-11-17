@@ -445,6 +445,19 @@ bool metadata_db_try_get_generation(int32_t * out_generation) {
     return true;
 }
 
+bool metadata_db_try_get_incarnation(uint32_t *out_incarnation) {
+    if (!out_incarnation) return false;
+    if (!metadata_db_query_try_lock()) return false;
+    *out_incarnation = metadata_db_db_incarnation;
+    metadata_db_query_unlock();
+    return true;
+}
+
+uint32_t metadata_db_get_incarnation(void) {
+    METADATA_DB_GUARD;
+    return metadata_db_db_incarnation;
+}
+
 bool metadata_db_try_get_catalog_library_id(char * out_id, size_t out_size) {
     if (!out_id || out_size == 0) return false;
     out_id[0] = '\0';
@@ -540,6 +553,9 @@ bool metadata_db_get(const char * path, int64_t mtime, int64_t size, cached_tags
      * track/disc slots at zero. New scans persist -1 for a genuinely absent
      * tag, so zero/zero is an unambiguous one-time upgrade miss. */
     if ((song.track_number == 0 && song.disc_number == 0) || song.release_year == 0) return false;
+    size_t album_length = strlen(song.album);
+    if (album_length > 0 && (song.album[album_length - 1] == ' ' ||
+                             song.album[album_length - 1] == '\t')) return false;
     copy_tags(&song, out);
     return true;
 }
@@ -557,16 +573,45 @@ bool metadata_db_put(const char * path, int64_t mtime, int64_t size, const cache
                                  tags->album_artist, tags->genre, tags->track_number, tags->disc_number,
                                  tags->release_year, &tags_changed);
     int32_t rating = 0, playcount = 0, last_played = 0;
-    if (remote_state_take(path, &rating, &playcount, &last_played))
+    if (remote_state_get(path, &rating, &playcount, &last_played))
         tagcache_overlay_stats(path, rating, playcount, last_played);
     return tags_changed;
+}
+
+static void migrate_sidecar_stats(void) {
+    int pending_count = 0;
+    remote_state_rating_t *pending = remote_state_list_prefix("", &pending_count);
+    int32_t (*tuples)[3] = pending_count ? calloc((size_t)pending_count, sizeof(*tuples)) : NULL;
+    bool *migrated = pending_count && tuples ? calloc((size_t)pending_count, sizeof(*migrated)) : NULL;
+    bool stats_flushed = migrated && tagcache_flush_numeric();
+    for (int i = 0; pending && tuples && stats_flushed && i < pending_count; i++) {
+        if (!remote_state_get(pending[i].path, &tuples[i][0], &tuples[i][1], &tuples[i][2])) continue;
+        migrated[i] = tagcache_set_stats(pending[i].path, tuples[i][0], tuples[i][1], tuples[i][2]);
+        if (!migrated[i]) {
+            stats_flushed = tagcache_flush_numeric();
+            if (stats_flushed)
+                migrated[i] = tagcache_set_stats(pending[i].path, tuples[i][0], tuples[i][1], tuples[i][2]);
+        }
+        /* Leave headroom for other numeric producers and retry a full queue. */
+        if (stats_flushed && (i + 1) % 32 == 0) stats_flushed = tagcache_flush_numeric();
+    }
+    stats_flushed = stats_flushed && tagcache_flush_numeric();
+    if (stats_flushed) remote_state_remove_matches(pending, tuples, migrated, pending_count);
+    for (int i = 0; pending && i < pending_count; i++) free(pending[i].path);
+    free(migrated);
+    free(tuples);
+    free(pending);
 }
 
 bool metadata_db_end_update(void) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;
     if (!metadata_db_db_ready) return false;
+    /* Sidecar values remain durable until the scan publishes. After a
+     * successful commit we migrate the latest tuple to the published rows;
+     * cancellation or publication failure leaves the sidecar untouched. */
     bool ok = tagcache_end_update_with_lock(metadata_query_unlock, metadata_query_lock);
+    if (ok) migrate_sidecar_stats();
     display_song_cache_invalidate();
     capture_tagcache_outcome(true);
     if (ok && catalog_library_id_force_rotation && metadata_db_catalog_identity_prepare())

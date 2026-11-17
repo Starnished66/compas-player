@@ -234,7 +234,7 @@ bool mseb_process(int16_t * samples, size_t frames, int channels, unsigned int r
         float frame[2]={0};
         for(int ch=0;ch<channels;++ch) frame[ch]=(float)samples[i*(size_t)channels+ch];
         process_frame(frame,channels,-32768.0f,32767.0f);
-        for(int ch=0;ch<channels;++ch) samples[i*(size_t)channels+ch]=(int16_t)fmaxf(-32768,fminf(32767,frame[ch]));
+        for(int ch=0;ch<channels;++ch) samples[i*(size_t)channels+ch]=(int16_t)lrintf(fmaxf(-32768,fminf(32767,frame[ch])));
     }
     return true;
 }
@@ -245,7 +245,7 @@ bool mseb_process_s32(int32_t * samples, size_t frames, int channels, unsigned i
         float frame[2]={0};
         for(int ch=0;ch<channels;++ch) frame[ch]=(float)samples[i*(size_t)channels+ch];
         process_frame(frame,channels,-8388608.0f,8388607.0f);
-        for(int ch=0;ch<channels;++ch) samples[i*(size_t)channels+ch]=(int32_t)fmaxf(-8388608,fminf(8388607,frame[ch]));
+        for(int ch=0;ch<channels;++ch) samples[i*(size_t)channels+ch]=(int32_t)lrintf(fmaxf(-8388608,fminf(8388607,frame[ch])));
     }
     return true;
 }

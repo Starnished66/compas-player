@@ -85,6 +85,7 @@ typedef struct {
     bool mono_audio;             /* Fold stereo to mono across all PCM playback. */
     float volume;              /* 0.0 - 1.0 */
     char last_track[512];      /* absolute path, empty if none */
+    struct { char path[512]; int scroll; } book_positions[16];
     double last_position;      /* seconds into last_track */
     int last_source_kind;      /* 0 = unknown/filesystem, 1 = All Songs, 2 = album */
     char last_source_name[128];/* album title when last_source_kind == 2 */
@@ -349,7 +350,7 @@ typedef struct {
     bool join_albums; /* opt-in: album artists sharing an album and folder show as "Various Artists" when the library is published */
     int file_sort_mode; /* 0 Name, 1 Newest Modified; directories stay first. */
     bool file_sort_reverse;
-    int album_sort_mode; /* 0 Name, 1 Recently Added, 2 Release Year, 3 Album Artist then Year (oldest first). */
+    int album_sort_mode; /* 0 Name, 1 Recently Added, 2 Release Year, 3 Album Artist then Year, 8 Rating (highest first). */
     bool album_sort_reverse;
     bool all_songs_sort_reverse;
     int all_songs_sort_mode; /* 0: title, 1: rating. */
@@ -555,6 +556,10 @@ void settings_save_drain(void);
  * saves, then waits for the newest queued snapshot and any active write to
  * finish. Call before deleting settings or exiting the process. */
 void settings_shutdown_flush(void);
+/* UI snapshot/latch followed by worker-only drain. */
+bool settings_shutdown_start(void);
+bool settings_shutdown_wait(void);
+bool settings_shutdown_ready(void);
 
 /* Reopen settings persistence after an aborted terminal transition. Call only
  * after settings_shutdown_flush() has returned and the terminal action failed. */
@@ -569,6 +574,8 @@ void settings_subsonic_server_upsert(player_settings_t * settings, const char * 
  * in /usr/data except the "mnt" directory (the SD card mount point), then
  * reboots into default settings. Host builds remove only the settings files. */
 void settings_factory_reset(void);
+/* Terminal worker only, after shutdown persistence has completed. */
+void settings_factory_reset_commit(void);
 
 
 extern player_settings_t current_settings;

@@ -159,7 +159,6 @@ static void play_track_at_from_internal(int index, double start_seconds, bool pu
      * has established the generation ReplayGain must belong to. */
     prepare_track_metadata(index, true, false, false, false);
     clear_selection_metadata_seed();
-    track_metadata_count_play(path);
     if (local) audio_play_file_at_with_replaygain_mode(path, start_seconds, current_settings.replaygain_mode);
     else {
         bool has_gain, has_peak;
@@ -340,6 +339,7 @@ void gui_player_set_crossfade_enabled(bool enabled) {
      * switched it back on. Done here rather than in each caller so no entry
      * point can forget one of them. */
     gui_settings_sync_gapless_toggle();
+    gui_settings_sync_crossfade_toggle();
     gui_shell_refresh_quick_drawer_expansion_toggles();
 }
 

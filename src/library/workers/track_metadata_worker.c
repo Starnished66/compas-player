@@ -21,7 +21,7 @@ static bool completed_valid[TRACK_METADATA_LANES];
 static uint64_t latest[TRACK_METADATA_LANES];
 static char * play_events[PLAY_EVENT_CAPACITY];
 static unsigned play_head, play_count;
-static bool serviced_metadata;
+static bool serviced_metadata, play_inflight;
 
 static bool make_display_hint(track_metadata_result_t * result) {
     track_metadata_request_t * request = &result->request;
@@ -62,6 +62,28 @@ static bool make_display_hint(track_metadata_result_t * result) {
     return true;
 }
 
+/* Enters with mutex held and returns unlocked, including during the DB write. */
+static void process_play_event(void) {
+    serviced_metadata = false;
+    char *path = play_events[play_head];
+    play_head = (play_head + 1) % PLAY_EVENT_CAPACITY;
+    --play_count;
+    play_inflight = true;
+    pthread_mutex_unlock(&mutex);
+    metadata_db_song_play_count_increment(path);
+    free(path);
+    pthread_mutex_lock(&mutex);
+    play_inflight = false;
+    pthread_mutex_unlock(&mutex);
+}
+
+bool track_metadata_history_ready(void) {
+    pthread_mutex_lock(&mutex);
+    bool drained = !play_count && !play_inflight;
+    pthread_mutex_unlock(&mutex);
+    return drained;
+}
+
 static void * worker(void * unused) {
     (void) prctl(PR_SET_NAME, "track_meta");
     (void) unused;
@@ -75,13 +97,7 @@ static void * worker(void * unused) {
                    pending_valid[TRACK_METADATA_RATING] ? TRACK_METADATA_RATING :
                    pending_valid[TRACK_METADATA_POPUP] ? TRACK_METADATA_POPUP : -1;
         if (play_count && (lane < 0 || (serviced_metadata && lane != TRACK_METADATA_NEXT))) {
-            serviced_metadata = false;
-            char * path = play_events[play_head];
-            play_head = (play_head + 1) % PLAY_EVENT_CAPACITY;
-            --play_count;
-            pthread_mutex_unlock(&mutex);
-            metadata_db_song_play_count_increment(path);
-            free(path);
+            process_play_event();
             continue;
         }
         serviced_metadata = true;

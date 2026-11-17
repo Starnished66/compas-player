@@ -44,62 +44,6 @@ static const char * require_plugin_id(lua_State * L) {
     return inst->id;
 }
 
-/* plugin.http_get(url [, verify_tls]) -> status, body | nil, "network error"
- * -- bridges http_client.c's http_get_to_buffer() directly (no gui.c layer,
- * same reasoning as plugin.eq_*() (plugin_playback_bindings.c): no LVGL/gui-state dependency).
- * body is pushed with lua_pushlstring() (exact byte count), not
- * lua_pushstring(), since a response body isn't guaranteed NUL-free. Runs
- * synchronously on the calling (main UI) thread -- see this file's own
- * compas-plugins/PLUGINS.md for the blocking caveat. */
-static int l_plugin_http_get(lua_State * L) {
-    const char * url = luaL_checkstring(L, 1);
-    bool verify_tls = lua_gettop(L) >= 2 ? lua_toboolean(L, 2) : true;
-
-    int status = 0;
-    uint8_t * body = NULL;
-    size_t body_size = 0;
-    bool ok = http_get_to_buffer(url, verify_tls, &status, &body, &body_size);
-    if (!ok) {
-        return plugin_lua_push_error(L, "network error");
-    }
-
-    lua_pushinteger(L, status);
-    lua_pushlstring(L, (const char *) body, body_size);
-    free(body);
-    return 2;
-}
-
-/* plugin.http_post(url, body [, content_type] [, verify_tls]) -> status,
- * body | nil, "network error" -- same contract/shape as l_plugin_http_get()
- * above, bridging http_client.c's new http_post_to_buffer(). body is read
- * with luaL_checklstring() (not luaL_checkstring()) since a POST body isn't
- * guaranteed NUL-free either (e.g. a binary payload), same reasoning as the
- * response body's own lua_pushlstring() below. content_type defaults to
- * "application/x-www-form-urlencoded" (what most simple API POSTs,
- * including Last.fm's, expect) when omitted or nil. */
-static int l_plugin_http_post(lua_State * L) {
-    const char * url = luaL_checkstring(L, 1);
-    size_t body_len = 0;
-    const char * body = luaL_checklstring(L, 2, &body_len);
-    const char * content_type =
-        (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) ? luaL_checkstring(L, 3) : "application/x-www-form-urlencoded";
-    bool verify_tls = lua_gettop(L) >= 4 ? lua_toboolean(L, 4) : true;
-
-    int status = 0;
-    uint8_t * resp_body = NULL;
-    size_t resp_body_size = 0;
-    bool ok = http_post_to_buffer(url, verify_tls, content_type, (const uint8_t *) body, body_len, &status,
-                                   &resp_body, &resp_body_size);
-    if (!ok) {
-        return plugin_lua_push_error(L, "network error");
-    }
-
-    lua_pushinteger(L, status);
-    lua_pushlstring(L, (const char *) resp_body, resp_body_size);
-    free(resp_body);
-    return 2;
-}
-
 /* plugin.md5(text) -> lowercase hex string -- thin wrapper around
  * mbedtls_md5(), already vendored and already used exactly this way in
  * subsonic_client.c's own token-auth code, so no new dependency. Needed for
@@ -550,8 +494,6 @@ const luaL_Reg plugin_system_funcs[] = {
     { "led_get",                   l_plugin_led_get },
     { "led_status",                l_plugin_led_status },
     { "led_release",               l_plugin_led_release },
-    { "http_get",                  l_plugin_http_get },
-    { "http_post",                 l_plugin_http_post },
     { "md5",                       l_plugin_md5 },
     { "library_album_cover_async", l_plugin_library_album_cover_async },
     { "refresh_library",           l_plugin_refresh_library },

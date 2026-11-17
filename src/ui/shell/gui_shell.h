@@ -62,7 +62,6 @@ void gui_shell_teardown(void);
 void gui_shell_refresh_static_assets(void);
 void refresh_clock_label(void);
 void refresh_battery_topbar(void);
-void gui_shell_set_library_scan_indicator(bool active);
 void refresh_volume_topbar(int32_t percent);
 void gui_shell_apply_topbar_settings(void);
 void quick_drawer_mark_snapshot_dirty(void);

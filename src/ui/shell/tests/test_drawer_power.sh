@@ -19,6 +19,6 @@ gcc -std=c11 -D_DEFAULT_SOURCE -DHOST_BUILD=1 "${board_flags[@]}" -I"$repo" -I"$
 g++ \
     "$runtime/test.o" "$runtime/main.o" "${objs[@]}" \
     "$repo/$build/libwavpack/libwavpack.a" "$repo/$build/libsndfile/libsndfile.a" \
-    -Wl,--wrap=start_power_off_countdown $(sdl2-config --libs) -lpthread -lm -ldl -o "$runtime/test"
+    $(sdl2-config --libs) -lpthread -lm -ldl -o "$runtime/test"
 cd "$runtime"
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./test

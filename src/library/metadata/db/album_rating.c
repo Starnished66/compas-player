@@ -18,7 +18,9 @@ bool album_rating_key(const char *artist, const char *album, char *out, size_t s
     memcpy(out, ALBUM_RATING_PREFIX, prefix);
     char *end = copy_name(out + prefix, artist);
     *end++ = '\t';
-    *copy_name(end, album) = 0;
+    char *album_end = copy_name(end, album);
+    while (album_end > end && album_end[-1] == ' ') album_end--;
+    *album_end = 0;
     return true;
 }
 

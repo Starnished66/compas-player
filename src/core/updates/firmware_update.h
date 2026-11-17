@@ -39,6 +39,8 @@ typedef struct {
     char error[160];
 } firmware_update_status_t;
 
+/* UI completion after recovery persistence or reboot fails. */
+void firmware_update_recovery_cancel(void);
 void firmware_update_get_status(firmware_update_status_t * out);
 bool firmware_update_busy(void);
 /* Shared atomic gate for online check/download/install and manual recovery.
@@ -55,8 +57,7 @@ bool firmware_update_start(const char * path, char * error, size_t error_size);
 /* Synchronous worker/early-boot entry. Rechecks the selected SD filename and
  * file identity, checks erase/write and verifies the recovery flag before
  * flushing and rebooting. Host builds only check the handoff path. Returns
- * false on failure; success on device does
- * not return. NAND helpers are never killed by a UI deadline; delayed status
+ * false on failure; runtime success schedules the UI persistence/reboot gate. NAND helpers are never killed by a UI deadline; delayed status
  * remains busy until they finish, preventing unsafe retries. */
 bool firmware_update_enter_recovery_for_path(const char * path);
 void firmware_update_enter_recovery(void);

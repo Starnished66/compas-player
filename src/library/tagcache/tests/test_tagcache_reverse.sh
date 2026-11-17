@@ -9,7 +9,9 @@ cc=${CC:-cc}
     "$repo/src/library/tagcache/tests/test_tagcache_reverse.c" \
     "$repo"/src/library/tagcache/core/tagcache*.c \
     "$repo/src/library/tagcache/reader/tagcache_reader.c" \
+    "$repo/src/library/metadata/db/metadata_db_library_lists.c" \
     "$repo/src/library/metadata/db/metadata_db_browse.c" \
+    "$repo/src/library/metadata/db/album_rating.c" \
     "$repo/src/core/text/utf8_util.c" \
     "$repo/src/core/system/logging/db_log.c" \
     -Wl,--gc-sections -o "$out"

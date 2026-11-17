@@ -1,5 +1,6 @@
 #include "metadata_db_internal.h"
 #include "../../title_order.h"
+#include "../../remote/remote_state.h"
 
 #include "../../../core/text/utf8_util.h"
 
@@ -22,6 +23,22 @@ static uint32_t genre_cache_incarnation;
 static int32_t genre_cache_generation;
 static int genre_cache_order_version;
 
+typedef struct {
+    char genre[METADATA_DB_TEXT_MAX], artist[METADATA_DB_TEXT_MAX];
+    metadata_db_group_kind_t kind, artist_kind;
+    uint32_t incarnation;
+    int32_t generation;
+    group_row_t *rows;
+    int count;
+    bool valid;
+} genre_song_cache_t;
+static genre_song_cache_t genre_song_cache;
+
+static void genre_song_cache_clear(genre_song_cache_t *cache) {
+    free(cache->rows);
+    memset(cache, 0, sizeof(*cache));
+}
+
 /* Caller holds the database guard. */
 void metadata_db_genre_cache_free(void) {
     for (int i = 0; i < genre_cache_count; i++) free(genre_cache[i].name);
@@ -29,6 +46,7 @@ void metadata_db_genre_cache_free(void) {
     genre_cache = NULL;
     genre_cache_count = 0;
     genre_cache_valid = false;
+    genre_song_cache_clear(&genre_song_cache);
 }
 /* Tagcache group for a browse kind; GENRE has no tagcache group and maps to ARTIST. */
 static int group_kind_to_tc(metadata_db_group_kind_t kind) {
@@ -42,7 +60,9 @@ static bool is_artist_kind(metadata_db_group_kind_t kind) {
 }
 
 static bool album_sort_valid(metadata_db_album_sort_t sort) {
-    return sort >= METADATA_DB_ALBUM_SORT_NAME && sort <= (METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR | METADATA_DB_ALBUM_SORT_REVERSE);
+    return sort == METADATA_DB_ALBUM_SORT_RATING ||
+           (sort >= METADATA_DB_ALBUM_SORT_NAME && sort <=
+            (METADATA_DB_ALBUM_SORT_ALBUM_ARTIST_YEAR | METADATA_DB_ALBUM_SORT_REVERSE));
 }
 
 /* FNV-1a over the ASCII-case-folded bytes of s, continuing from hash. */
@@ -94,83 +114,120 @@ int metadata_db_get_songs_page_by_recency(int offset, int max_rows, song_row_t *
     return w;
 }
 
-/* Caller holds the database guard. Builds the distinct-genre list when the
- * cached one is missing or stale; false (and no cache) if allocation fails. */
-static bool genre_cache_ensure(void) {
-    int32_t generation = tagcache_generation();
-    int order_version = tagcache_title_order_version();
-    if (genre_cache_valid && genre_cache_incarnation == metadata_db_db_incarnation &&
-        genre_cache_generation == generation && genre_cache_order_version == order_version) return true;
-    metadata_db_genre_cache_free();
+/* Builds outside the caller guard, releasing it between bounded batches. */
+enum { GENRE_LIMIT = 2000, GENRE_HASH_SIZE = 4096 };
+typedef struct { genre_entry_t *groups; int *slots; int used; bool failed; bool complete; } genre_cache_build_t;
 
-    enum { GENRE_LIMIT = 2000, GENRE_HASH_SIZE = 4096 };
-    genre_entry_t * groups = calloc(GENRE_LIMIT, sizeof(*groups));
-    int * slots = malloc(sizeof(*slots) * GENRE_HASH_SIZE);
-    if (!groups || !slots) { free(groups); free(slots); return false; }
-    for (int i = 0; i < GENRE_HASH_SIZE; i++) slots[i] = -1;
-    int used = 0;
-    bool ok = true;
-    /* A song that could not be read leaves the list incomplete: it still answers this
-     * call, as the per-call walk did, but is rebuilt on the next one. */
-    bool complete = true;
+static bool genre_cache_visit(const tagcache_song_t *song, void *user) {
+    genre_cache_build_t *state = user;
+    const char *name = song->genre;
+    if (!name[0]) return true;
+    uint32_t hash = fnv1a_fold(2166136261u, name);
+    unsigned bucket = hash % GENRE_HASH_SIZE;
+    while (state->slots[bucket] >= 0 &&
+           (state->groups[state->slots[bucket]].hash != hash ||
+            strcasecmp(state->groups[state->slots[bucket]].name, name) != 0))
+        bucket = (bucket + 1) % GENRE_HASH_SIZE;
+    if (state->slots[bucket] >= 0) { state->groups[state->slots[bucket]].song_count++; return true; }
+    if (state->used >= GENRE_LIMIT) return true;
+    char *copy = strdup(name);
+    if (!copy) { state->failed = true; return false; }
+    int index = state->used++;
+    state->slots[bucket] = index;
+    state->groups[index] = (genre_entry_t){ .name = copy, .first_song_id = song->id,
+                                             .song_count = 1, .hash = hash };
+    return true;
+}
+
+static bool genre_cache_build(genre_cache_build_t *build, int32_t generation, uint32_t incarnation) {
     tagcache_query_t query;
-    tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL);
-    int32_t rank;
-    while (tagcache_query_next(&query, &rank)) {
-        tagcache_song_t song;
-        if (!tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE, &song)) { complete = false; continue; }
-        if (tagcache_song_tags_incomplete(&song)) complete = false;
-        if (!song.genre[0]) continue;
-        uint32_t hash = fnv1a_fold(2166136261u, song.genre);
-        unsigned bucket = hash % GENRE_HASH_SIZE;
-        while (slots[bucket] >= 0 && (groups[slots[bucket]].hash != hash ||
-               strcasecmp(groups[slots[bucket]].name, song.genre) != 0)) bucket = (bucket + 1) % GENRE_HASH_SIZE;
-        if (slots[bucket] >= 0) { groups[slots[bucket]].song_count++; continue; }
-        if (used >= GENRE_LIMIT) continue;
-        char * name = strdup(song.genre);
-        if (!name) { ok = false; break; }
-        int index = used++;
-        slots[bucket] = index;
-        groups[index].hash = hash;
-        groups[index].name = name;
-        groups[index].song_count = 1;
-        groups[index].first_song_id = song.id;
-    }
-    free(slots);
-    if (ok) {
-        /* Sort the bounded distinct genre list alphabetically for a stable UI. */
-        for (int i = 1; i < used; i++) {
-            genre_entry_t value = groups[i];
-            int j = i;
-            while (j > 0 && utf8_collate_identity_compare(groups[j - 1].name, value.name) > 0) {
-                groups[j] = groups[j - 1];
-                j--;
+    bool begun = false, finished = false;
+    while (!finished) {
+        METADATA_DB_GUARD;
+        if (!metadata_db_db_ready || tagcache_generation() != generation ||
+            metadata_db_db_incarnation != incarnation) return false;
+        if (!begun) { tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL); begun = true; }
+        for (int step = 0; step < 64; step++) {
+            int32_t rank;
+            if (!tagcache_query_next(&query, &rank)) { finished = true; break; }
+            tagcache_song_t song;
+            if (!tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE, &song)) {
+                build->complete = false;
+                continue;
             }
-            groups[j] = value;
+            if (song.flags & FLAG_TAGS_INCOMPLETE) build->complete = false;
+            if (!genre_cache_visit(&song, build)) return false;
         }
-        genre_entry_t * compact = used > 0 ? realloc(groups, sizeof(*groups) * (size_t) used) : NULL;
-        if (used > 0 && !compact) ok = false;
-        else if (used > 0) groups = compact;
     }
+    return true;
+}
+
+static void genre_cache_sort(genre_entry_t *groups, int used) {
+    for (int i = 1; i < used; i++) {
+        genre_entry_t value = groups[i];
+        int j = i;
+        while (j > 0 && utf8_collate_identity_compare(groups[j - 1].name, value.name) > 0) {
+            groups[j] = groups[j - 1]; j--;
+        }
+        groups[j] = value;
+    }
+}
+
+static bool genre_cache_ensure(void) {
+    int32_t generation;
+    uint32_t incarnation;
+    int order_version;
+    {
+        METADATA_DB_GUARD;
+        if (!metadata_db_db_ready) return false;
+        generation = tagcache_generation();
+        incarnation = metadata_db_db_incarnation;
+        order_version = tagcache_title_order_version();
+        if (genre_cache_valid && genre_cache_incarnation == incarnation &&
+            genre_cache_generation == generation && genre_cache_order_version == order_version) return true;
+    }
+    genre_cache_build_t build = { .groups = calloc(GENRE_LIMIT, sizeof(genre_entry_t)),
+                                  .complete = true,
+                                  .slots = malloc(sizeof(int) * GENRE_HASH_SIZE) };
+    if (!build.groups || !build.slots) { free(build.groups); free(build.slots); return false; }
+    for (int i = 0; i < GENRE_HASH_SIZE; i++) build.slots[i] = -1;
+    bool walked = genre_cache_build(&build, generation, incarnation);
+    free(build.slots);
+    bool ok = walked && !build.failed;
+    int used = build.used;
+    genre_entry_t *groups = build.groups;
+    if (ok) genre_cache_sort(groups, used);
     if (!ok) {
         for (int i = 0; i < used; i++) free(groups[i].name);
         free(groups);
         return false;
     }
     if (used == 0) { free(groups); groups = NULL; }
-    genre_cache = groups;
-    genre_cache_count = used;
-    genre_cache_valid = complete;
-    genre_cache_incarnation = metadata_db_db_incarnation;
-    genre_cache_generation = generation;
-    genre_cache_order_version = order_version;
+    {
+        METADATA_DB_GUARD;
+        if (!metadata_db_db_ready || tagcache_generation() != generation ||
+            metadata_db_db_incarnation != incarnation ||
+            tagcache_title_order_version() != order_version) {
+            for (int i = 0; i < used; i++) free(groups[i].name);
+            free(groups);
+            return false;
+        }
+        metadata_db_genre_cache_free();
+        genre_cache = groups;
+        genre_cache_count = used;
+        genre_cache_valid = build.complete;
+        genre_cache_incarnation = incarnation;
+        genre_cache_generation = generation;
+        genre_cache_order_version = order_version;
+    }
     return true;
 }
 
 int metadata_db_get_genre_count(void) {
+    if (!genre_cache_ensure()) return 0;
     METADATA_DB_GUARD;
-    if (!metadata_db_db_ready || !genre_cache_ensure()) return 0;
-    return genre_cache_count;
+    return metadata_db_db_ready && genre_cache_incarnation == metadata_db_db_incarnation &&
+           genre_cache_generation == tagcache_generation() ? genre_cache_count : 0;
 }
 
 /* Caller holds METADATA_DB_GUARD. Fills up to max_rows groups from index
@@ -184,7 +241,9 @@ static int groups_page_locked(metadata_db_group_kind_t kind, int offset, int max
     if (!metadata_db_db_ready || max_rows <= 0) return strict ? -1 : 0;
     if (offset < 0) offset = 0;
     if (kind == METADATA_DB_GROUP_GENRE) {
-        if (!genre_cache_ensure()) return strict ? -1 : 0;
+        if (genre_cache_incarnation != metadata_db_db_incarnation ||
+            genre_cache_generation != tagcache_generation() ||
+            genre_cache_order_version != tagcache_title_order_version()) return strict ? -1 : 0;
         /* An incomplete list is rebuilt on the next call and may differ, so a
          * walk by *next must not page across it. */
         if (strict && !genre_cache_valid) return -1;
@@ -217,6 +276,7 @@ static int groups_page_locked(metadata_db_group_kind_t kind, int offset, int max
 }
 
 int metadata_db_get_groups_page(metadata_db_group_kind_t kind, int offset, int max_rows, group_row_t * out_rows) {
+    if (kind == METADATA_DB_GROUP_GENRE && !genre_cache_ensure()) return 0;
     METADATA_DB_GUARD;
     return groups_page_locked(kind, offset, max_rows, out_rows, NULL, false);
 }
@@ -552,12 +612,13 @@ int64_t metadata_db_count_songs_filtered(const char *needle, const char *artist,
 #define METADATA_DB_GENRE_STEP 1024
 bool metadata_db_walk_genre_songs(const char * genre, int max_songs,
                                   bool (*visit)(const song_row_t * song, void * user), void * user,
-                                  const atomic_bool * cancel) {
-    if (!genre || !genre[0] || !visit || max_songs <= 0 || strlen(genre) >= METADATA_DB_TEXT_MAX) return false;
+                                  const atomic_bool * cancel, bool *complete) {
+    if (complete) *complete = false;
+    if ((genre && (!genre[0] || strlen(genre) >= METADATA_DB_TEXT_MAX)) || !visit || max_songs <= 0) return false;
     song_row_t * batch = calloc(METADATA_DB_GENRE_BATCH, sizeof(*batch));
     if (!batch) return false;
     tagcache_query_t query;
-    bool begun = false, finished = false, ok = true;
+    bool begun = false, finished = false, ok = true, all_read = true;
     int32_t generation = 0;
     uint32_t incarnation = 0;
     int visited = 0;
@@ -578,15 +639,18 @@ bool metadata_db_walk_genre_songs(const char * genre, int max_songs,
                    steps < METADATA_DB_GENRE_STEP) {
                 if (!tagcache_query_next(&query, &rank)) { finished = true; break; }
                 steps++;
-                if (!title_rank_has_genre(rank, genre)) continue;
                 tagcache_song_t song;
-                if (tagcache_song_at_title_rank(rank, &song)) metadata_db_copy_song(&song, &batch[copied++]);
+                if (!tagcache_song_at_title_rank(rank, &song) ||
+                    (song.flags & FLAG_TAGS_INCOMPLETE)) { all_read = false; continue; }
+                if (genre && strcasecmp(song.genre, genre)) continue;
+                metadata_db_copy_song(&song, &batch[copied++]);
             }
         }
         for (int i = 0; i < copied && ok; i++) ok = visit(&batch[i], user);
         visited += copied;
     }
     free(batch);
+    if (complete) *complete = ok && finished && all_read;
     return ok;
 }
 
@@ -651,6 +715,7 @@ int metadata_db_get_albums_page_filtered(const char *filter, int offset, int max
 
 int metadata_db_group_walk_page(metadata_db_group_walk_t * walk, bool by_albums, metadata_db_group_kind_t kind,
                                 const char * album_filter, int max_rows, group_row_t * out_rows) {
+    if (!by_albums && kind == METADATA_DB_GROUP_GENRE && !genre_cache_ensure()) return -1;
     METADATA_DB_GUARD;
     if (!metadata_db_db_ready) return -1;
     int32_t generation = tagcache_generation();
@@ -670,7 +735,16 @@ int metadata_db_group_walk_page(metadata_db_group_walk_t * walk, bool by_albums,
 
 bool metadata_db_album_sort_available(metadata_db_album_sort_t sort) {
     METADATA_DB_GUARD;
-    return metadata_db_db_ready && album_sort_valid(sort) && tagcache_album_sort_available((int)sort);
+    return metadata_db_db_ready && album_sort_valid(sort) &&
+           (sort == METADATA_DB_ALBUM_SORT_RATING || tagcache_album_sort_available((int)sort));
+}
+
+bool metadata_db_try_album_sort_available(metadata_db_album_sort_t sort, bool *out_available) {
+    if (!out_available || !metadata_db_query_try_lock()) return false;
+    *out_available = metadata_db_db_ready && album_sort_valid(sort) &&
+                     (sort == METADATA_DB_ALBUM_SORT_RATING || tagcache_album_sort_available((int)sort));
+    metadata_db_query_unlock();
+    return true;
 }
 
 int metadata_db_album_canonical_to_sorted(metadata_db_album_sort_t sort, int canonical_rank) {
@@ -682,8 +756,77 @@ int metadata_db_album_canonical_to_sorted(metadata_db_album_sort_t sort, int can
     return tagcache_album_group_sorted_offset((int)sort, group.name, group.album_artist);
 }
 
+int metadata_db_get_albums_at_canonical_ranks(const int *ranks, int count, group_row_t *out_rows) {
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready || !ranks || !out_rows || count <= 0) return 0;
+    int album_count = tagcache_group_count(TAGCACHE_GROUP_ALBUM);
+    int written = 0;
+    for (int i = 0; i < count; i++) {
+        if (ranks[i] < 0 || ranks[i] >= album_count) break;
+        tagcache_group_t group;
+        if (!tagcache_group_at(TAGCACHE_GROUP_ALBUM, ranks[i], &group)) break;
+        metadata_db_copy_group(&group, &out_rows[written++]);
+    }
+    return written;
+}
+
+/* Separate from the database guard: building releases that guard between batches. */
+static pthread_mutex_t album_order_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int *album_order_ranks, album_order_count;
+static int32_t album_order_generation;
+static uint32_t album_order_incarnation;
+static unsigned album_order_revision;
+static bool album_order_valid;
+
+static bool album_order_ensure(void) {
+    uint32_t incarnation;
+    int32_t generation;
+    unsigned revision = remote_state_revision();
+    {
+        METADATA_DB_GUARD;
+        if (!metadata_db_db_ready) return false;
+        incarnation = metadata_db_db_incarnation;
+        generation = tagcache_generation();
+    }
+    if (album_order_valid && album_order_incarnation == incarnation &&
+        album_order_generation == generation && album_order_revision == revision) return true;
+    free(album_order_ranks); album_order_ranks = NULL; album_order_valid = false;
+    int sections[6];
+    if (!metadata_db_load_album_rating_order(&album_order_ranks, sections,
+                                             &album_order_count, &album_order_generation)) return false;
+    METADATA_DB_GUARD;
+    album_order_valid = metadata_db_db_ready && metadata_db_db_incarnation == incarnation &&
+        tagcache_generation() == album_order_generation && remote_state_revision() == revision;
+    album_order_incarnation = incarnation;
+    album_order_revision = revision;
+    return album_order_valid;
+}
+
+static int albums_page_by_rating(const char *artist_filter, int offset, int max_rows, group_row_t *out_rows) {
+    if (artist_filter && artist_filter[0]) return 0;
+    if (!out_rows || max_rows <= 0) return 0;
+    if (offset < 0) offset = 0;
+    pthread_mutex_lock(&album_order_mutex);
+    int written = -1;
+    if (album_order_ensure()) {
+        METADATA_DB_GUARD;
+        int requested = offset < album_order_count ? album_order_count - offset : 0;
+        if (requested > max_rows) requested = max_rows;
+        written = requested ? metadata_db_get_albums_at_canonical_ranks(
+            album_order_ranks + offset, requested, out_rows) : 0;
+        if (written != requested || !metadata_db_db_ready ||
+            metadata_db_db_incarnation != album_order_incarnation ||
+            tagcache_generation() != album_order_generation ||
+            remote_state_revision() != album_order_revision) written = -1;
+    }
+    pthread_mutex_unlock(&album_order_mutex);
+    return written;
+}
+
 int metadata_db_get_albums_page_sorted(const char *artist_filter, metadata_db_album_sort_t sort,
                                       int offset, int max_rows, group_row_t *out_rows) {
+    if (sort == METADATA_DB_ALBUM_SORT_RATING)
+        return albums_page_by_rating(artist_filter, offset, max_rows, out_rows);
     METADATA_DB_GUARD;
     if (!metadata_db_db_ready || !out_rows || max_rows <= 0 ||
         !album_sort_valid(sort)) return 0;
@@ -775,38 +918,82 @@ static void genre_group_add(genre_groups_t * g, const char * name, const char * 
     g->groups[index].first_song_id = song_id;
 }
 
+typedef struct {
+    genre_groups_t groups;
+    metadata_db_group_kind_t kind, artist_kind;
+    const char *artist;
+} genre_groups_build_t;
+
+static bool genre_groups_visit(const song_row_t *row, void *user) {
+    genre_groups_build_t *build = user;
+    tagcache_song_t song = { .id = row->id, .artist = row->tags.artist,
+        .album = row->tags.album, .album_artist = row->tags.album_artist };
+    char name[sizeof(((group_row_t *)0)->name)], second[sizeof(((group_row_t *)0)->album_artist)];
+    if (genre_group_key(build->kind, build->artist_kind, build->artist, &song, name, second))
+        genre_group_add(&build->groups, name, second, song.id);
+    return true;
+}
+
+static bool genre_groups_match(const genre_song_cache_t *cache, metadata_db_group_kind_t kind,
+                               const char *genre, metadata_db_group_kind_t artist_kind, const char *artist) {
+    return metadata_db_db_ready && cache->incarnation == metadata_db_db_incarnation &&
+        cache->generation == tagcache_generation() && cache->kind == kind && cache->artist_kind == artist_kind &&
+        !strcmp(cache->genre, genre) && !strcmp(cache->artist, artist ? artist : "");
+}
+
+static bool genre_groups_ensure(metadata_db_group_kind_t kind, const char *genre,
+                                metadata_db_group_kind_t artist_kind, const char *artist) {
+    genre_song_cache_t cache = { .kind = kind, .artist_kind = artist_kind };
+    {
+        METADATA_DB_GUARD;
+        if (genre_song_cache.valid && genre_groups_match(&genre_song_cache, kind, genre, artist_kind, artist)) return true;
+        if (!metadata_db_db_ready) return false;
+        cache.generation = tagcache_generation(); cache.incarnation = metadata_db_db_incarnation;
+    }
+    snprintf(cache.genre, sizeof(cache.genre), "%s", genre);
+    snprintf(cache.artist, sizeof(cache.artist), "%s", artist ? artist : "");
+    genre_groups_build_t build = { .kind = kind, .artist_kind = artist_kind, .artist = artist };
+    genre_groups_t *g = &build.groups;
+    g->groups = calloc(GENRE_GROUP_LIMIT, sizeof(*g->groups));
+    g->hashes = calloc(GENRE_GROUP_LIMIT, sizeof(*g->hashes));
+    g->slots = malloc(GENRE_GROUP_HASH_SIZE * sizeof(*g->slots));
+    bool ok = g->groups && g->hashes && g->slots;
+    if (ok) {
+        for (int i = 0; i < GENRE_GROUP_HASH_SIZE; i++) g->slots[i] = -1;
+        ok = metadata_db_walk_genre_songs(genre, 524288, genre_groups_visit, &build, NULL, &cache.valid);
+    }
+    free(g->hashes); free(g->slots);
+    if (ok) qsort(g->groups, (size_t)g->used, sizeof(*g->groups), genre_group_cmp);
+    {
+        METADATA_DB_GUARD;
+        ok = ok && metadata_db_db_ready && tagcache_generation() == cache.generation &&
+             metadata_db_db_incarnation == cache.incarnation;
+        if (ok) {
+            cache.rows = g->groups; cache.count = g->used;
+            genre_song_cache_clear(&genre_song_cache);
+            genre_song_cache = cache;
+        }
+    }
+    if (!ok) free(g->groups);
+    return ok;
+}
+
 int metadata_db_get_genre_groups_page(metadata_db_group_kind_t kind, const char *genre,
                                       metadata_db_group_kind_t artist_kind, const char *artist_filter,
                                       int offset, int max_rows, group_row_t *out_rows, int *out_total) {
-    METADATA_DB_GUARD;
     if (out_total) *out_total = 0;
-    if (!metadata_db_db_ready || !genre || !genre[0] || strlen(genre) >= METADATA_DB_TEXT_MAX) return 0;
+    if (!genre || !genre[0] || strlen(genre) >= METADATA_DB_TEXT_MAX ||
+        (artist_filter && strlen(artist_filter) >= METADATA_DB_TEXT_MAX)) return 0;
     if (kind != METADATA_DB_GROUP_ARTIST && kind != METADATA_DB_GROUP_ALBUM_ARTIST && kind != METADATA_DB_GROUP_ALBUM)
         return 0;
+    if (!genre_groups_ensure(kind, genre, artist_kind, artist_filter)) return 0;
+    METADATA_DB_GUARD;
+    if (!genre_groups_match(&genre_song_cache, kind, genre, artist_kind, artist_filter)) return 0;
+    if (out_total) *out_total = genre_song_cache.count;
     if (offset < 0) offset = 0;
-    genre_groups_t g = { calloc(GENRE_GROUP_LIMIT, sizeof(*g.groups)), calloc(GENRE_GROUP_LIMIT, sizeof(*g.hashes)),
-                         malloc(sizeof(*g.slots) * GENRE_GROUP_HASH_SIZE), 0 };
-    if (!g.groups || !g.hashes || !g.slots) { free(g.groups); free(g.hashes); free(g.slots); return 0; }
-    for (int i = 0; i < GENRE_GROUP_HASH_SIZE; i++) g.slots[i] = -1;
-    tagcache_query_t query;
-    tagcache_query_begin(&query, TAGCACHE_QUERY_SONGS, NULL, NULL, NULL, NULL);
-    int32_t rank;
-    while (tagcache_query_next(&query, &rank)) {
-        tagcache_song_t song;
-        char name[sizeof(g.groups[0].name)], second[sizeof(g.groups[0].album_artist)];
-        if (!tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE | TAGCACHE_FIELD_ARTIST |
-                                                    TAGCACHE_FIELD_ALBUM | TAGCACHE_FIELD_ALBUM_ARTIST, &song) ||
-            strcasecmp(song.genre, genre) != 0 ||
-            !genre_group_key(kind, artist_kind, artist_filter, &song, name, second)) continue;
-        genre_group_add(&g, name, second, song.id);
-    }
-    qsort(g.groups, (size_t) g.used, sizeof(*g.groups), genre_group_cmp);
     int written = 0;
-    for (int i = offset; i < g.used && written < max_rows; i++) out_rows[written++] = g.groups[i];
-    if (out_total) *out_total = g.used;
-    free(g.slots);
-    free(g.hashes);
-    free(g.groups);
+    while (offset < genre_song_cache.count && written < max_rows)
+        out_rows[written++] = genre_song_cache.rows[offset++];
     return written;
 }
 

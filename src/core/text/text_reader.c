@@ -1,6 +1,7 @@
 #include "text_reader.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -102,7 +103,21 @@ char * text_reader_load(const char * path, bool * out_truncated) {
     }
 
     size_t got = fread(buf, 1, read_size, f);
+    bool failed = ferror(f) != 0;
     fclose(f);
+    /* LVGL consumes UTF-8 C strings: reject binary/UTF-16 input instead of
+     * silently presenting only the prefix before the first NUL. */
+    if (failed || memchr(buf, 0, got) ||
+        (got >= 2 && (((unsigned char)buf[0] == 0xff && (unsigned char)buf[1] == 0xfe) ||
+                      ((unsigned char)buf[0] == 0xfe && (unsigned char)buf[1] == 0xff)))) {
+        free(buf);
+        errno = failed ? EIO : EILSEQ;
+        return NULL;
+    }
+    if (got >= 3 && memcmp(buf, "\xef\xbb\xbf", 3) == 0) {
+        memmove(buf, buf + 3, got - 3);
+        got -= 3;
+    }
     buf[got] = '\0';
 
     if (out_truncated) *out_truncated = truncated;
