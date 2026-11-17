@@ -13,6 +13,19 @@ static pid_t route_waitpid(pid_t pid, int *status, int options);
 #include "../bt_dac_info.c"
 #include "../bt_control_daemon.c"
 #undef waitpid
+/* Only what bt_dac_info_refresh_event reaches when a PCM is removed. */
+bool bt_pcm_path_mac(const char * path, char * mac) {
+    const char * dev = strstr(path, "dev_");
+    if (!dev || strlen(dev + 4) < 17) return false;
+    for (int i = 0; i < 17; i++) mac[i] = dev[4 + i] == '_' ? ':' : dev[4 + i];
+    mac[17] = '\0';
+    return true;
+}
+bool bt_device_info_text(const char * mac, char * out, size_t size) { (void) mac; (void) out; (void) size; return false; }
+void copy_info_field(char * dst, size_t size, const char * text, const char * key) { (void) dst; (void) size; (void) text; (void) key; }
+void bluealsa_apply_soft_volume(const char * path) { (void) path; }
+void bluealsa_clear_soft_volume_path(const char * path) { (void) path; }
+bool subprocess_run(char * const argv[], char * out_buf, size_t out_buf_size) { (void) argv; (void) out_buf; (void) out_buf_size; return false; }
 static bool cancelled_now, cancel_on_spawn, spawn_ok=true, exited, wait_error, already_reaped;
 static int spawns, terminations, reaps;
 bool subprocess_popen(char * const argv[], pid_t *pid, int *fd) {
@@ -68,5 +81,23 @@ int main(void) {
     assert(bt_control_dac_route_stop());
     exited=false; assert(start(&stream)); already_reaped=true;
     assert(bt_control_dac_route_stop() && dac_route_pid<0 && dac_route_fd<0);
+    /* Removing the selected phone's PCM keeps another phone's PCM available. */
+    memset(pcm_edges,0,sizeof(pcm_edges));
+    const char *a="/org/bluealsa/hci0/dev_AA_BB_CC_DD_EE_FF/a2dpsnk/source";
+    const char *b="/org/bluealsa/hci0/dev_11_22_33_44_55_66/a2dpsnk/source";
+    snprintf(pcm_edges[0].path,sizeof(pcm_edges[0].path),"%s",a);
+    snprintf(pcm_edges[1].path,sizeof(pcm_edges[1].path),"%s",b);
+    stream=(bt_dac_stream_info_t){.available=true,.running=true};
+    snprintf(stream.pcm_path,sizeof(stream.pcm_path),"%s",a); bt_dac_info_store(&stream);
+    bt_dac_info_refresh_event(b,true,-1); /* Unselected phone leaves: nothing changes. */
+    bt_control_get_dac_stream_info(&stream);
+    assert(stream.available && !strcmp(stream.pcm_path,a));
+    snprintf(pcm_edges[1].path,sizeof(pcm_edges[1].path),"%s",b);
+    bt_dac_info_refresh_event(a,true,-1);
+    bt_control_get_dac_stream_info(&stream);
+    assert(stream.available && !strcmp(stream.pcm_path,b) && !strcmp(stream.mac,"11:22:33:44:55:66"));
+    bt_dac_info_refresh_event(b,true,-1);
+    bt_control_get_dac_stream_info(&stream);
+    assert(!stream.available);
     puts("Bluetooth DAC tracked route tests passed");
 }

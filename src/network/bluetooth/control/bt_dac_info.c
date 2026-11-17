@@ -45,6 +45,19 @@ static unsigned int pcm_format_bit_depth(const char * format) {
     return 0;
 }
 
+/* The selected PCM went away: show another phone's PCM, if one remains, so
+ * `available` stays true while any sink is attached. */
+static void bt_dac_info_fall_back(bt_dac_stream_info_t * info) {
+    for (int i = 0; i < 32; i++) {
+        if (!pcm_edges[i].path[0]) continue;
+        snprintf(info->pcm_path, sizeof(info->pcm_path), "%s", pcm_edges[i].path);
+        bt_pcm_path_mac(info->pcm_path, info->mac);
+        info->available = true;
+        info->running = pcm_edges[i].running;
+        return;
+    }
+}
+
 static void bt_dac_info_refresh_event(const char * path, bool removed, int running_event) {
     int slot = -1;
     for (int i = 0; i < 32; i++) {
@@ -63,6 +76,7 @@ static void bt_dac_info_refresh_event(const char * path, bool removed, int runni
         pcm_edges[slot].running = false;
         if (!strcmp(previous.pcm_path, path)) {
             stream_generation++;
+            bt_dac_info_fall_back(&info);
             bt_dac_info_store(&info);
         }
         return;

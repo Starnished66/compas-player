@@ -105,6 +105,9 @@ static void log_suspend_diagnostics(uint32_t slept_ms, bool suspend_write_ok, in
 /* Wi-Fi comes back through the shell's toggle worker (gui_shell_poll picks
  * this up), so a tap during the restore cannot start a second wifi_on.sh. */
 static atomic_bool wifi_restore_pending;
+/* Set when a Bluetooth restore is queued, cleared once it has finished. The shell cannot see
+ * this detached work, so its own Bluetooth restore waits on it. */
+static atomic_bool bt_restore_pending;
 static bool woke_on_external_power;
 
 #ifndef AXP_WAKE_ARMED_FILE
@@ -128,6 +131,10 @@ bool power_suspend_take_wifi_restore(void) {
     return atomic_exchange(&wifi_restore_pending, false);
 }
 
+bool power_suspend_bt_restore_pending(void) {
+    return atomic_load(&bt_restore_pending);
+}
+
 bool power_suspend_woke_on_external_power(void) {
     return woke_on_external_power;
 }
@@ -136,6 +143,7 @@ static void radio_restore_perform(bool wifi_was_on, bool bt_was_on) {
     if (bt_was_on) {
         bt_control_init_chip();
         bt_control_enable();
+        atomic_store(&bt_restore_pending, false);
     }
     if (wifi_was_on) atomic_store(&wifi_restore_pending, true);
 }
@@ -161,6 +169,7 @@ static int experimental_radio_action(const char * action, int timeout_ms) {
 
 static void queue_radio_restore(bool wifi_was_on, bool bt_was_on) {
     if (!bt_was_on && !wifi_was_on) return;
+    if (bt_was_on) atomic_store(&bt_restore_pending, true);
     uintptr_t flags = (wifi_was_on ? 1u : 0u) | (bt_was_on ? 2u : 0u);
     pthread_t restore_thread;
     if (pthread_create(&restore_thread, NULL, radio_restore_thread_func, (void *)(uintptr_t) flags) == 0) {
@@ -186,16 +195,20 @@ static void * radio_recovery_thread_func(void * arg) {
         }
     }
     SUSPEND_LOG("radio recovery failed: suspend gate remains closed");
+    atomic_store(&bt_restore_pending, false); /* nothing will restore it: do not hold the shell */
     return NULL;
 }
 
 static void queue_radio_recovery(bool wifi_was_on, bool bt_was_on, bool end_only) {
+    if (bt_was_on) atomic_store(&bt_restore_pending, true);
     uintptr_t flags = (wifi_was_on ? 1u : 0u) | (bt_was_on ? 2u : 0u) | (end_only ? 4u : 0u);
     pthread_t thread;
     if (pthread_create(&thread, NULL, radio_recovery_thread_func, (void *) flags) == 0)
         pthread_detach(thread);
-    else
+    else {
         SUSPEND_LOG("radio recovery unavailable: suspend gate remains closed");
+        atomic_store(&bt_restore_pending, false);
+    }
 }
 
 void power_suspend_now(void) {

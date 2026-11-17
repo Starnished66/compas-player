@@ -10,6 +10,10 @@
  * is retained until it finishes, without blocking the UI or powering off late.
  * No-op on host. */
 void idle_shutdown_now(void);
+/* True while a requested shutdown is still being prepared or committed. After
+ * idle_shutdown_now() it turns false again only if the request was refused or
+ * cancelled. Always false on host. */
+bool idle_shutdown_pending(void);
 
 /* Exit status idle_shutdown_reboot_handoff() uses when its parent is
  * compas_loader. Non-zero so the supervisor reboots (after releasing

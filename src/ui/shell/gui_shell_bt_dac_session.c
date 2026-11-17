@@ -1,4 +1,5 @@
 #include "gui_shell_internal.h"
+#include "../../hardware/power/power_suspend.h"
 
 static shell_job_t session_job;
 static bool owns_output;
@@ -17,12 +18,15 @@ bool gui_shell_bt_dac_suspended(void) { return restore_on_power; }
 
 void gui_shell_bt_dac_remember(bool restore) { restore_on_power = restore; restore_saw_off = false; }
 void gui_shell_bt_dac_powered_off(void) { restore_saw_off = true; }
+/* Back from a suspend or an aborted power off that left Bluetooth powered: no power edge will
+ * come. The restore still waits for a post-resume Bluetooth restore that is bringing the chip back. */
+void gui_shell_bt_dac_resumed(void) { if (bt_is_powered_cached) restore_saw_off = true; }
 
 /* Only after Bluetooth has really gone off and come back, and only if no other receiver took over. */
 static void restore_after_power_on(void) {
     if (!restore_on_power) return;
     if (!bt_is_powered_cached) { restore_saw_off = true; return; }
-    if (!restore_saw_off || bt_workers_active() || gui_shell_bt_dac_owns_output()) return;
+    if (!restore_saw_off || bt_workers_active() || power_suspend_bt_restore_pending() || gui_shell_bt_dac_owns_output()) return;
     restore_on_power = false;
     if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending() ||
         current_settings.usb_mode == USB_MODE_DAC || gui_network_usb_dac_pending()) return;
@@ -30,6 +34,21 @@ static void restore_after_power_on(void) {
 }
 
 bool gui_shell_bt_dac_owns_output(void) { return owns_output; }
+/* The route lives only while the session owns the output, so owns_output covers it without
+ * bt_control_dac_route_alive(), which takes a mutex that profile changes hold for seconds. */
+bool gui_shell_bt_dac_in_use(void) {
+    bt_dac_stream_info_t info;
+    bt_control_get_dac_stream_info(&info);
+    return info.available || owns_output || bt_workers_active();
+}
+/* True once when the DAC stops being in use, so the idle countdown restarts from there. */
+bool gui_shell_bt_dac_went_idle(void) {
+    static bool was_in_use;
+    bool in_use = gui_shell_bt_dac_in_use();
+    bool went_idle = was_in_use && !in_use;
+    was_in_use = in_use;
+    return went_idle;
+}
 bool gui_shell_bt_dac_receiving(void) { return owns_output && atomic_load(&receiving); }
 bool gui_shell_bt_dac_failed(void) { return session_error || gui_shell_bt_dac_profile_failed(); }
 
@@ -114,11 +133,18 @@ void poll_bt_dac_session(void) {
 
 bool gui_shell_bt_dac_shutdown(bool restore_source) {
     if (!current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_busy()) return true;
+    const bool was_remembered = restore_on_power;
     gui_shell_bt_dac_remember(current_settings.bt_dac_mode_enabled);
     gui_shell_bt_dac_release();
     shell_job_cancel(&session_job);
     if (bt_control_dac_route_stop()) { owns_output = false; bt_control_dac_set_reserved(false); }
     if (!restore_source) return true; /* powering off: nothing to bring back */
-    gui_shell_bt_dac_finish_profiles();
-    return !owns_output && !gui_shell_bt_dac_profile_failed();
+    /* Radio suspend may already have powered Bluetooth off: nothing to apply then. */
+    bool done = !owns_output;
+    if (bt_is_powered_cached) {
+        gui_shell_bt_dac_finish_profiles();
+        done = done && !gui_shell_bt_dac_profile_failed();
+    }
+    if (!done && !was_remembered) gui_shell_bt_dac_remember(false); /* stays in DAC mode, nothing to restore */
+    return done;
 }

@@ -181,11 +181,18 @@ bool gui_shell_bt_dac_owns_output(void);
 bool gui_shell_bt_dac_receiving(void);
 bool gui_shell_bt_dac_failed(void);
 bool gui_shell_bt_dac_busy(void);
+/* A phone is connected as the A2DP source, or audio is received or routed. Cached reads only. */
+bool gui_shell_bt_dac_in_use(void);
 bool gui_shell_bt_dac_profile_ready(void);
 void gui_shell_bt_dac_release(void);
 /* Leave Bluetooth DAC; restore_source also brings back the source profile (false when powering off). */
 bool gui_shell_bt_dac_suspended(void);
 void gui_shell_bt_dac_powered_off(void);
+/* True once when the DAC stops being in use (phone gone, audio ended, apply finished). */
+bool gui_shell_bt_dac_went_idle(void);
+/* Back from a suspend or aborted power off that left Bluetooth powered: no power edge will come,
+ * so restore now, once any post-resume Bluetooth restore has finished. */
+void gui_shell_bt_dac_resumed(void);
 bool gui_shell_bt_dac_shutdown(bool restore_source);
 /* Turn Bluetooth DAC back on once Bluetooth has gone off and come back on. */
 void gui_shell_bt_dac_remember(bool restore);

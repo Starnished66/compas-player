@@ -954,6 +954,10 @@ void bt_resume(bool bt_was_on) {
 }
 void bt_suspend_launch(bool bt_was_on) {
     if (bt_was_on && !bt_toggle_active) {
+        /* Remember DAC mode up front: if the screen wakes before the power-off is seen, the
+         * restore must still know to bring the mode back. */
+        if (current_settings.bt_dac_mode_enabled && !gui_shell_bt_dac_suspended())
+            gui_shell_bt_dac_remember(true);
         bt_toggle_active = true;
         bt_toggle_target_enabled = false;
         bt_toggle_followup_pending = false;

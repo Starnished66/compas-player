@@ -22,6 +22,9 @@ void power_suspend_now(void);
  * False when suspend was skipped or the wake was a button. */
 bool power_suspend_woke_on_external_power(void);
 
+/* True from the moment a Bluetooth restore is queued after a suspend until it has finished. */
+bool power_suspend_bt_restore_pending(void);
+
 /* True once, when a resumed Wi-Fi radio is waiting to be turned back on. */
 bool power_suspend_take_wifi_restore(void);
 

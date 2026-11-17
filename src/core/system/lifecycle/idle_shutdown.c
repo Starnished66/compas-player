@@ -182,6 +182,14 @@ void idle_shutdown_now(void) {
 #endif
 }
 
+bool idle_shutdown_pending(void) {
+#ifndef HOST_BUILD
+    return shutdown_timer != NULL;
+#else
+    return false;
+#endif
+}
+
 void idle_shutdown_reboot_now(void) {
 #ifndef HOST_BUILD
     (void)shutdown_request(1);
