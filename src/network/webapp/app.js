@@ -959,6 +959,18 @@ function ensureDir(path) {
   }).then(function () { T.madeDirs[path] = true; });
 }
 
+/* The refusals an upload would send, asked before any body goes out so a
+ * refusal is never mistaken for a dropped connection. */
+function uploadCheck(item) {
+  return api(importUrl('/upload-check', { path: item.dest, name: item.name, size: item.file.size }));
+}
+
+function uploadRefused(item, err) {
+  if (item.state !== 'uploading') return;
+  if (err && err.status === 409 && err.code === 'name_exists') { item.state = 'skipped'; item.error = 'Already on the SD card'; }
+  else { item.state = 'failed'; item.error = err && err.status ? transferErrorText(err) : 'Connection lost'; }
+}
+
 function runQueue() {
   if (T.running || T.state !== 'ready') return;
   var item = T.queue.filter(function (q) { return q.state === 'queued'; })[0];
@@ -971,6 +983,9 @@ function runQueue() {
   item.state = 'uploading';
   drawTransfer();
   ensureDir(item.dest).then(function () {
+    return uploadCheck(item).then(function () { return false; }, function (err) { uploadRefused(item, err); return true; });
+  }).then(function (refused) {
+    if (refused) return;
     return new Promise(function (resolve) {
       if (item.state !== 'uploading') { resolve('abort'); return; }
       var xhr = new XMLHttpRequest();
@@ -991,7 +1006,9 @@ function runQueue() {
         else { item.state = 'failed'; item.error = transferErrorText(HttpError(xhr.status, xhr.responseText)); }
         resolve();
       };
-      xhr.onerror = function () { item.state = 'failed'; item.error = 'Connection lost'; resolve(); };
+      xhr.onerror = function () {
+        uploadCheck(item).then(function () { uploadRefused(item, null); }, function (err) { uploadRefused(item, err); }).then(function () { resolve(); });
+      };
       xhr.onabort = function () { item.state = 'queued'; item.sent = 0; resolve('abort'); };
       xhr.send(item.file);
     });

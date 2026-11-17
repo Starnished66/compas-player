@@ -688,20 +688,42 @@ static bool handle_download(int fd, const char *path) {
     return true;
 }
 
-static bool begin_mutation(int fd) {
-    if (pthread_mutex_trylock(&fileop_mu) != 0) {
-        send_reason_error(fd, "409 Conflict", "storage_busy"); return false;
-    }
+/* Error reply that also drains the `unread` request-body bytes the client
+ * still sends (negative: unknown length), so closing does not reset the
+ * connection and lose the reply. */
+static void refuse(int fd, const char *status, const char *reason, long long unread) {
+    size_t drain = unread < 0 || (unsigned long long)unread > REPLY_DRAIN_MAX_BYTES ? REPLY_DRAIN_MAX_BYTES : (size_t)unread;
+    send_api_error_drain(fd, status, reason, reason, drain);
+}
+
+typedef struct { const char *status, *reason; } verdict_t;
+
+static bool verdict_fail(verdict_t *v, const char *status, const char *reason) {
+    v->status = status; v->reason = reason;
+    return false;
+}
+
+/* Takes the storage gates, or says why not. Pair with end_mutation(). */
+static bool mutation_try(verdict_t *v) {
+    if (pthread_mutex_trylock(&fileop_mu) != 0) return verdict_fail(v, "409 Conflict", "storage_busy");
     if (fileop_active || request_stopped() || !file_op_external_begin()) {
-        pthread_mutex_unlock(&fileop_mu); send_reason_error(fd, "409 Conflict", request_stopped() ? "import_stopping" : "storage_busy"); return false;
+        pthread_mutex_unlock(&fileop_mu);
+        return verdict_fail(v, "409 Conflict", request_stopped() ? "import_stopping" : "storage_busy");
     }
     fileop_active = true;
     if (request_stopped() || !mounted_root() || !usb_mode_control_storage_write_begin()) {
         file_op_external_end();
         fileop_active = false; pthread_mutex_unlock(&fileop_mu);
-        send_reason_error(fd, "503 Service Unavailable", "storage_busy"); return false;
+        return verdict_fail(v, "503 Service Unavailable", "storage_busy");
     }
     return true;
+}
+
+static bool begin_mutation(int fd, long long unread) {
+    verdict_t v;
+    if (mutation_try(&v)) return true;
+    refuse(fd, v.status, v.reason, unread);
+    return false;
 }
 
 static void end_mutation(void) {
@@ -748,21 +770,63 @@ static bool remove_owned_partial(int parent, const char *name, const struct stat
            own->st_dev == current.st_dev && own->st_ino == current.st_ino && unlinkat(parent, name, 0) == 0;
 }
 
-static bool handle_upload(int fd, const char *path, long long content_length, bool wifi) {
-    if (!wifi) { send_reason_error(fd, "403 Forbidden", "wifi_only"); return true; }
-    if (content_length < 0) { send_reason_error(fd, "411 Length Required", "length_required"); return true; }
-    if ((unsigned long long)content_length > UINT32_MAX) { send_reason_error(fd, "413 Content Too Large", "file_too_large"); return true; }
-    const char *keys[] = {"path", "name"}; char values[2][IMPORT_PATH_MAX + 1]; bool have[2];
-    if (!query_parse(path, keys, values, have, 2) || !have[0] || !have[1] ||
-        !path_string_valid(values[0], true) || !leaf_valid(values[1])) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
-    if (strlen(values[0]) + (values[0][0] ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
+/* Request checks that need no body and no storage. */
+static bool upload_params(bool parsed, const bool *have, char values[][IMPORT_PATH_MAX + 1], long long size,
+                          bool wifi, verdict_t *v) {
+    if (!wifi) return verdict_fail(v, "403 Forbidden", "wifi_only");
+    if (size < 0) return verdict_fail(v, "411 Length Required", "length_required");
+    if ((unsigned long long)size > UINT32_MAX) return verdict_fail(v, "413 Content Too Large", "file_too_large");
+    if (!parsed || !have[0] || !have[1] ||
+        !path_string_valid(values[0], true) || !leaf_valid(values[1]) ||
+        strlen(values[0]) + (values[0][0] ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX)
+        return verdict_fail(v, "400 Bad Request", "invalid_path_or_name");
+    return true;
+}
+
+/* Opens the target directory with the storage gates held (end_mutation()
+ * releases them); on failure nothing is held. */
+static int upload_open_dir(const char *dirpath, verdict_t *v) {
     int root = root_dup();
-    if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
-    if (!begin_mutation(fd)) { close(root); return true; }
-    int dirfd = open_dir_relative(root, values[0]); close(root);
-    if (dirfd < 0) { end_mutation(); send_reason_error(fd, "404 Not Found", "directory_not_found"); return true; }
+    if (root < 0) { verdict_fail(v, "409 Conflict", "import_not_ready"); return -1; }
+    if (!mutation_try(v)) { close(root); return -1; }
+    int dirfd = open_dir_relative(root, dirpath); close(root);
+    if (dirfd < 0) { end_mutation(); verdict_fail(v, "404 Not Found", "directory_not_found"); }
+    return dirfd;
+}
+
+/* GET /api/import/files/upload-check?path=&name=&size=: the refusals an
+ * upload would send, answered before any body is sent. */
+static bool handle_upload_check(int fd, const char *path, bool wifi) {
+    const char *keys[] = {"path", "name", "size"}; char values[3][IMPORT_PATH_MAX + 1], *end = NULL; bool have[3];
+    bool parsed = query_parse(path, keys, values, have, 3);
+    long long size = parsed && have[2] ? strtoll(values[2], &end, 10) : -1;
+    if (end && (*end || end == values[2])) size = -1;
+    verdict_t v;
+    int dirfd = -1;
+    struct stat st;
+    if (!upload_params(parsed, have, values, size, wifi, &v) || (dirfd = upload_open_dir(values[0], &v)) < 0) {
+        send_reason_error(fd, v.status, v.reason);
+        return true;
+    }
+    bool exists = fstatat(dirfd, values[1], &st, AT_SYMLINK_NOFOLLOW) == 0;
+    close(dirfd); end_mutation();
+    if (exists) send_reason_error(fd, "409 Conflict", "name_exists");
+    else send_json(fd, "200 OK", "{\"ok\":true}");
+    return true;
+}
+
+static bool handle_upload(int fd, const char *path, long long content_length, bool wifi) {
+    const char *keys[] = {"path", "name"}; char values[2][IMPORT_PATH_MAX + 1]; bool have[2];
+    bool parsed = query_parse(path, keys, values, have, 2);
+    verdict_t v;
+    int dirfd = -1;
+    if (!upload_params(parsed, have, values, content_length, wifi, &v) ||
+        (dirfd = upload_open_dir(values[0], &v)) < 0) {
+        refuse(fd, v.status, v.reason, content_length);
+        return true;
+    }
     int out = openat(dirfd, values[1], O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0666);
-    if (out < 0) { close(dirfd); end_mutation(); send_reason_error(fd, errno == EEXIST ? "409 Conflict" : "400 Bad Request", errno == EEXIST ? "name_exists" : "open_failed"); return true; }
+    if (out < 0) { int err = errno; close(dirfd); end_mutation(); refuse(fd, err == EEXIST ? "409 Conflict" : "400 Bad Request", err == EEXIST ? "name_exists" : "open_failed", content_length); return true; }
     pthread_mutex_lock(&import_mu); active_upload_fd = fd; pthread_mutex_unlock(&import_mu);
     uint8_t *buffer = malloc(IMPORT_BODY_BUFFER);
     struct stat own_stat;
@@ -774,7 +838,7 @@ static bool handle_upload(int fd, const char *path, long long content_length, bo
     while (ok && remaining) {
         size_t chunk = remaining < IMPORT_BODY_BUFFER ? (size_t)remaining : IMPORT_BODY_BUFFER;
         size_t got = 0;
-        if (!body_read_all(fd, buffer, chunk, &got, &upload_start, &last_activity)) { ok = false; break; }
+        if (!body_read_all(fd, buffer, chunk, &got, &upload_start, &last_activity)) { remaining -= got; ok = false; break; }
         size_t off = 0;
         while (off < got) {
             ssize_t n = write(out, buffer + off, got - off);
@@ -800,7 +864,7 @@ static bool handle_upload(int fd, const char *path, long long content_length, bo
     }
     close(dirfd);
     end_mutation();
-    if (!ok) { send_reason_error(fd, request_stopped() ? "503 Service Unavailable" : "400 Bad Request", request_stopped() ? "import_stopped" : "upload_failed"); return true; }
+    if (!ok) { refuse(fd, request_stopped() ? "503 Service Unavailable" : "400 Bad Request", request_stopped() ? "import_stopped" : "upload_failed", (long long)remaining); return true; }
     char body[IMPORT_PATH_MAX * 6 + IMPORT_NAME_MAX * 6 + 256], escpath[IMPORT_PATH_MAX * 6 + 1], escname[IMPORT_NAME_MAX * 6 + 1], full[IMPORT_PATH_MAX + 1];
     snprintf(full, sizeof(full), "%s%s%s", values[0], values[0][0] ? "/" : "", values[1]);
     json_escape(escpath, sizeof(escpath), full); json_escape(escname, sizeof(escname), values[1]);
@@ -817,7 +881,7 @@ static bool handle_rename(int fd, const char *path) {
     size_t parent_len = last_slash ? (size_t)(last_slash - values[0]) : 0;
     if (parent_len + (parent_len ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
     int root = root_dup(); if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
-    if (!begin_mutation(fd)) { close(root); return true; }
+    if (!begin_mutation(fd, 0)) { close(root); return true; }
     char oldleaf[IMPORT_NAME_MAX + 1]; int parent = resolve_parent(root, values[0], oldleaf, sizeof(oldleaf)); close(root);
     if (parent < 0) { end_mutation(); send_reason_error(fd, "404 Not Found", "item_not_found"); return true; }
     struct stat src, dst;
@@ -841,7 +905,7 @@ static bool handle_delete(int fd, const char *path) {
     const char *keys[] = {"path"}; char values[1][IMPORT_PATH_MAX + 1]; bool have[1];
     if (!query_parse(path, keys, values, have, 1) || !have[0] || !path_string_valid(values[0], false)) { send_reason_error(fd, "400 Bad Request", "invalid_path"); return true; }
     int root = root_dup(); if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
-    if (!begin_mutation(fd)) { close(root); return true; }
+    if (!begin_mutation(fd, 0)) { close(root); return true; }
     char leaf[IMPORT_NAME_MAX + 1]; int parent = resolve_parent(root, values[0], leaf, sizeof(leaf)); close(root);
     if (parent < 0) { end_mutation(); send_reason_error(fd, "404 Not Found", "item_not_found"); return true; }
     struct stat st;
@@ -857,7 +921,7 @@ static bool handle_mkdir(int fd, const char *path) {
     if (!query_parse(path, keys, values, have, 2) || !have[0] || !have[1] || !path_string_valid(values[0], true) || !leaf_valid(values[1])) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
     if (strlen(values[0]) + (values[0][0] ? 1u : 0u) + strlen(values[1]) > IMPORT_PATH_MAX) { send_reason_error(fd, "400 Bad Request", "invalid_path_or_name"); return true; }
     int root = root_dup(); if (root < 0) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
-    if (!begin_mutation(fd)) { close(root); return true; }
+    if (!begin_mutation(fd, 0)) { close(root); return true; }
     int parent = open_dir_relative(root, values[0]); close(root);
     bool ok = parent >= 0 && mkdirat(parent, values[1], 0777) == 0;
     int err = errno; if (parent >= 0) close(parent); end_mutation();
@@ -875,6 +939,7 @@ bool remote_import_files_handle(int fd, const char *method, const char *path,
     bool matched = (!strcmp(route, "/api/import/files") && !strcmp(method, "GET")) ||
                    (!strcmp(route, "/api/import/files/download") && !strcmp(method, "GET")) ||
                    (!strcmp(route, "/api/import/files/upload") && !strcmp(method, "POST")) ||
+                   (!strcmp(route, "/api/import/files/upload-check") && !strcmp(method, "GET")) ||
                    (!strcmp(route, "/api/import/files/rename") && !strcmp(method, "POST")) ||
                    (!strcmp(route, "/api/import/files/delete") && !strcmp(method, "POST")) ||
                    (!strcmp(route, "/api/import/files/mkdir") && !strcmp(method, "POST"));
@@ -883,10 +948,14 @@ bool remote_import_files_handle(int fd, const char *method, const char *path,
     bool active = import_ready && !atomic_load(&import_stopping);
     if (active) active_requests++;
     pthread_mutex_unlock(&import_mu);
-    if (!active) { send_reason_error(fd, "409 Conflict", "import_not_ready"); return true; }
+    if (!active) {
+        refuse(fd, "409 Conflict", "import_not_ready", !strcmp(route, "/api/import/files/upload") ? content_length : 0);
+        return true;
+    }
     if (!strcmp(route, "/api/import/files") && !strcmp(method, "GET")) (void)handle_list(fd, path);
     else if (!strcmp(route, "/api/import/files/download")) (void)handle_download(fd, path);
     else if (!strcmp(route, "/api/import/files/upload")) (void)handle_upload(fd, path, content_length, wifi_transport);
+    else if (!strcmp(route, "/api/import/files/upload-check")) (void)handle_upload_check(fd, path, wifi_transport);
     else if (!strcmp(route, "/api/import/files/rename")) (void)handle_rename(fd, path);
     else if (!strcmp(route, "/api/import/files/delete")) (void)handle_delete(fd, path);
     else (void)handle_mkdir(fd, path);

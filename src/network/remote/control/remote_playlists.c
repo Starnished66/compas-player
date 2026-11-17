@@ -417,27 +417,8 @@ static ssize_t body_read(void * context, void * buffer, size_t size) {
     }
 }
 
-/* Upper bounds for reading the rest of a rejected upload after replying. */
-#define IMPORT_LINGER_MAX_BYTES (8u * 1024u * 1024u)
-#define IMPORT_LINGER_MAX_SECONDS 10
-
-/* Error reply for an upload whose body was not fully read. Closing a TCP
- * socket with unread data can reset the connection and discard the reply,
- * so send it, half-close, and read what is left of the body (at most
- * `remaining` bytes, bounded in bytes and time) before the caller closes. */
 static void import_send_error(int cfd, const char * status, const char * code, size_t remaining) {
-    send_api_error(cfd, status, "playlist_error", code);
-    if (remaining == 0) return;
-    shutdown(cfd, SHUT_WR);
-    if (remaining > IMPORT_LINGER_MAX_BYTES) remaining = IMPORT_LINGER_MAX_BYTES;
-    time_t give_up = time(NULL) + IMPORT_LINGER_MAX_SECONDS;
-    body_reader_t body = { cfd, 0 };
-    char buffer[1024];
-    while (remaining > 0 && time(NULL) < give_up) {
-        ssize_t n = body_read(&body, buffer, remaining < sizeof(buffer) ? remaining : sizeof(buffer));
-        if (n <= 0) return;
-        remaining -= (size_t) n;
-    }
+    send_api_error_drain(cfd, status, "playlist_error", code, remaining);
 }
 
 /* POST /api/playlists/import?name=NAME with the playlist file as the body
@@ -447,10 +428,10 @@ static void import_send_error(int cfd, const char * status, const char * code, s
 void handle_playlist_import_request(int cfd, const char * path, long long content_length) {
     if (content_length < 0) {
         /* No length (or chunked): drain whatever follows, bounded. */
-        import_send_error(cfd, "411 Length Required", "length_required", IMPORT_LINGER_MAX_BYTES);
+        import_send_error(cfd, "411 Length Required", "length_required", REPLY_DRAIN_MAX_BYTES);
         return;
     }
-    size_t length = (unsigned long long) content_length > IMPORT_LINGER_MAX_BYTES ? IMPORT_LINGER_MAX_BYTES
+    size_t length = (unsigned long long) content_length > REPLY_DRAIN_MAX_BYTES ? REPLY_DRAIN_MAX_BYTES
                                                                                    : (size_t) content_length;
     if ((unsigned long long) content_length > PLAYLIST_IMPORT_MAX_BYTES) {
         import_send_error(cfd, "413 Content Too Large", "playlist_too_large", length);
