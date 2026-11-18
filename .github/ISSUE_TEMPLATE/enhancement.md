@@ -10,6 +10,6 @@ assignees: ""
 
 Describe the proposed enhancement.
 
-## Concept (Optional)
+## Concept
 
 Attach images or videos illustrating your proposed enhancement. Remove passwords, tokens, and private information.
