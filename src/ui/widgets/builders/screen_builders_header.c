@@ -37,14 +37,18 @@ static const struct {
     { "playing_plane/collect_out.png", "titlebar/breeze_favorite_off.png" },
 };
 
+/* A theme or a loaded plugin replaced this icon, so Breeze art must not cover it. */
+static bool icon_customized(const char * stock) {
+    const char * resolved = asset_path_plain(stock);
+    return resolved && !strstr(resolved, asset_stock_root());
+}
+
 const char * titlebar_breeze_icon(const char * asset) {
     if (!asset) return NULL;
     for (size_t i = 0; i < sizeof(titlebar_breeze_icons) / sizeof(titlebar_breeze_icons[0]); i++) {
         const char * stock = asset_path(titlebar_breeze_icons[i].stock);
         if (!stock || strcmp(asset, stock) != 0) continue;
-        char layer[GUI_THEMES_MAX_PATH + 64];
-        if (gui_themes_resolve_icon_layer(titlebar_breeze_icons[i].stock, layer, sizeof(layer)) &&
-            !strstr(layer, asset_stock_root())) return NULL;
+        if (icon_customized(titlebar_breeze_icons[i].stock)) return NULL;
         const char * breeze = asset_path_plain(titlebar_breeze_icons[i].breeze);
         if (!breeze || access(breeze, R_OK) != 0) return NULL;
         return text_glyph_asset(titlebar_breeze_icons[i].breeze);
@@ -359,9 +363,7 @@ bool breeze_row_icon(const char * stock, char * out, size_t out_size) {
     int n = snprintf(out, out_size, "breeze_rows/%s", stock);
     if (n <= 0 || (size_t) n >= out_size || strchr(stock, '/') != strrchr(stock, '/')) return false;
     for (char * c = out + strlen("breeze_rows/"); *c; c++) if (*c == '/') *c = '_';
-    char layer[GUI_THEMES_MAX_PATH + 64];
-    if (gui_themes_resolve_icon_layer(stock, layer, sizeof(layer)) && !strstr(layer, asset_stock_root()))
-        return false;
+    if (icon_customized(stock)) return false;
     return breeze_asset_if_present(out) != NULL;
 }
 

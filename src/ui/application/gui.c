@@ -150,8 +150,8 @@ static uint32_t boot_splash_start_tick = 0;
  * Uses asset_path("boot_animation/en/0.jpg"), matching the JPEG drawn by the
  * bootloader to provide a seamless visual handoff without decode discrepancies.
  *
- * An override placed at /usr/data/theme_overrides/boot_animation/en/0.jpg is
- * picked up automatically via asset_path(). If the file does not exist,
+ * Plugin overrides are not claimed yet at this point, so the stock image
+ * shows. If the file does not exist,
  * SCREEN_BG_COLOR provides a clean black background.
  *
  * lv_layer_top() is hidden while the splash is displayed so status bar icons

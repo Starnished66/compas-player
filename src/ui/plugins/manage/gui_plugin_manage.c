@@ -90,13 +90,9 @@ static void plugin_manage_screen_unloaded_cb(lv_event_t * e) {
  * plugin_layout.c's own comments on why a full reload (rather than a
  * surgical single-plugin unload) is the correct default here: it's the
  * only mechanism that already knows how to reset the global "last plugin
- * wins" style/layout/EQ state cleanly. It does NOT undo a plugin's own
- * durable side effects made outside that state -- most notably
- * set_icon()'s files under /usr/data/theme_overrides/, which have no
- * per-plugin attribution and so no revert path (plugin_manager_internal.h's own
- * comment on PLUGIN_THEME_OVERRIDE_ROOT). Disabling a theme plugin stops
- * its script from running again on the next reload; it does not, by
- * itself, remove icons that plugin already copied to disk. */
+ * wins" style/layout/EQ state cleanly. A disabled plugin's set_icon()
+ * files stay on disk but stop applying after the reload, because only a
+ * loaded plugin's claim gives an override priority (assets.c). */
 static void plugin_manage_toggle_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     int index = (int) (intptr_t) lv_event_get_user_data(e);

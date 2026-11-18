@@ -17,6 +17,7 @@
 #include "../lifecycle/plugin_disabled_list.h"
 #include "../../hardware/input/hw_buttons.h"
 #include "../../ui/appearance/gui_themes.h"
+#include "../../ui/assets/assets.h"
 #include "../../core/system/logging/db_log.h"
 
 #include "lualib.h"
@@ -319,6 +320,7 @@ static void discard_failed_plugin_load(plugin_instance_t * inst, lua_State * L,
     inst->disposing = true;
     audio_stage_custom_hw_volume_curve(prev_curve_active, prev_curve_active ? prev_curve : NULL);
     release_plugin_led_override(L);
+    assets_release_overrides(L);
     discard_failed_plugin_resources(L, inst->aborted);
     /* A hard-aborted state (load-time top-level code ran past the budget) was
      * longjmp'd out of mid-execution; closing it could run finalizers on a
@@ -516,6 +518,7 @@ void plugin_manager_deinit(void) {
     for (int i = 0; i < plugin_instance_count; i++)
         if (plugin_instances[i].defined) player_layouts_clear_plugin_owner(plugin_instances[i].id);
     plugin_player_actions_clear_all();
+    assets_release_overrides(NULL); /* enabled plugins re-claim when their top-level code reruns */
     plugin_unref(plugin_order_editor_callback.L, plugin_order_editor_callback.callback_ref);
     plugin_order_editor_callback.L = NULL;
     plugin_order_editor_callback.callback_ref = LUA_NOREF;

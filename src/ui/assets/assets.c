@@ -3,6 +3,7 @@
 
 #include "lvgl.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,9 +15,8 @@
 #else
   /* Present on every real R1 as part of the stock firmware itself. */
   #define THEME_ROOT "/usr/resource/litegui/theme2/"
-  /* Writable override, checked first by asset_path(), for custom assets
-   * not present in the read-only THEME_ROOT squashfs pack. /usr/data is the
-   * persistent writable partition. */
+  /* Writable plugin overrides on the persistent /usr/data partition. They
+   * win only while a loaded plugin claims them; see asset_resolve_plain(). */
   #define THEME_OVERRIDE_ROOT "/usr/data/theme_overrides/"
 #endif
 
@@ -51,9 +51,81 @@ static const char * asset_path_intern(const char * value) {
     return e->value;
 }
 
+/* Override files in THEME_OVERRIDE_ROOT outlive firmware updates and have no
+ * owner on disk, so an old one must not beat a newer stock icon. An override
+ * takes priority only while a loaded plugin has claimed its path; a file with
+ * no stock counterpart is still used as a last resort. UI thread only, like
+ * the asset memo below. */
+#define ASSET_CLAIM_MAX 256
+typedef struct {
+    char * path;
+    const void * owner;
+} asset_claim_t;
+static asset_claim_t asset_claims[ASSET_CLAIM_MAX];
+static int asset_claim_count;
+
+#ifndef HOST_BUILD
+static bool asset_override_claimed(const char * relative_path) {
+    for (int i = 0; i < asset_claim_count; i++)
+        if (strcmp(asset_claims[i].path, relative_path) == 0) return true;
+    return false;
+}
+#endif
+
+static int asset_claim_index(const char * relative_path, const void * owner) {
+    for (int i = 0; i < asset_claim_count; i++)
+        if (asset_claims[i].owner == owner && strcmp(asset_claims[i].path, relative_path) == 0) return i;
+    return -1;
+}
+
+static void asset_claim_remove(int index) {
+    free(asset_claims[index].path);
+    asset_claims[index] = asset_claims[--asset_claim_count]; /* order is irrelevant */
+}
+
+bool assets_claim_override(const char * relative_path, const void * owner, bool * added) {
+    *added = false;
+    if (!relative_path || !owner) return false;
+    if (asset_claim_index(relative_path, owner) >= 0) return true;
+    if (asset_claim_count >= ASSET_CLAIM_MAX) return false;
+    char * copy = strdup(relative_path);
+    if (!copy) return false;
+    asset_claims[asset_claim_count++] = (asset_claim_t) { copy, owner };
+    *added = true;
+    return true;
+}
+
+void assets_unclaim_override(const char * relative_path, const void * owner) {
+    int index = asset_claim_index(relative_path, owner);
+    if (index >= 0) asset_claim_remove(index);
+}
+
+void assets_override_written(const char * relative_path) {
+    /* An explicit write beats the legacy cleanup; this also drops the path cache. */
+    gui_themes_clear_legacy_exclusion(relative_path);
+}
+
+void assets_release_overrides(const void * owner) {
+    int before = asset_claim_count;
+    for (int i = asset_claim_count - 1; i >= 0; i--)
+        if (!owner || asset_claims[i].owner == owner) asset_claim_remove(i);
+    if (asset_claim_count != before) assets_invalidate_path_cache();
+}
+
+#ifndef HOST_BUILD
+/* Writes the override file's path into resolved if one exists and is not a
+ * legacy Themes copy. */
+static bool asset_override_file(const char * relative_path, char * resolved, size_t size) {
+    if (gui_themes_is_legacy_excluded(relative_path)) return false;
+    int n = snprintf(resolved, size, THEME_OVERRIDE_ROOT "%s", relative_path);
+    return n > 0 && (size_t) n < size && access(resolved, R_OK) == 0;
+}
+#endif
+
 /* Resolves relative_path (or an absolute path, kept as is) into host absolute path (or plain path) buffer,
- * checking non-excluded plugin override first, then active native theme layer,
- * then stock fallback. On HOST_BUILD, any relative result is absolutized against
+ * checking a claimed plugin override first, then the active native theme
+ * layer, then stock (or an unclaimed override where stock has no copy).
+ * On HOST_BUILD, any relative result is absolutized against
  * the process CWD so callers expecting absolute paths (like pill_row_apply_icon)
  * receive genuine absolute paths for all layers. */
 static bool asset_resolve_plain(const char * relative_path, char * out, size_t out_size) {
@@ -70,13 +142,9 @@ static bool asset_resolve_plain(const char * relative_path, char * out, size_t o
     bool found = false;
 
 #ifndef HOST_BUILD
-    /* 1. Plugin override: checked if not legacy-excluded and accessible on disk */
-    if (!gui_themes_is_legacy_excluded(relative_path)) {
-        int n = snprintf(resolved, sizeof(resolved), THEME_OVERRIDE_ROOT "%s", relative_path);
-        if (n > 0 && (size_t) n < sizeof(resolved) && access(resolved, R_OK) == 0) {
-            found = true;
-        }
-    }
+    /* 1. Override claimed by a loaded plugin */
+    found = asset_override_claimed(relative_path) &&
+            asset_override_file(relative_path, resolved, sizeof(resolved));
 #endif
 
     /* 2. Native theme icon layer resolution */
@@ -84,10 +152,16 @@ static bool asset_resolve_plain(const char * relative_path, char * out, size_t o
         found = true;
     }
 
-    /* 3. Stock fallback */
+    /* 3. Stock, or an unclaimed override when stock has no copy at all */
     if (!found) {
         int n = snprintf(resolved, sizeof(resolved), THEME_ROOT "%s", relative_path);
         if (n <= 0 || (size_t) n >= sizeof(resolved)) return false;
+#ifndef HOST_BUILD
+        char override[sizeof(resolved)];
+        bool stock_missing = access(resolved, F_OK) != 0 && (errno == ENOENT || errno == ENOTDIR);
+        if (stock_missing && asset_override_file(relative_path, override, sizeof(override)))
+            memcpy(resolved, override, sizeof(resolved));
+#endif
         found = true;
     }
 

@@ -1,7 +1,7 @@
 /* plugin.* bindings for toast, progress, dialogs, icons, colours and the Home layout. */
 #include "../../../ui/application/gui.h"
 #include "../../lua/plugin_lua_runtime.h"
-#include "../../../ui/appearance/gui_themes.h"
+#include "../../../ui/assets/assets.h"
 #include "../../../core/system/lifecycle/screenshot.h"
 #include <fcntl.h>
 #include <string.h>
@@ -186,6 +186,33 @@ static void ensure_override_dir(const char * dst_path) {
         mkdir(dir_only, 0755);
     }
 }
+#endif
+
+/* Override paths are matched by exact string, so only canonical ones are
+ * accepted: "launcher/book.png", not "./launcher/book.png" or "a//b.png". */
+static bool override_path_canonical(const char * p) {
+    return p[0] && p[0] != '/' && strncmp(p, "./", 2) && !strstr(p, "/./") &&
+           !strstr(p, "//") && !strstr(p, "..");
+}
+
+#ifndef HOST_BUILD
+/* Claims relative_path for the calling plugin and copies source_path over it.
+ * A failed copy undoes only a claim this call made. */
+static const char * claim_and_copy_override(lua_State * L, const char * source_path, const char * relative_path) {
+    lua_State * owner = plugin_lua_main_state(L);
+    bool added;
+    if (!assets_claim_override(relative_path, owner, &added))
+        return "could not record the override (over 256 icons, or out of memory)";
+    char dst_path[600];
+    snprintf(dst_path, sizeof(dst_path), "%s%s", PLUGIN_THEME_OVERRIDE_ROOT, relative_path);
+    ensure_override_dir(dst_path);
+    if (!copy_file(source_path, dst_path)) {
+        if (added) assets_unclaim_override(relative_path, owner);
+        return "could not copy";
+    }
+    assets_override_written(relative_path);
+    return NULL;
+}
 
 /* options.background_image (PLUGINS.md, plugin.set_home_layout()): copies a
  * plugin-supplied SD-card image into a FIXED theme-override destination
@@ -215,8 +242,6 @@ static void set_home_background_image(lua_State * L, const char * source_path, h
 
     char relative_path[32];
     snprintf(relative_path, sizeof(relative_path), "home/background%s", ext);
-    char dst_path[600];
-    snprintf(dst_path, sizeof(dst_path), "%s%s", PLUGIN_THEME_OVERRIDE_ROOT, relative_path);
 
     if (strcmp(ext, ".bin") == 0) {
         int fd = open(source_path, O_RDONLY | O_CLOEXEC | O_NONBLOCK);
@@ -253,11 +278,9 @@ static void set_home_background_image(lua_State * L, const char * source_path, h
         }
     }
 
-    ensure_override_dir(dst_path);
-
-    if (!copy_file(source_path, dst_path)) {
-        luaL_error(L, "plugin.set_home_layout: could not copy options.background_image '%s' to '%s'",
-                   source_path, relative_path);
+    const char * err = claim_and_copy_override(L, source_path, relative_path);
+    if (err) {
+        luaL_error(L, "plugin.set_home_layout: options.background_image '%s': %s", source_path, err);
         return; /* unreachable */
     }
 
@@ -272,10 +295,8 @@ static void set_home_background_image(lua_State * L, const char * source_path, h
  * plugin.register_stream_media_tile()'s own icon argument (which points a
  * BRAND NEW tile at whatever icon it likes with no special handling
  * needed). Copies source_path's bytes into
- * THEME_OVERRIDE_ROOT/relative_path, the same writable-override mechanism
- * assets.c's own asset_path() already checks first for every icon
- * resolution in the app (already how Subsonic's own non-stock icon works
- * today).
+ * THEME_OVERRIDE_ROOT/relative_path and claims it for this plugin, so
+ * asset_path() prefers it while the plugin stays loaded.
  *
  * LVGL caches decoded images by path, so callback-time batches must end
  * with plugin.refresh_theme(). Startup calls need no refresh because
@@ -284,26 +305,15 @@ static int l_plugin_set_icon(lua_State * L) {
     const char * relative_path = luaL_checkstring(L, 1);
     const char * source_path = plugin_lua_check_external_path(L, 2, "plugin.set_icon");
 
+    if (!override_path_canonical(relative_path)) {
+        return luaL_error(L, "plugin.set_icon: '%s' must be a plain path under the theme root, like launcher/book.png",
+                          relative_path);
+    }
 #ifndef HOST_BUILD
-    /* Reject absolute paths and directory traversal to constrain writes
-     * within PLUGIN_THEME_OVERRIDE_ROOT. */
-    if (relative_path[0] == '/' || strstr(relative_path, "..") != NULL) {
-        return luaL_error(L, "plugin.set_icon: relative_path must be a plain path under the theme root, got '%s'",
-                           relative_path);
-    }
-
-    char dst_path[600];
-    snprintf(dst_path, sizeof(dst_path), "%s%s", PLUGIN_THEME_OVERRIDE_ROOT, relative_path);
-
-    ensure_override_dir(dst_path);
-
-    if (!copy_file(source_path, dst_path)) {
-        return luaL_error(L, "plugin.set_icon: could not copy '%s' to '%s'", source_path, relative_path);
-    }
-    gui_themes_clear_legacy_exclusion(relative_path);
+    const char * err = claim_and_copy_override(L, source_path, relative_path);
+    if (err) return luaL_error(L, "plugin.set_icon: '%s': %s", relative_path, err);
 #else
     (void) source_path; /* no override root on HOST_BUILD -- see assets.c's asset_path() */
-    gui_themes_clear_legacy_exclusion(relative_path);
 #endif
     return 0;
 }

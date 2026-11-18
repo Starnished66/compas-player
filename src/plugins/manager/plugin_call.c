@@ -6,6 +6,7 @@
 #include <string.h>
 #include <setjmp.h>
 #include "plugin_manager_internal.h"
+#include "../../ui/assets/assets.h"
 /* Lifetime of an aborted plugin: its lua_State is frozen mid-execution after
  * a hard time-budget abort (plugin_call()) and is never run, inspected,
  * unref'd or lua_close()d again -- it is leaked on purpose, so every ref held
@@ -348,6 +349,7 @@ int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
             fprintf(stderr, "[plugins] %s: stopped, a call ran past its time limit\n",
                     inst->id[0] ? inst->id : "plugin");
             remote_track_stream_cancel_owner((uintptr_t) L);
+            assets_release_overrides(plugin_lua_main_state(L)); /* its icons stop applying */
         }
         result = LUA_ERRRUN;
     }

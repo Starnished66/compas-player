@@ -26,6 +26,16 @@ const char * asset_path(const char * relative_path);
 /* asset_path() remembers its answers for a second; call this when the theme or
  * its override files change so the next lookup resolves again. */
 void assets_invalidate_path_cache(void);
+/* An override file takes priority only while a loaded plugin (owner: its main
+ * Lua state) has claimed its path. Claim before writing the file (added says
+ * whether this call made the claim, so a failed write can undo just that),
+ * then report the write. Releasing with NULL drops every claim (plugin
+ * teardown), with an owner only that plugin's (failed load or stopped). */
+bool assets_claim_override(const char * relative_path, const void * owner, bool * added);
+void assets_unclaim_override(const char * relative_path, const void * owner);
+void assets_override_written(const char * relative_path);
+void assets_release_overrides(const void * owner);
+
 /* Changes every time the path cache is invalidated: derived renders of assets compare it. */
 uint32_t assets_path_cache_epoch(void);
 
