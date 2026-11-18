@@ -1,5 +1,5 @@
 ---
-name: Bug report
+name: Feature request
 about: Request a feature to be added in the player (Note: Submitting a feature does not guarantee that the feature will be implemented)
 title: "[Feature request] "
 labels: ""
