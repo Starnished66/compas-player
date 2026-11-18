@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: "Request a feature to be added to the player (Note: Submitting a feature does not guarantee that the feature will be implemented)"
+about: "Request a feature to be added to the player (Note: Submitting a feature does not guarantee that the feature will be implemented.)"
 title: "[Feature request] "
 labels: ""
 assignees: ""
