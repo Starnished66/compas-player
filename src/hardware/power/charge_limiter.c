@@ -31,6 +31,8 @@
 #define AXP_REG_STATUS0 0x00
 #define AXP_STATUS0_VBUS_GOOD (1u << 5)
 #define AXP_REG_STATUS 0x01
+#define AXP_REG_PWROK 0x25
+#define AXP_PWROK_DELAY_MASK 0x03u
 #define AXP_REG_VOLTAGE 0x64
 #define AXP_REG_CURRENT 0x62
 #define AXP_CURRENT_MASK 0x1Fu
@@ -485,6 +487,20 @@ bool charge_limiter_vbus_present(bool *present) {
     if (!present || !axp_read(AXP_REG_STATUS0, &status)) return false;
     *present = (status & AXP_STATUS0_VBUS_GOOD) != 0;
     return true;
+#endif
+}
+
+/* The vendor driver sets an 8 ms PWROK delay each boot; with it a charger
+ * power-on never starts the SoC on the R1. Use the 64 ms setting. */
+bool charge_limiter_extend_poweron_delay(void) {
+#if !CHARGE_LIMITER_ACTIVE || !BOARD_R1_HARDWARE
+    return false;
+#else
+    uint8_t v;
+    if (!axp_read(AXP_REG_PWROK, &v)) return false;
+    if ((v & AXP_PWROK_DELAY_MASK) == AXP_PWROK_DELAY_MASK) return true;
+    return axp_write(AXP_REG_PWROK, v | AXP_PWROK_DELAY_MASK) &&
+           axp_read(AXP_REG_PWROK, &v) && (v & AXP_PWROK_DELAY_MASK) == AXP_PWROK_DELAY_MASK;
 #endif
 }
 

@@ -355,6 +355,7 @@ static void apply_boot_audio_and_power(void) {
     GUI_BOOT_CHECKPOINT("LED charging timezone setup begin");
     led_control_apply(current_settings.led_indicator_enabled);
     charge_limiter_poll(current_settings.charge_limiter_enabled, true);
+    (void) charge_limiter_extend_poweron_delay();
     safe_charging_poll(current_settings.safe_charging_enabled, true);
     if (current_settings.timezone[0] != '\0') timezone_apply(current_settings.timezone);
     GUI_BOOT_CHECKPOINT("LED charging timezone setup done");

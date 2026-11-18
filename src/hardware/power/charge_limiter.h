@@ -50,6 +50,10 @@ bool charge_limiter_dac_session_end(void);
  * then uses its other sample, which is how the other boards stay put. */
 bool charge_limiter_vbus_present(bool *present);
 
+/* R1 only: sets the AXP2101 PWROK delay (REG25h[1:0]) to 64 ms so a charger
+ * power-on starts the SoC; the driver resets it each boot. No-op elsewhere. */
+bool charge_limiter_extend_poweron_delay(void);
+
 /* True while the limiter intends the 4.2V voltage cap to be in effect,
  * regardless of whether the last register write actually succeeded.
  * Note this is NOT tied to any specific battery percentage -- it becomes
