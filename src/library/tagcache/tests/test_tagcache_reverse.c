@@ -135,7 +135,121 @@ static void *read_committed_title(void *arg) {
     return NULL;
 }
 
+typedef struct { char parts[12][700]; int n; } genre_parts_t;
+
+static bool collect_part(const char *start, size_t len, void *user) {
+    genre_parts_t *p = user;
+    memcpy(p->parts[p->n], start, len);
+    p->parts[p->n++][len] = '\0';
+    return true;
+}
+
+static int split_genres(const char *raw, genre_parts_t *p) {
+    p->n = 0;
+    int n = tagcache_genre_each(raw, collect_part, p);
+    assert(n == p->n);
+    return n;
+}
+
+static void check_genre_names(void) {
+    genre_parts_t p;
+    assert(split_genres("Rock; Pop", &p) == 2 && !strcmp(p.parts[0], "Rock") && !strcmp(p.parts[1], "Pop"));
+    assert(split_genres("Rock, Pop/Jazz", &p) == 3 && !strcmp(p.parts[2], "Jazz"));
+    assert(split_genres("  Rock ;; rock ;  ", &p) == 1 && !strcmp(p.parts[0], "Rock")); /* trim, dedupe */
+    assert(split_genres(";,/", &p) == 1 && !strcmp(p.parts[0], ";,/")); /* whole string kept */
+    assert(split_genres("Hip.Hop", &p) == 1 && !strcmp(p.parts[0], "Hip.Hop")); /* dot is no separator */
+    /* ASCII case folding, independent of the C library locale. */
+    assert(tagcache_genre_matches("INDIE; Rock", "indie") && tagcache_genre_matches("indie; Pop", "INDIE"));
+    assert(split_genres("INDIE; indie", &p) == 1);
+    assert(split_genres("", &p) == 0);
+    assert(tagcache_genre_matches("Rock; Pop", "pop") && !tagcache_genre_matches("Rock; Pop", "Rock; Pop"));
+    assert(!tagcache_genre_matches("Rockabilly", "Rock"));
+    /* Nine genres: the ninth is still seen and matchable (artists stop at eight). */
+    const char *nine = "g1;g2;g3;g4;g5;g6;g7;g8;g9";
+    assert(split_genres(nine, &p) == 9 && !strcmp(p.parts[8], "g9"));
+    assert(tagcache_genre_matches(nine, "G9") && !tagcache_genre_matches(nine, "g10"));
+    char names[TAGCACHE_ARTIST_SPLIT_MAX][TAGCACHE_TAG_MAX];
+    assert(tagcache_artist_names("a;b;c;d;e;f;g;h;i", names, 12) == TAGCACHE_ARTIST_SPLIT_MAX);
+    /* Artists keep their bounds: parts clip to 127 bytes before dedupe, 8 names at most. */
+    char art[440], clipped[128];
+    memset(clipped, 'x', 127); clipped[127] = '\0';
+    char longx[200], longy[200];
+    memset(longx, 'x', 150); longx[150] = '\0';
+    memset(longy, 'x', 140); longy[140] = 'y'; longy[141] = '\0';
+    snprintf(art, sizeof(art), "%s;%s;a2;a3;a4;a5;a6;a7;a8", longx, longy);
+    assert(tagcache_artist_names(art, names, 12) == TAGCACHE_ARTIST_SPLIT_MAX); /* x-parts count once */
+    assert(!strcmp(names[0], clipped) && !strcmp(names[7], "a8"));
+    /* Two long genres sharing a 127-byte prefix stay distinct and fully matchable. */
+    char longs[420], a[200], b[200];
+    memset(a, 'x', 150); a[150] = '\0';
+    memset(b, 'x', 140); b[140] = 'y'; b[141] = '\0';
+    snprintf(longs, sizeof(longs), "%s; %s", a, b);
+    assert(split_genres(longs, &p) == 2 && !strcmp(p.parts[0], a) && !strcmp(p.parts[1], b));
+    assert(tagcache_genre_matches(longs, b) && tagcache_genre_matches(longs, a));
+    char prefix[128];
+    memset(prefix, 'x', 127); prefix[127] = '\0';
+    assert(!tagcache_genre_matches(longs, prefix));
+}
+
+static void check_genre_split_lists(void) {
+    char dir[] = "/tmp/compas-genre-XXXXXX";
+    assert(mkdtemp(dir));
+    assert(tagcache_open(dir));
+    tagcache_begin_update_with_lock(NULL, NULL);
+    /* Distinct titles make the first-seen order explicit: song 0 sorts first. */
+    const char *titles[] = {"T0", "T1", "T2", "T3"};
+    char longa[200], longb[200], nine_tail[420];
+    memset(longa, 'x', 150); longa[150] = '\0';
+    memset(longb, 'x', 140); longb[140] = 'y'; longb[141] = '\0';
+    snprintf(nine_tail, sizeof(nine_tail), "%s; %s", longa, longb);
+    const char *genres[] = {"Rock; Pop", "pop", "Rock/Jazz", nine_tail};
+    char artist3[420]; /* two artists sharing a 127-byte prefix are one artist */
+    snprintf(artist3, sizeof(artist3), "%s;%s", longa, longb);
+    for (int i = 0; i < 4; i++) {
+        char path[64];
+        snprintf(path, sizeof(path), "/music/g%d.mp3", i);
+        tagcache_upsert_year_changed(path, 100 + i, 1000, titles[i], i == 3 ? artist3 : "Artist", "Album",
+                                     "Artist", genres[i], 1, 1, 2000, NULL);
+    }
+    assert(tagcache_end_update_with_lock(NULL, NULL));
+    assert(metadata_db_get_genre_count() == 5); /* Jazz, Pop, Rock, xxx..., xxx...y */
+    group_row_t rows[6];
+    assert(metadata_db_get_groups_page(METADATA_DB_GROUP_GENRE, 0, 6, rows) == 5);
+    tagcache_song_t first;
+    assert(tagcache_song_by_path("/music/g0.mp3", &first));
+    int64_t id0 = first.id;
+    assert(tagcache_song_by_path("/music/g2.mp3", &first));
+    int64_t id2 = first.id;
+    int seen = 0;
+    tagcache_song_t last;
+    assert(tagcache_song_by_path("/music/g3.mp3", &last));
+    for (int i = 0; i < 5; i++) {
+        const char *name = rows[i].genre_name;
+        if (!strcmp(name, "Jazz")) { assert(rows[i].song_count == 1 && rows[i].first_song_id == id2); seen |= 1; }
+        else if (!strcmp(name, "Pop")) { assert(rows[i].song_count == 2 && rows[i].first_song_id == id0); seen |= 2; }
+        else if (!strcmp(name, "Rock")) { assert(rows[i].song_count == 2 && rows[i].first_song_id == id0); seen |= 4; }
+        else if (!strcmp(name, longa)) { assert(rows[i].song_count == 1 && rows[i].first_song_id == last.id); seen |= 8; }
+        else if (!strcmp(name, longb)) { assert(rows[i].song_count == 1 && rows[i].first_song_id == last.id); seen |= 16; }
+        else assert(0);
+    }
+    assert(seen == 31); /* all five names, once each */
+    char clipped[128];
+    memset(clipped, 'x', 127); clipped[127] = '\0';
+    assert(metadata_db_count_songs_filtered(NULL, clipped, NULL, NULL, NULL) == 1); /* clipped artist name */
+    assert(metadata_db_count_songs_filtered(NULL, clipped, NULL, "Album", NULL) == 1); /* with the album too */
+    assert(metadata_db_count_songs_filtered(NULL, NULL, NULL, NULL, "Pop") == 2);
+    assert(metadata_db_count_songs_filtered(NULL, NULL, NULL, NULL, "rock") == 2);
+    assert(metadata_db_count_songs_filtered(NULL, NULL, NULL, NULL, longb) == 1);
+    assert(metadata_db_count_songs_filtered(NULL, NULL, NULL, NULL, "Rock; Pop") == 0);
+    tagcache_close();
+    char command[128];
+    snprintf(command, sizeof(command), "rm -rf '%s'", dir);
+    assert(system(command) == 0);
+}
+
 int main(void) {
+    check_genre_names();
+    check_genre_split_lists();
     char dir[] = "/tmp/compas-sort-XXXXXX";
     assert(mkdtemp(dir));
     assert(tagcache_open(dir));

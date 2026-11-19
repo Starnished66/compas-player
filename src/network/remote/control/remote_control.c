@@ -488,7 +488,7 @@ static void handle_capabilities_request(int cfd, bool trusted) {
         "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"ratings_edit\",\"queue_edit\","
         "\"playlist_edit\",\"playlist_import\",\"player_accent\",\"device_info\","
         "\"collection_playback\",\"shuffle_modes\",\"library_sorting\",\"top_rated_albums\","
-        "\"wifi_import\",\"wifi_import_files\",\"settings_v1\",\"plugin_store\",\"plugin_management\",\"player_layouts\"],"
+        "\"wifi_import\",\"wifi_import_files\",\"settings_v1\",\"plugin_store\",\"plugin_management\",\"player_layouts\",\"genre_split\"],"
         "\"settingsSchemaVersion\":%d}", library_id_field, trusted ? "false" : "true", SETTINGS_REGISTRY_SCHEMA_VERSION);
     send_response(cfd, "200 OK", "application/json", capabilities);
 }

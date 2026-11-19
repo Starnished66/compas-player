@@ -245,5 +245,10 @@ int tagcache_cmp_ascii(const char * a, const char * b);
 void tagcache_artist_primary(const char * raw_artist, char * out, size_t out_size);
 /* Exact bounded artist membership names for a song's raw ARTIST tag. */
 int tagcache_artist_names(const char * raw_artist, char out[][TAGCACHE_TAG_MAX], int max_names);
+/* Genres: a raw GENRE tag is split at ; , and / (same rules as artists, but no name limit and
+ * no length clip). fn gets each distinct part as (start, len), not NUL-terminated, and returns
+ * false to stop. Returns the parts visited; 0 for an empty tag. */
+int tagcache_genre_each(const char * raw_genre, bool (*fn)(const char * start, size_t len, void * user), void * user);
+bool tagcache_genre_matches(const char * raw_genre, const char * name);
 
 #endif /* TAGCACHE_H */

@@ -491,35 +491,96 @@ void reader_close_indexes(void) {
     reader_query_cache_block = 0;
 }
 
-static int split_artist(const char *raw, char names[TAGCACHE_ARTIST_SPLIT_MAX][TAGCACHE_PATH_MAX]) {
-    if (!raw) raw = "";
-    int n = 0;
-    const char *p = raw;
-    while (*p && n < TAGCACHE_ARTIST_SPLIT_MAX) {
-        while (*p && strchr(";/", *p)) p++;
-        const char *start = p;
-        while (*p && !strchr(";/", *p)) p++;
-        const char *end = p;
-        while (end > start && (unsigned char) end[-1] <= ' ') end--;
-        while (start < end && (unsigned char) *start <= ' ') start++;
-        if (end <= start) continue;
-        size_t len = (size_t) (end - start);
-        if (len >= TAGCACHE_TAG_MAX) len = TAGCACHE_TAG_MAX - 1;
-        memcpy(names[n], start, len);
-        names[n][len] = '\0';
-        bool duplicate = false;
-        for (int i = 0; i < n; i++) if (ascii_casecmp(names[i], names[n]) == 0) duplicate = true;
-        if (!duplicate) n++;
+/* Next trimmed, non-empty part of a raw tag split at any of seps, clipped to max_len (0 = no clip). */
+static bool span_next(const char **cursor, const char *seps, size_t max_len, const char **start, size_t *len) {
+    const char *p = *cursor;
+    while (*p) {
+        while (*p && strchr(seps, *p)) p++;
+        const char *s = p;
+        while (*p && !strchr(seps, *p)) p++;
+        const char *e = p;
+        while (e > s && (unsigned char) e[-1] <= ' ') e--;
+        while (s < e && (unsigned char) *s <= ' ') s++;
+        if (e > s) {
+            *start = s; *len = (size_t) (e - s); *cursor = p;
+            if (max_len && *len > max_len) *len = max_len;
+            return true;
+        }
     }
-    if (!n) { snprintf(names[0], TAGCACHE_PATH_MAX, "%s", raw); n = 1; }
+    *cursor = p;
+    return false;
+}
+
+/* Locale-independent ASCII case-insensitive equality of a part and a name. */
+static bool span_equals(const char *a, size_t alen, const char *b, size_t blen) {
+    if (alen != blen) return false;
+    for (size_t i = 0; i < alen; i++)
+        if (ascii_fold((unsigned char) a[i]) != ascii_fold((unsigned char) b[i])) return false;
+    return true;
+}
+
+/* True when an earlier part of raw (before before_start) equals this one, ignoring case. */
+static bool span_seen(const char *raw, const char *seps, size_t max_len, const char *before_start, const char *s, size_t len) {
+    const char *p = raw, *start;
+    size_t n;
+    while (span_next(&p, seps, max_len, &start, &n) && start < before_start)
+        if (span_equals(start, n, s, len)) return true;
+    return false;
+}
+
+/* The one splitting loop. Calls fn on each distinct part (no copies, no heap) until fn returns
+ * false or limit parts were seen (0 = no limit). Parts are clipped to max_len (0 = no clip)
+ * before they are compared or counted. Falls back to the whole string when nothing
+ * is left. Returns the number of parts visited. */
+static int split_walk(const char *raw, const char *seps, int limit, size_t max_len,
+                      bool (*fn)(const char *start, size_t len, void *user), void *user) {
+    if (!raw) raw = "";
+    const char *p = raw, *s;
+    size_t len;
+    int n = 0;
+    while ((!limit || n < limit) && span_next(&p, seps, max_len, &s, &len)) {
+        if (span_seen(raw, seps, max_len, s, s, len)) continue;
+        n++;
+        if (!fn(s, len, user)) return n;
+    }
+    if (!n) { fn(raw, strlen(raw), user); n = 1; }
     return n;
 }
 
+typedef struct { char (*names)[TAGCACHE_PATH_MAX]; int n; } name_fill_t;
+
+static bool fill_name(const char *start, size_t len, void *user) {
+    name_fill_t *fill = user;
+    if (len >= TAGCACHE_PATH_MAX) len = TAGCACHE_PATH_MAX - 1;
+    memcpy(fill->names[fill->n], start, len);
+    fill->names[fill->n++][len] = '\0';
+    return true;
+}
+
+/* Artists: at most TAGCACHE_ARTIST_SPLIT_MAX names, each bounded to a tag. */
+static int split_artist(const char *raw, char names[TAGCACHE_ARTIST_SPLIT_MAX][TAGCACHE_PATH_MAX]) {
+    name_fill_t fill = { names, 0 };
+    split_walk(raw, ";/", TAGCACHE_ARTIST_SPLIT_MAX, TAGCACHE_TAG_MAX - 1, fill_name, &fill);
+    return fill.n;
+}
+
+typedef struct { const char *name; size_t len; bool hit; } name_probe_t;
+
+static bool probe_name(const char *start, size_t len, void *user) {
+    name_probe_t *probe = user;
+    probe->hit = span_equals(start, len, probe->name, probe->len);
+    return !probe->hit;
+}
+
+static bool names_match(const char *raw, const char *seps, int limit, size_t max_len, const char *name) {
+    if (!name) name = "";
+    name_probe_t probe = { name, strlen(name), false };
+    split_walk(raw, seps, limit, max_len, probe_name, &probe);
+    return probe.hit;
+}
+
 static bool tagcache_artist_matches(const char *raw, const char *name) {
-    char names[TAGCACHE_ARTIST_SPLIT_MAX][TAGCACHE_PATH_MAX];
-    int n = split_artist(raw, names);
-    for (int i = 0; i < n; i++) if (ascii_casecmp(names[i], name ? name : "") == 0) return true;
-    return false;
+    return names_match(raw, ";/", TAGCACHE_ARTIST_SPLIT_MAX, TAGCACHE_TAG_MAX - 1, name);
 }
 
 int tagcache_artist_names(const char *raw, char out[][TAGCACHE_TAG_MAX], int max_names) {
@@ -533,6 +594,14 @@ int tagcache_artist_names(const char *raw, char out[][TAGCACHE_TAG_MAX], int max
         out[i][len] = '\0';
     }
     return count;
+}
+
+/* Genres: every part of the tag, full length. */
+bool tagcache_genre_matches(const char *raw, const char *name) { return names_match(raw, ";,/", 0, 0, name); }
+
+int tagcache_genre_each(const char *raw, bool (*fn)(const char *start, size_t len, void *user), void *user) {
+    if (!raw || !raw[0]) return 0;
+    return split_walk(raw, ";,/", 0, 0, fn, user);
 }
 
 void tagcache_artist_primary(const char *raw, char *out, size_t size) {

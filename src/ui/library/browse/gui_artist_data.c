@@ -2,6 +2,7 @@
 #include "../../../audio/probe/track_probe.h"
 #include "../../../library/artwork/decode/library_artwork_internal.h"
 #include "../../../library/metadata/durations/duration_lookup.h"
+#include "../../../library/tagcache/core/tagcache.h"
 #include "../../../core/process/worker_thread.h"
 #include "../../../core/process/worker_notify.h"
 #include <unistd.h>
@@ -69,7 +70,24 @@ static uint32_t probe_retry_tick;
 static bool probe_cancelled;
 static job_t * probe_gate_job;     /* the job whose finished aggregate a poll has already seen */
 
-static bool is_unknown_genre(const char * g) { return !g[0] || strcasecmp(g, "Unknown Genre") == 0; }
+static bool is_unknown_genre(const char * g) { return !g[0] || tagcache_cmp_ascii(g, "Unknown Genre") == 0; }
+
+static bool count_genre_part(const char * start, size_t len, void * user) {
+    job_t * job = user;
+    char name[TAGCACHE_PATH_MAX];
+    if (len >= sizeof(name)) len = sizeof(name) - 1;
+    memcpy(name, start, len); name[len] = '\0';
+    if (is_unknown_genre(name)) return true;
+    genre_agg_t * g = NULL;
+    for (int i = 0; i < job->genre_count && !g; i++) if (!tagcache_cmp_ascii(job->genres[i].name, name)) g = &job->genres[i];
+    if (!g && job->genre_count < ARTIST_MAX_GENRES) {
+        g = &job->genres[job->genre_count++];
+        snprintf(g->name, sizeof(g->name), "%.*s", (int) sizeof(g->name) - 1, name);
+        g->count = 0;
+    }
+    if (g) g->count++;
+    return true;
+}
 
 static bool visit(const song_row_t * song, int32_t mtime, int32_t size, void * user) {
     job_t * job = user;
@@ -101,16 +119,8 @@ static bool visit(const song_row_t * song, int32_t mtime, int32_t size, void * u
     }
     a->tracks++;
     if (year > 0 && (!a->year || year < a->year)) a->year = year;
-    if (!is_unknown_genre(song->tags.genre)) {
-        genre_agg_t * g = NULL;
-        for (int i = 0; i < job->genre_count && !g; i++) if (!strcasecmp(job->genres[i].name, song->tags.genre)) g = &job->genres[i];
-        if (!g && job->genre_count < ARTIST_MAX_GENRES) {
-            g = &job->genres[job->genre_count++];
-            snprintf(g->name, sizeof(g->name), "%s", song->tags.genre);
-            g->count = 0;
-        }
-        if (g) g->count++;
-    }
+    /* A song counts under each genre of its tag, like the Genres list does. */
+    tagcache_genre_each(song->tags.genre, count_genre_part, job);
     if (job->track_count < ARTIST_MAX_TRACKS) {
         if (job->track_count == job->track_cap) {
             int cap = job->track_cap ? job->track_cap * 2 : 256;

@@ -238,7 +238,7 @@ static bool collection_take_candidate_locked(collection_build_t *b, collection_c
                  (b->genre ? TAGCACHE_FIELD_GENRE : 0u), &song))
         return false;
     if (b->album_artist_empty_filter && song.album_artist[0]) return true;
-    if (b->genre && strcasecmp(song.genre, b->genre) != 0) return true;
+    if (b->genre && !tagcache_genre_matches(song.genre, b->genre)) return true;
     if (!collection_mark_seen_locked(b, rank)) return false;
     if (b->album_order) {
         chunk->albums[chunk->count++] = (collection_album_rank_t){

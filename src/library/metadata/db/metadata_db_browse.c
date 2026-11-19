@@ -118,15 +118,13 @@ int metadata_db_get_songs_page_by_recency(int offset, int max_rows, song_row_t *
 enum { GENRE_LIMIT = 2000, GENRE_HASH_SIZE = 4096 };
 typedef struct { genre_entry_t *groups; int *slots; int used; bool failed; bool complete; } genre_cache_build_t;
 
-static bool genre_cache_visit(const tagcache_song_t *song, void *user) {
-    genre_cache_build_t *state = user;
-    const char *name = song->genre;
-    if (!name[0]) return true;
+/* Counts one song under one genre name. Returns false only when the build must stop. */
+static bool genre_cache_add(genre_cache_build_t *state, const char *name, int64_t song_id) {
     uint32_t hash = fnv1a_fold(2166136261u, name);
     unsigned bucket = hash % GENRE_HASH_SIZE;
     while (state->slots[bucket] >= 0 &&
            (state->groups[state->slots[bucket]].hash != hash ||
-            strcasecmp(state->groups[state->slots[bucket]].name, name) != 0))
+            tagcache_cmp_ascii(state->groups[state->slots[bucket]].name, name) != 0))
         bucket = (bucket + 1) % GENRE_HASH_SIZE;
     if (state->slots[bucket] >= 0) { state->groups[state->slots[bucket]].song_count++; return true; }
     if (state->used >= GENRE_LIMIT) return true;
@@ -134,9 +132,27 @@ static bool genre_cache_visit(const tagcache_song_t *song, void *user) {
     if (!copy) { state->failed = true; return false; }
     int index = state->used++;
     state->slots[bucket] = index;
-    state->groups[index] = (genre_entry_t){ .name = copy, .first_song_id = song->id,
+    state->groups[index] = (genre_entry_t){ .name = copy, .first_song_id = song_id,
                                              .song_count = 1, .hash = hash };
     return true;
+}
+
+typedef struct { genre_cache_build_t *state; int64_t song_id; } genre_visit_t;
+
+static bool genre_visit_part(const char *start, size_t len, void *user) {
+    genre_visit_t *visit = user;
+    char name[TAGCACHE_PATH_MAX]; /* a part is never longer than the genre tag */
+    if (len >= sizeof(name)) len = sizeof(name) - 1;
+    memcpy(name, start, len);
+    name[len] = '\0';
+    return genre_cache_add(visit->state, name, visit->song_id);
+}
+
+/* A song counts under every genre of its tag ("Rock; Pop" is Rock and Pop). */
+static bool genre_cache_visit(const tagcache_song_t *song, void *user) {
+    genre_visit_t visit = { user, song->id };
+    tagcache_genre_each(song->genre, genre_visit_part, &visit);
+    return !visit.state->failed;
 }
 
 static bool genre_cache_build(genre_cache_build_t *build, int32_t generation, uint32_t incarnation) {
@@ -590,7 +606,7 @@ int metadata_db_search_songs(const char *query_text, song_row_t *out_rows, int m
 static bool title_rank_has_genre(int32_t rank, const char * genre) {
     tagcache_song_t song;
     return tagcache_song_fields_at_title_rank(rank, TAGCACHE_FIELD_GENRE, &song) &&
-           strcasecmp(song.genre, genre) == 0;
+           tagcache_genre_matches(song.genre, genre);
 }
 
 int64_t metadata_db_count_songs_filtered(const char *needle, const char *artist,
@@ -652,7 +668,7 @@ bool metadata_db_walk_genre_songs(const char * genre, int max_songs,
                 tagcache_song_t song;
                 if (!tagcache_song_at_title_rank(rank, &song) ||
                     (song.flags & FLAG_TAGS_INCOMPLETE)) { all_read = false; continue; }
-                if (genre && strcasecmp(song.genre, genre)) continue;
+                if (genre && !tagcache_genre_matches(song.genre, genre)) continue;
                 metadata_db_copy_song(&song, &batch[copied++]);
             }
         }

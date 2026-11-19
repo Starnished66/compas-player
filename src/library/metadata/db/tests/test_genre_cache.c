@@ -18,6 +18,13 @@ void metadata_db_mutex_init(void) {
 void tagcache_artist_primary(const char *raw, char *out, size_t size) {
     snprintf(out, size, "%s", raw);
 }
+/* The splitter has its own test (test_tagcache_reverse); here a genre is one name. */
+int tagcache_genre_each(const char *raw, bool (*fn)(const char *, size_t, void *), void *user) {
+    if (!raw[0]) return 0;
+    fn(raw, strlen(raw), user);
+    return 1;
+}
+bool tagcache_genre_matches(const char *raw, const char *name) { return strcasecmp(raw, name) == 0; }
 int tagcache_cmp_ascii(const char *a, const char *b) { return strcasecmp(a, b); }
 int32_t tagcache_generation(void) { return generation; }
 int tagcache_title_order_version(void) { return 1; }
