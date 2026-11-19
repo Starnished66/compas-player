@@ -43,23 +43,21 @@ static lv_timer_t *job_timer;
 
 static void *favorite_albums_load(void *data) {
     favorite_job_t *job = data;
-    rated_album_t *rated = NULL;
+    top_rated_album_t *top = NULL;
     int count = 0;
-    metadata_db_load_rated_albums(&rated, &count);
+    metadata_db_load_top_rated_albums(&top, &count);
     job->groups = count ? calloc((size_t)count, sizeof(*job->groups)) : NULL;
     job->items = count ? calloc((size_t)count, sizeof(*job->items)) : NULL;
     job->stars = count ? calloc((size_t)count, sizeof(*job->stars)) : NULL;
     for (int i = 0; job->groups && job->items && job->stars && i < count; i++) {
-        if (rated[i].stars < 3) continue;
-        if (album_group_resolve(rated[i].album, rated[i].album_artist,
-                                &job->groups[job->count])) {
-            compact_list_page_row_t cover = {0};
-            fill_album_cover_key(&cover, &job->groups[job->count]);
-            job->stars[job->count] = rated[i].stars;
-            job->items[job->count++].artwork_key = cover.artwork_key;
-        }
+        compact_list_page_row_t cover = {0};
+        job->groups[i] = top[i].group;
+        fill_album_cover_key(&cover, &job->groups[i]);
+        job->stars[i] = top[i].stars;
+        job->items[i].artwork_key = cover.artwork_key;
+        job->count++;
     }
-    metadata_db_free_rated_albums(rated, count);
+    free(top);
     atomic_store_explicit(&job->done, true, memory_order_release);
     return NULL;
 }

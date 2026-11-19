@@ -5,6 +5,7 @@
 #include "../../../audio/output/audio_output.h" /* target-only, like audio.c's own audio_output_* calls */
 #endif
 #include "../../../core/persistence/settings_registry.h"
+#include "../../../library/metadata/db/album_rating.h"
 #include "../../../library/remote/remote_state.h"
 #include "../../bluetooth/control/bluetooth_control.h"
 #include "../../../hardware/usb/usb_dac_bridge.h"
@@ -733,17 +734,22 @@ void handle_library_sorting_route(int fd, const char *method, const char *path) 
     } else send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed");
 }
 
-/* GET /api/library/albums?scope=...: albums of one scope in the configured sort order. */
-static void append_album_groups(json_builder_t *json, const group_row_t *groups, int count) {
-    for (int i = 0; i < count; ++i) {
-        char name[768] = {0}, aa[768] = {0};
-        json_escape_append(name, sizeof(name), groups[i].name);
-        json_escape_append(aa, sizeof(aa), groups[i].album_artist);
-        json_builder_appendf(json, "%s{\"name\":\"%s\",\"count\":%d,\"index\":%lld,\"album_artist\":\"%s\"}",
-                             i ? "," : "", name, groups[i].song_count, (long long) groups[i].first_song_id, aa);
-    }
+/* One album row; stars is appended when not negative. */
+static void append_album_group(json_builder_t *json, const group_row_t *group, int i, int stars) {
+    char name[768] = {0}, aa[768] = {0};
+    json_escape_append(name, sizeof(name), group->name);
+    json_escape_append(aa, sizeof(aa), group->album_artist);
+    json_builder_appendf(json, "%s{\"name\":\"%s\",\"count\":%d,\"index\":%lld,\"album_artist\":\"%s\"",
+                         i ? "," : "", name, group->song_count, (long long) group->first_song_id, aa);
+    if (stars >= 0) json_builder_appendf(json, ",\"stars\":%d", stars);
+    json_builder_appendf(json, "}");
 }
 
+static void append_album_groups(json_builder_t *json, const group_row_t *groups, int count) {
+    for (int i = 0; i < count; ++i) append_album_group(json, &groups[i], i, -1);
+}
+
+/* GET /api/library/albums?scope=...: albums of one scope in the configured sort order. */
 void handle_scoped_albums_route(int fd, const char *method, const char *path) {
     if (strcmp(method, "GET") != 0) { send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed"); return; }
     char scope_name[32], artist[128], album_artist[128];
@@ -1085,4 +1091,23 @@ void handle_legacy_playback_post(int cfd, const char * path_only, const char * p
     } else {
         send_response(cfd, "404 Not Found", "text/plain", "Not Found");
     }
+}
+
+/* GET /api/library/top_rated_albums: the albums of the on-device Top rated albums screen. */
+void handle_top_rated_albums_route(int fd, const char *method) {
+    if (strcmp(method, "GET") != 0) { send_response(fd, "405 Method Not Allowed", "text/plain", "Method not allowed"); return; }
+    top_rated_album_t *albums = NULL;
+    int count = 0;
+    metadata_db_load_top_rated_albums(&albums, &count);
+    /* Each row holds two names of at most 6 escaped bytes per byte, plus fixed text. */
+    size_t capacity = (size_t) count * 1700 + 64;
+    char *out = json_alloc_or_500(fd, capacity);
+    if (!out) { free(albums); return; }
+    json_builder_t json;
+    json_builder_init(&json, out, capacity);
+    json_builder_appendf(&json, "{\"total\":%d,\"albums\":[", count);
+    for (int i = 0; i < count; ++i) append_album_group(&json, &albums[i].group, i, albums[i].stars);
+    json_builder_appendf(&json, "]}");
+    free(albums);
+    send_json_free(fd, out);
 }

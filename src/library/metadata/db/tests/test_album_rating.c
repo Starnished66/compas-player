@@ -116,6 +116,31 @@ static void test_round_trip(void) {
     metadata_db_free_rated_albums(albums, count);
 }
 
+/* Stand-in for the Albums list: every album is listed except "Legacy". */
+bool metadata_db_resolve_album_group(const char *name, const char *album_artist, group_row_t *out) {
+    if (!strcmp(name, "Legacy")) return false;
+    snprintf(out->name, sizeof(out->name), "%s", name);
+    snprintf(out->album_artist, sizeof(out->album_artist), "%s", album_artist);
+    out->song_count = 2;
+    return true;
+}
+
+static void test_top_rated(void) {
+    top_rated_album_t *albums;
+    int count;
+    metadata_db_load_top_rated_albums(&albums, &count);
+    /* Rating order, 3 stars and up, minus the album the list no longer has. */
+    const char *names[] = {"First", "Second", "High", "Four", "Three"};
+    const int stars[] = {5, 5, 5, 4, 3};
+    assert(count == 5);
+    for (int i = 0; i < count; i++) {
+        assert(!strcmp(albums[i].group.name, names[i]));
+        assert(albums[i].stars == stars[i]);
+        assert(albums[i].group.song_count == 2);
+    }
+    free(albums);
+}
+
 static void test_async_write(void) {
     unsigned revision = remote_state_revision();
     metadata_db_album_rating_set("Async", "Album", 3);
@@ -215,6 +240,7 @@ int main(void) {
     assert(mkdtemp(dir) && chdir(dir) == 0);
     test_keys();
     test_round_trip();
+    test_top_rated();
     test_async_write();
     test_catalog_rating_order();
     test_legacy_spaces();

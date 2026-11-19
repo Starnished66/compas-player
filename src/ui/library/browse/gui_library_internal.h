@@ -293,7 +293,6 @@ void rearm_genre_browse_lists(void);
 extern songs_bar_t recent_bar;
 int recently_added_fetch_page(void * ctx, int offset, int count, compact_list_page_row_t out_rows[]);
 bool show_album_group_ex(const group_row_t * group, const char * artist_filter, bool * built_now);
-bool album_group_resolve(const char * name, const char * album_artist, group_row_t * out);
 int album_group_song_count(const char * name, const char * album_artist);
 bool album_refresh_in_place_start(const char * name, const char * album_artist, const char * artist_filter);
 bool show_album_group_filtered(const group_row_t * group, const char * artist_filter);

@@ -332,6 +332,7 @@ static bool handle_extension_route(int cfd, const char * method, const char * pa
     else if (strcmp(path_only, "/api/library/sorting") == 0) handle_library_sorting_route(cfd, method, path);
     else if (strcmp(path_only, "/api/library/albums") == 0 && query_param_present(path, "scope"))
         handle_scoped_albums_route(cfd, method, path);
+    else if (strcmp(path_only, "/api/library/top_rated_albums") == 0) handle_top_rated_albums_route(cfd, method);
     else if (strcmp(path_only, "/api/playback/collection") == 0) handle_collection_play_route(cfd, method, path);
     else return false;
     return true;
@@ -486,7 +487,7 @@ static void handle_capabilities_request(int cfd, bool trusted) {
         "\"playlists\",\"album_art\",\"screenshots\",\"catalog_sync_v1\","
         "\"folder_browse\",\"recently_played\",\"favorites_edit\",\"ratings_edit\",\"queue_edit\","
         "\"playlist_edit\",\"playlist_import\",\"player_accent\",\"device_info\","
-        "\"collection_playback\",\"shuffle_modes\",\"library_sorting\","
+        "\"collection_playback\",\"shuffle_modes\",\"library_sorting\",\"top_rated_albums\","
         "\"wifi_import\",\"wifi_import_files\",\"settings_v1\",\"plugin_store\",\"plugin_management\",\"player_layouts\"],"
         "\"settingsSchemaVersion\":%d}", library_id_field, trusted ? "false" : "true", SETTINGS_REGISTRY_SCHEMA_VERSION);
     send_response(cfd, "200 OK", "application/json", capabilities);
@@ -644,7 +645,7 @@ static void handle_legacy_get(int cfd, const char * path_only, const char * path
 static const char *route_method(const char *path) {
     static const char *get_paths[] = {"/api/folders/roots", "/api/folders", "/api/recent", "/api/ratings/state", "/api/favorites/state", "/", "/api/status", "/api/import", "/api/catalog", "/api/catalog/covers",
         "/api/catalog/art", "/api/library", "/api/library/artists", "/api/library/album_artists",
-        "/api/library/genres", "/api/library/albums", "/api/art", "/api/playlists/songs", "/api/queue"};
+        "/api/library/genres", "/api/library/albums", "/api/library/top_rated_albums", "/api/art", "/api/playlists/songs", "/api/queue"};
     static const char *post_paths[] = {"/api/folders/play", "/api/ratings/set", "/api/favorites/add", "/api/favorites/remove", "/api/queue/move", "/api/queue/play", "/api/playlists/create", "/api/playlists/rename", "/api/playlists/delete", "/api/playlists/remove", "/api/playlists/move", "/api/playlists/import", "/api/playlists/add", "/api/playback/toggle", "/api/playback/next",
         "/api/playback/prev", "/api/playback/mode", "/api/playback/seek", "/api/playback/volume",
         "/api/playback/play", "/api/playback/queue", "/api/queue/remove", "/api/queue/clear", "/api/screenshot"};

@@ -197,7 +197,7 @@ void __wrap_metadata_db_load_rated_albums(rated_album_t **out, int *count) {
     load_test_albums(out, count);
     while (atomic_load(&hold_favorites)) usleep(1000);
 }
-bool __wrap_album_group_resolve(const char *album, const char *artist, group_row_t *out) {
+bool __wrap_metadata_db_resolve_album_group(const char *album, const char *artist, group_row_t *out) {
     assert(!pthread_equal(ui_thread, pthread_self()));
     atomic_fetch_add(&favorite_resolves, 1);
     snprintf(out->name, sizeof(out->name), "%s", album);

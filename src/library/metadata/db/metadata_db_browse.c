@@ -408,6 +408,16 @@ int64_t metadata_db_get_group_offset(metadata_db_group_kind_t kind, const char *
     return idx >= 0 ? idx : -1;
 }
 
+bool metadata_db_resolve_album_group(const char * name, const char * album_artist, group_row_t * out) {
+    int64_t offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM, name, album_artist);
+    if (offset < 0 || metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM, (int) offset, 1, out) != 1 ||
+        out->song_count <= 0)
+        return false;
+    snprintf(out->name, sizeof(out->name), "%s", name);
+    snprintf(out->album_artist, sizeof(out->album_artist), "%s", album_artist);
+    return true;
+}
+
 /* First collation byte, normalized to ASCII for letter buckets. Keep non-letter
  * keys in sort order instead of collapsing both ends into a single '#' key. */
 typedef struct {

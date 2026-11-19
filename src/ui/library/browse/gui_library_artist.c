@@ -951,7 +951,7 @@ static void open_album_collection_menu_at(int index) {
 /* The long-press menu of an album by identity (Cover Flow); nothing if it is gone. */
 void gui_library_open_album_menu(const char * name, const char * album_artist) {
     group_row_t group;
-    if (library_rescan_active || !album_group_resolve(name, album_artist, &group)) return;
+    if (library_rescan_active || !metadata_db_resolve_album_group(name, album_artist, &group)) return;
     open_album_collection_menu(&group, NULL);
 }
 

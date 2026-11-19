@@ -797,3 +797,19 @@ bool metadata_db_load_rating_order(int **out_ranks, int out_sections[6],
     *out_count = count;
     return true;
 }
+
+void metadata_db_load_top_rated_albums(top_rated_album_t **out, int *count) {
+    rated_album_t *rated = NULL;
+    int rated_count = 0;
+    metadata_db_load_rated_albums(&rated, &rated_count);
+    top_rated_album_t *albums = rated_count ? calloc((size_t)rated_count, sizeof(*albums)) : NULL;
+    int n = 0;
+    for (int i = 0; albums && i < rated_count; i++) {
+        if (rated[i].stars < TOP_RATED_ALBUM_MIN_STARS) continue;
+        if (metadata_db_resolve_album_group(rated[i].album, rated[i].album_artist, &albums[n].group))
+            albums[n++].stars = rated[i].stars;
+    }
+    metadata_db_free_rated_albums(rated, rated_count);
+    *out = albums;
+    *count = n;
+}

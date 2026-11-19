@@ -308,6 +308,8 @@ int64_t metadata_db_get_song_title_offset(const char * path);
  * recency()'s own comment for the exact ORDER BY this matches. */
 int64_t metadata_db_get_song_recency_offset(const char * path);
 int64_t metadata_db_get_group_offset(metadata_db_group_kind_t kind, const char * name, const char * album_artist);
+/* The album (name, album artist) as the Albums list has it now; false when it is not listed. */
+bool metadata_db_resolve_album_group(const char * name, const char * album_artist, group_row_t * out);
 
 /* 27-entry (A-Z, then '#') table of "display offset of the first entry at
  * or after this letter", matching gui.c's "jump forward to nearest match"

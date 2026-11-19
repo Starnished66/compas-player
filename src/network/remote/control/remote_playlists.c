@@ -63,7 +63,7 @@ void handle_playlists_get(int cfd) {
     json_builder_t json;
     json_builder_init(&json, out, out_size);
     json_builder_appendf(&json,
-                            "{\"playlists\":[{\"name\":\"Favorites\",\"key\":\"@favorites\",\"internal\":true,\"writable\":false},"
+                            "{\"playlists\":[{\"name\":\"Top rated\",\"key\":\"@favorites\",\"internal\":true,\"writable\":false},"
                             "{\"name\":\"Most Played\",\"key\":\"@most_played\",\"internal\":true,\"writable\":false},"
                             "{\"name\":\"Recently Played\",\"key\":\"@recently_played\",\"internal\":true,\"writable\":false}");
     size_t playlists_dir_len = strlen(PLAYLISTS_DIR);

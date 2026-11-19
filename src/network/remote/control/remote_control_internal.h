@@ -72,6 +72,7 @@ void remote_state_rating_written(const char * song_path, int stars);
 void handle_queue_edit_request(int cfd, const char * path, bool move);
 void handle_library_sorting_route(int fd, const char *method, const char *path);
 void handle_scoped_albums_route(int fd, const char *method, const char *path);
+void handle_top_rated_albums_route(int fd, const char *method);
 void handle_collection_play_route(int fd, const char *method, const char *path);
 bool handle_import_lifecycle_route(int cfd, const char * method, const char * path_only);
 void handle_status_get(int cfd);

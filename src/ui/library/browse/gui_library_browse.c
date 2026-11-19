@@ -455,21 +455,10 @@ static void free_album_load_request(album_load_request_t * request) {
     free(request);
 }
 
-/* The album (name, album artist) as the Albums list has it now; false when it is not listed. */
-bool album_group_resolve(const char * name, const char * album_artist, group_row_t * out) {
-    int64_t offset = metadata_db_get_group_offset(METADATA_DB_GROUP_ALBUM, name, album_artist);
-    if (offset < 0 || metadata_db_get_groups_page(METADATA_DB_GROUP_ALBUM, (int) offset, 1, out) != 1 ||
-        out->song_count <= 0)
-        return false;
-    snprintf(out->name, sizeof(out->name), "%s", name);
-    snprintf(out->album_artist, sizeof(out->album_artist), "%s", album_artist);
-    return true;
-}
-
 /* Tracks of an album as the Albums list counts them (0 when it is not listed). */
 int album_group_song_count(const char * name, const char * album_artist) {
     group_row_t group;
-    return album_group_resolve(name, album_artist, &group) ? group.song_count : 0;
+    return metadata_db_resolve_album_group(name, album_artist, &group) ? group.song_count : 0;
 }
 
 static void * album_load_worker(void * arg) {
@@ -827,7 +816,7 @@ static void album_row_click_cb(int index) {
 /* An album by identity, as tapping it in the Albums list does (Cover Flow); nothing if it is gone. */
 void gui_library_open_album(const char * name, const char * album_artist) {
     group_row_t group;
-    if (library_rescan_active || !album_group_resolve(name, album_artist, &group)) return;
+    if (library_rescan_active || !metadata_db_resolve_album_group(name, album_artist, &group)) return;
     (void) show_album_group(&group);
 }
 
