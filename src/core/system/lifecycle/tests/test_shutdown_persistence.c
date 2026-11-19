@@ -13,6 +13,9 @@ static atomic_bool history_ready = true;
 static int queue_cancels;
 bool track_metadata_history_ready(void) { return atomic_load(&history_ready); }
 void gui_player_queue_flush_cancel(void) { queue_cancels++; }
+/* Only a handed-off power-off that fails ends the USB DAC wait from here. */
+static int usb_dac_cancels;
+void gui_network_usb_dac_power_off_failed(void) { usb_dac_cancels++; }
 const char *i18n_tr(const char *text) { return text; }
 void show_error_toast(const char *text) { (void)text; notices++; }
 bool rating_writer_flush(void) { return true; }
@@ -22,14 +25,15 @@ bool tagcache_flush_numeric(void) {
     return persistence_ok;
 }
 void firmware_update_recovery_cancel(void) { recovery_cancellations++; }
-bool firmware_update_busy(void) { return true; }
+static bool update_busy = true, timer_fails;
+bool firmware_update_busy(void) { return update_busy; }
 bool audio_is_playing(void) { return true; }
 bool audio_is_paused(void) { return false; }
 double audio_get_resume_position_seconds(void) { return 42; }
 lv_timer_t *lv_timer_create(lv_timer_cb_t cb, uint32_t period, void *data) {
     (void)cb; (void)period; (void)data;
     static int timer;
-    return (lv_timer_t *)&timer;
+    return timer_fails ? NULL : (lv_timer_t *)&timer;
 }
 bool settings_shutdown_wait(void) { return persistence_ok; }
 bool settings_shutdown_start(void) { assert(pthread_equal(ui_thread, pthread_self())); return true; }
@@ -119,6 +123,20 @@ static void test_history_barrier(void) {
     atomic_store(&history_ready, true);
 }
 
+/* A refused or unstartable power-off was never handed off: its caller, not
+ * this pipeline, ends its own USB DAC wait. */
+static void test_usb_dac_power_ends(void) {
+    usb_dac_cancels = 0;
+    idle_shutdown_now(); /* refused: an update is running */
+    assert(usb_dac_cancels == 0 && !shutdown_timer && !idle_shutdown_pending());
+    update_busy = false;
+    timer_fails = true;
+    idle_shutdown_now(); /* no timer */
+    assert(usb_dac_cancels == 0 && !shutdown_timer && !idle_shutdown_pending());
+    update_busy = true;
+    timer_fails = false;
+}
+
 int main(void) {
     ui_thread = pthread_self();
     start_persistence(true);
@@ -130,15 +148,17 @@ int main(void) {
     finish_persistence();
     assert(!poweroffs && deleted == 1 && queue_cancels == 1);
     persistence_ok = false;
+    int cancels = usb_dac_cancels;
     start_persistence(false);
     finish_persistence();
-    assert(!poweroffs && deleted == 2);
+    assert(!poweroffs && deleted == 2 && usb_dac_cancels == cancels + 1);
     persistence_ok = true;
     start_persistence(false);
     finish_persistence();
     assert(poweroffs == 1 && deleted == 3);
     test_recovery_request();
     test_history_barrier();
+    test_usb_dac_power_ends();
     puts("Shutdown persistence timeout, failure, success and recovery UI preparation passed");
     return 0;
 }

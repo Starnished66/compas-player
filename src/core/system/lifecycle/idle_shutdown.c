@@ -67,6 +67,7 @@ bool idle_shutdown_reboot_handoff(void) {
 #ifndef HOST_BUILD
 #include "lvgl/lvgl.h"
 #include "../../../ui/player/screen/gui_player.h"
+#include "../../../ui/network/gui_network.h"
 #include "../../../ui/text/i18n/i18n.h"
 #include <pthread.h>
 #include <stdatomic.h>
@@ -155,6 +156,7 @@ static void shutdown_poll(lv_timer_t *timer) {
     if (shutdown_work.settings_started) settings_save_async(&current_settings);
     if (!shutdown_work.notified)
         show_error_toast(shutdown_work.error[0] ? shutdown_work.error : TR("Could not save changes"));
+    gui_network_usb_dac_power_off_failed(); /* the process is still running */
     lv_timer_delete(timer);
     shutdown_timer = NULL;
 }

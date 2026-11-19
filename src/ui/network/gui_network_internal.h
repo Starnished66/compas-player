@@ -81,6 +81,7 @@ void gui_network_pairing_teardown(void);
 /* gui_network_receivers.c */
 void gui_network_usb_dac_build(void);
 void gui_network_usb_dac_refresh(void);
+bool gui_network_usb_dac_screen_visible(void);
 void gui_network_usb_dac_teardown(void);
 void stop_local_playback(void);
 void disable_bt_dac_mode(void);

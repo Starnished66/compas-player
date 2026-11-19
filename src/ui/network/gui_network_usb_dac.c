@@ -5,6 +5,7 @@
 #include "../widgets/builders/screen_builders.h"
 #include "../assets/assets.h"
 #include "../../hardware/usb/usb_dac_bridge.h"
+#include "../../core/system/runtime/app_version.h"
 #include "gui_network.h"
 #include "gui_network_internal.h"
 #include "gui_network_dac_screen.h"
@@ -39,6 +40,10 @@ static void enable_cb(lv_event_t * e) {
 static void populate_usb_dac_screen(void) {
     if (!usb_dac_content) return;
     lv_obj_clean(usb_dac_content);
+    char note[192];
+    snprintf(note, sizeof(note), TR("iPhone users must stay on this screen to use USB DAC mode with your %s."),
+             app_board_short_name());
+    build_setting_hint(usb_dac_content, note);
     usb_dac_showing_intent = current_settings.usb_dac_mode_enabled;
     usb_dac_showing_active = gui_network_usb_dac_active();
     char breeze[96];
@@ -69,6 +74,10 @@ void gui_network_open_usb_dac(void) {
     gui_network_usb_dac_build();
     populate_usb_dac_screen();
     nav_push(usb_dac_screen);
+}
+
+bool gui_network_usb_dac_screen_visible(void) {
+    return usb_dac_screen && lv_screen_active() == usb_dac_screen;
 }
 
 void gui_network_usb_dac_build(void) {

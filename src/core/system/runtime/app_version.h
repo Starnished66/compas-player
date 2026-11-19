@@ -12,5 +12,7 @@ const char * app_board_marker(void);
 const char * app_board_model(void);
 /* The board as shown to people: "HiBy R1", "TempoTec V1", ... */
 const char * app_board_display_name(void);
+/* The device without its brand: "R1", "R3 Pro II", "R3 II 2025", "V1". */
+const char * app_board_short_name(void);
 
 #endif

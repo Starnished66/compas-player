@@ -48,9 +48,10 @@ int main(void) {
         assert(has_text(bt, on ? "Stop Bluetooth DAC" : "Enable Bluetooth DAC"));
         counts[on][1] = tree_count(bt);
     }
-    assert(counts[0][0] == counts[0][1]);
-    /* Bluetooth alone adds its three controls and their row. */
-    assert(counts[1][1] == counts[1][0] + 4);
+    /* USB alone adds the iPhone note; Bluetooth alone adds its three controls and their row. */
+    assert(has_text(usb, "iPhone users must stay on this screen to use USB DAC mode with your R1."));
+    assert(counts[0][0] == counts[0][1] + 1);
+    assert(counts[1][1] + 1 == counts[1][0] + 4);
     gui_network_open_usb_dac();
     assert(lv_screen_active() == usb);
     nav_pop_immediate();

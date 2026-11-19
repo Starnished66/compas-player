@@ -32,17 +32,16 @@
 void charge_limiter_poll(bool enabled, bool force);
 
 /* R1 DAC session charger helpers serialize REG18 read/modify/write with
- * periodic limiter polling. Capture reads the baseline without disabling;
- * begin captures and inhibits; resume reclaims an inhibit after restart;
- * release restores the saved bit and permits polling; end restores a begun
- * session. Failed transitions retain inhibition when possible for retry.
- * These are no-ops on boards without the R1 AXP2101 charge path. */
-bool charge_limiter_dac_session_begin(bool *originally_enabled);
+ * periodic limiter polling. Capture reads the baseline without disabling and
+ * reserves it from polling until resume, release, or cancel_reservation
+ * (which touches no hardware). Resume inhibits charging for the saved
+ * baseline; release restores the saved bit and permits polling. Failed
+ * transitions retain inhibition when possible for retry. These are no-ops on
+ * boards without the R1 AXP2101 charge path. */
 bool charge_limiter_dac_session_capture_original_enabled(bool *originally_enabled);
-bool charge_limiter_dac_session_get_original_enabled(bool *originally_enabled);
+void charge_limiter_dac_session_cancel_reservation(void);
 bool charge_limiter_dac_session_resume(bool originally_enabled);
 bool charge_limiter_dac_session_release(bool originally_enabled);
-bool charge_limiter_dac_session_end(void);
 
 /* R1 only: REG00h bit 5 (VBUS good) read now, over the same I2C helper
  * as the limiter. Returns false when the read fails or this is not the

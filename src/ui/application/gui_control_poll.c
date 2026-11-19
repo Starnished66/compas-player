@@ -409,6 +409,7 @@ static void car_mode_reset_baseline(car_mode_state_t *s) {
     s->power_sample_initialized = false;
     s->power_absent_polls = 0;
     s->car_shutdown_pending = false;
+    gui_network_usb_dac_power_cancelled(USB_DAC_POWER_CAR);
 }
 
 static void car_mode_sample_power(car_mode_state_t *s,
@@ -434,6 +435,7 @@ static void car_mode_sample_power(car_mode_state_t *s,
         s->last_external_power = true;
         s->power_absent_polls = 0;
         s->car_shutdown_pending = false;
+        gui_network_usb_dac_power_cancelled(USB_DAC_POWER_CAR);
     } else if (s->last_external_power) {
         if (s->power_absent_polls < CAR_POWER_REMOVAL_DEBOUNCE_POLLS) s->power_absent_polls++;
         if (s->power_absent_polls >= CAR_POWER_REMOVAL_DEBOUNCE_POLLS) {
@@ -447,7 +449,7 @@ static void car_mode_sample_power(car_mode_state_t *s,
 
 static void car_mode_shutdown_if_pending(const car_mode_state_t *s) {
     if (s->car_shutdown_pending && !shutdown_background_work_active()) {
-        if (!gui_network_usb_dac_shutdown()) return;
+        if (!gui_network_usb_dac_shutdown(USB_DAC_POWER_CAR)) return;
         (void) gui_shell_bt_dac_shutdown(false);
         idle_shutdown_now(); /* asynchronous persistence gates poweroff */
     }

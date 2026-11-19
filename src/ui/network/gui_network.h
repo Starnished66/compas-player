@@ -12,6 +12,7 @@ lv_obj_t * gui_network_get_wireless_screen(void);
 lv_obj_t * gui_network_get_bt_dac_screen(void);
 
 bool gui_network_usb_dac_active(void);
+/* Returns true when this accepted a request to turn USB DAC on. */
 bool gui_network_toggle_usb_dac(void);
 void enable_usb_dac_mode(void);
 void disable_usb_dac_mode(void);
@@ -19,7 +20,20 @@ void gui_network_open_usb_dac(void);
 /* Pause preserves intent; resume requires an enumerated USB host. */
 void gui_network_usb_dac_pause(void);
 void gui_network_usb_dac_resume(void);
-bool gui_network_usb_dac_shutdown(void);
+/* The power action asking to shut USB DAC down; it owns the bounded wait. */
+typedef enum {
+    USB_DAC_POWER_NONE,
+    USB_DAC_POWER_MENU,
+    USB_DAC_POWER_IDLE,
+    USB_DAC_POWER_CAR,
+} usb_dac_power_action_t;
+bool gui_network_usb_dac_shutdown(usb_dac_power_action_t action);
+/* That power action was cancelled, refused, failed to start or no longer
+ * applies before its power-off was handed to persistence, so the USB DAC
+ * screen may hold its policy again. Only the owning action clears it. */
+void gui_network_usb_dac_power_cancelled(usb_dac_power_action_t action);
+/* The power-off handed to persistence failed; whichever action owns the wait has ended. */
+void gui_network_usb_dac_power_off_failed(void);
 void gui_network_usb_dac_boot_reconcile(void);
 bool gui_network_usb_prompt_invalidated(void);
 /* Firmware updates may proceed over a verified live ADB session after a

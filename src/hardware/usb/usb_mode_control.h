@@ -22,6 +22,12 @@ bool usb_mode_control_apply_with_status(usb_mode_t mode, bool * storage_busy);
 /* Reconcile a durable R1 DAC Type-C/charger lease after process restart.
  * Call once during startup before the first charge_limiter_poll(). */
 bool usb_mode_control_reconcile_dac_session(void);
+/* R1: hold the DAC Type-C Sink role and charging preference with no DAC
+ * gadget bound, so a host that needs Sink before it connects (an iPhone) can
+ * enumerate. Gadget changes keep a held policy. Releasing restores it unless
+ * a DAC gadget may still be bound, whose session then restores it. Blocking;
+ * call off the UI thread. No-op on other boards. */
+bool usb_mode_control_hold_dac_policy(bool hold);
 /* Set the DAC charging preference before startup reconciliation, or apply it
  * immediately to an owned R1 DAC session. Returns false without changing the
  * requested preference if the charger transition cannot be verified. */

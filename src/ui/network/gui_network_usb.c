@@ -9,6 +9,7 @@
 #include "../storage/usb_storage_session.h"
 #include "../../hardware/usb/usb_dac_bridge.h"
 #include "../../core/updates/firmware_update.h"
+#include "../../core/system/lifecycle/idle_shutdown.h"
 #include <stdio.h>
 #include <pthread.h>
 #include <unistd.h>
@@ -65,6 +66,21 @@ static bool usb_storage_rebind_pending;
 static usb_storage_session_t usb_storage_session;
 static void flush_sd_view_after_usb_storage(void);
 static uint32_t usb_storage_host_check_tick;
+/* The worker's current job holds (or releases) the DAC policy instead of
+ * switching. held is only what a job confirmed; after a job that ran and
+ * failed the state is unknown, and the latest request retries. */
+#define USB_DAC_POLICY_RETRY_MS 2000
+/* Power-off waits at most this long for the policy; the boot journal covers the rest. */
+#define USB_DAC_POWER_POLICY_WAIT_MS 3000
+static bool usb_dac_policy_job;
+static bool usb_dac_policy_job_hold;
+static bool usb_dac_policy_held;
+static bool usb_dac_policy_known = true;
+static bool usb_dac_policy_retry_wait;
+static uint32_t usb_dac_policy_retry_tick;
+/* The pending power action: no hold, and its wait for the policy is bounded. */
+static usb_dac_power_action_t usb_dac_power_owner;
+static uint32_t usb_dac_power_tick;
 
 static void usb_mode_option_row_cb(lv_event_t * e);
 static void finish_usb_dac_charging_update(bool show_failure, bool thread_already_joined);
@@ -77,7 +93,7 @@ static void finish_usb_dac_charging_update(bool show_failure, bool thread_alread
  * share (see usb_mode_control.c), so it really is orthogonal rather than a
  * third position in the same rotation. */
 static bool adb_owns_usb_port(void);
-static void usb_dac_enable(bool quiet);
+static bool usb_dac_enable(bool quiet);
 
 static void populate_usb_mode_screen(void) {
     if (!usb_mode_list) return;
@@ -109,7 +125,10 @@ static void populate_usb_mode_screen(void) {
 static void * usb_mode_switch_thread_func(void * arg) {
     (void) arg;
     bool storage_busy = false;
-    usb_mode_switch_succeeded = usb_mode_control_apply_with_status(usb_mode_switch_target, &storage_busy);
+    if (usb_dac_policy_job)
+        usb_mode_switch_succeeded = usb_mode_control_hold_dac_policy(usb_dac_policy_job_hold);
+    else
+        usb_mode_switch_succeeded = usb_mode_control_apply_with_status(usb_mode_switch_target, &storage_busy);
     usb_mode_switch_lease_deferred = storage_busy && usb_mode_switch_target == USB_MODE_STORAGE;
     atomic_store_explicit(&usb_mode_switch_done_flag, true, memory_order_release); /* written last -- poll_usb_mode_switch only checks this flag */
     return NULL;
@@ -125,11 +144,14 @@ static void * usb_bridge_restart_thread_func(void * arg) {
 /* Returns whether the worker actually started. A launch that fails runs no
  * poll, so nothing else will ever correct a control left flipped in
  * anticipation of it -- the caller has to know. */
+static bool start_usb_mode_worker(void) {
+    atomic_store_explicit(&usb_mode_switch_done_flag, false, memory_order_relaxed);
+    return pthread_create(&usb_mode_switch_thread, NULL, usb_mode_switch_thread_func, NULL) == 0;
+}
+
 static bool launch_usb_mode_switch(void) {
     usb_mode_switch_queued = false;
-    atomic_store_explicit(&usb_mode_switch_done_flag, false, memory_order_relaxed);
-    int rc = pthread_create(&usb_mode_switch_thread, NULL, usb_mode_switch_thread_func, NULL);
-    if (rc != 0) {
+    if (!start_usb_mode_worker()) {
         /* Without this rollback, a transient low-memory/thread-creation
          * failure leaves the guard latched forever: every later tap is
          * ignored until the player or device is restarted. */
@@ -177,6 +199,31 @@ bool start_usb_mode_switch(usb_mode_t target) {
     return true;
 }
 
+/* ran: the worker did hardware work, so a failure leaves the state unknown. */
+static void finish_usb_dac_policy_job(bool ran, bool ok) {
+    usb_dac_policy_job = false;
+    if (ok) usb_dac_policy_held = usb_dac_policy_job_hold;
+    if (ok || ran) usb_dac_policy_known = ok;
+    usb_dac_policy_retry_wait = !ok;
+    usb_dac_policy_retry_tick = lv_tick_get();
+}
+
+/* An iPhone enumerates only if the R1 is already Sink when it is plugged in,
+ * so the policy is held while the USB DAC screen is shown with USB DAC on. */
+static void sync_usb_dac_policy(void) {
+#if BOARD_R1_HARDWARE
+    bool want = usb_dac_power_owner == USB_DAC_POWER_NONE && current_settings.usb_dac_mode_enabled &&
+                gui_network_usb_dac_screen_visible() && !adb_owns_usb_port();
+    if ((usb_dac_policy_known && want == usb_dac_policy_held) || usb_mode_switch_active) return;
+    if (usb_dac_policy_retry_wait && lv_tick_elaps(usb_dac_policy_retry_tick) < USB_DAC_POLICY_RETRY_MS) return;
+    usb_dac_policy_job_hold = want;
+    usb_dac_policy_job = true;
+    usb_mode_switch_target = (usb_mode_t) current_settings.usb_mode;
+    if (start_usb_mode_worker()) usb_mode_switch_active = true;
+    else finish_usb_dac_policy_job(false, false);
+#endif
+}
+
 bool gui_network_usb_dac_pending(void) {
     return (usb_mode_switch_active && usb_mode_switch_target == USB_MODE_DAC) ||
            usb_bridge_restart_active || usb_dac_pause_pending ||
@@ -201,54 +248,7 @@ static bool adb_owns_usb_port(void) {
     return recorded_adb;
 }
 
-void poll_usb_mode_switch(void) {
-    finish_usb_dac_charging_update(true, false);
-    if (usb_dac_pause_pending && !usb_mode_switch_active && !usb_bridge_restart_active) {
-        if (current_settings.usb_mode != USB_MODE_DAC) usb_dac_pause_pending = false;
-        else if (!gui_library_scan_active()) start_usb_mode_switch(USB_MODE_STORAGE);
-    }
-    if (usb_bridge_restart_active &&
-        atomic_load_explicit(&usb_bridge_restart_done, memory_order_acquire)) {
-        usb_bridge_restart_active = false;
-    }
-    if (usb_mode_switch_queued && !usb_bridge_restart_active &&
-        (usb_mode_switch_target != USB_MODE_DAC ||
-         (!gui_shell_bt_dac_busy() && !gui_network_airplay_stop_pending()))) {
-        /* Deferred launch: same failure consequence as the immediate one, but
-         * the original caller has long since returned, so the control it
-         * flipped has to be corrected from here. */
-        if (!launch_usb_mode_switch()) gui_settings_sync_adb_toggle();
-    }
-    /* If set to USB DAC mode but the audio bridge is not running, restart it.
-     * Skipped while a mode switch is in flight to avoid racing
-     * usb_mode_control_apply(). */
-    if (!usb_mode_switch_active && !usb_bridge_restart_active &&
-        current_settings.usb_mode == (int) USB_MODE_DAC && !usb_dac_paused) {
-        usb_dac_stream_info_t info;
-        usb_dac_bridge_get_stream_info(&info);
-        if (!info.bridge_running && !info.output_failed) {
-            if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending())
-                disable_airplay_mode();
-            if (gui_network_bt_dac_active()) disable_bt_dac_mode();
-            if (gui_shell_bt_dac_busy() || gui_network_airplay_stop_pending()) return;
-            pthread_attr_t attr;
-            if (pthread_attr_init(&attr) == 0) {
-                if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) == 0) {
-                    pthread_t thread;
-                    atomic_store_explicit(&usb_bridge_restart_done, false, memory_order_relaxed);
-                    usb_bridge_restart_active = true;
-                    if (pthread_create(&thread, &attr, usb_bridge_restart_thread_func, NULL) != 0)
-                        usb_bridge_restart_active = false;
-                }
-                pthread_attr_destroy(&attr);
-            }
-        }
-    }
-
-    if (!usb_mode_switch_active || usb_mode_switch_queued || !atomic_load_explicit(&usb_mode_switch_done_flag, memory_order_acquire)) return;
-    usb_mode_switch_active = false;
-    pthread_join(usb_mode_switch_thread, NULL);
-
+static void finish_usb_mode_switch(void) {
     /* usb_mode_control_apply() only reports success once the target
      * gadget is actually verified bound, not just "the script ran" -- on
      * failure current_settings.usb_mode is deliberately left untouched
@@ -297,6 +297,58 @@ void poll_usb_mode_switch(void) {
     gui_settings_sync_adb_toggle();
     gui_network_usb_dac_refresh();
     gui_shell_refresh_quick_drawer_expansion_toggles();
+}
+
+void poll_usb_mode_switch(void) {
+    finish_usb_dac_charging_update(true, false);
+    sync_usb_dac_policy();
+    if (usb_dac_pause_pending && !usb_mode_switch_active && !usb_bridge_restart_active) {
+        if (current_settings.usb_mode != USB_MODE_DAC) usb_dac_pause_pending = false;
+        else if (!gui_library_scan_active()) start_usb_mode_switch(USB_MODE_STORAGE);
+    }
+    if (usb_bridge_restart_active &&
+        atomic_load_explicit(&usb_bridge_restart_done, memory_order_acquire)) {
+        usb_bridge_restart_active = false;
+    }
+    if (usb_mode_switch_queued && !usb_bridge_restart_active &&
+        (usb_mode_switch_target != USB_MODE_DAC ||
+         (!gui_shell_bt_dac_busy() && !gui_network_airplay_stop_pending()))) {
+        /* Deferred launch: same failure consequence as the immediate one, but
+         * the original caller has long since returned, so the control it
+         * flipped has to be corrected from here. */
+        if (!launch_usb_mode_switch()) gui_settings_sync_adb_toggle();
+    }
+    /* If set to USB DAC mode but the audio bridge is not running, restart it.
+     * Skipped while a mode switch is in flight to avoid racing
+     * usb_mode_control_apply(). */
+    if (!usb_mode_switch_active && !usb_bridge_restart_active &&
+        current_settings.usb_mode == (int) USB_MODE_DAC && !usb_dac_paused) {
+        usb_dac_stream_info_t info;
+        usb_dac_bridge_get_stream_info(&info);
+        if (!info.bridge_running && !info.output_failed) {
+            if (current_settings.wifi_dac_mode_enabled || gui_network_airplay_enable_pending())
+                disable_airplay_mode();
+            if (gui_network_bt_dac_active()) disable_bt_dac_mode();
+            if (gui_shell_bt_dac_busy() || gui_network_airplay_stop_pending()) return;
+            pthread_attr_t attr;
+            if (pthread_attr_init(&attr) == 0) {
+                if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) == 0) {
+                    pthread_t thread;
+                    atomic_store_explicit(&usb_bridge_restart_done, false, memory_order_relaxed);
+                    usb_bridge_restart_active = true;
+                    if (pthread_create(&thread, &attr, usb_bridge_restart_thread_func, NULL) != 0)
+                        usb_bridge_restart_active = false;
+                }
+                pthread_attr_destroy(&attr);
+            }
+        }
+    }
+
+    if (!usb_mode_switch_active || usb_mode_switch_queued || !atomic_load_explicit(&usb_mode_switch_done_flag, memory_order_acquire)) return;
+    pthread_join(usb_mode_switch_thread, NULL);
+    usb_mode_switch_active = false;
+    if (usb_dac_policy_job) finish_usb_dac_policy_job(true, usb_mode_switch_succeeded);
+    else finish_usb_mode_switch();
 }
 
 /* A fresh boot intentionally has no gadget bound, but previously nothing
@@ -402,7 +454,7 @@ bool gui_network_usb_storage_session_active(void) {
 }
 
 bool gui_network_usb_storage_switch_pending(void) {
-    return usb_mode_switch_active && usb_mode_switch_target == USB_MODE_STORAGE;
+    return usb_mode_switch_active && !usb_dac_policy_job && usb_mode_switch_target == USB_MODE_STORAGE;
 }
 
 static void usb_mode_option_row_cb(lv_event_t * e) {
@@ -445,8 +497,10 @@ void gui_network_usb_teardown(void) {
     usb_mode_list = NULL;
 }
 
+/* A policy job is left out: power-off bounds its own wait for one. */
 bool gui_network_usb_has_work(void) {
-    return usb_mode_switch_active || usb_bridge_restart_active || usb_dac_charging_active;
+    return (usb_mode_switch_active && !usb_dac_policy_job) || usb_bridge_restart_active ||
+           usb_dac_charging_active;
 }
 
 void gui_network_usb_cancel(void) {
@@ -454,6 +508,7 @@ void gui_network_usb_cancel(void) {
         if (!usb_mode_switch_queued) pthread_join(usb_mode_switch_thread, NULL);
         usb_mode_switch_queued = false;
         usb_mode_switch_active = false;
+        usb_dac_policy_job = false;
     }
     if (usb_dac_charging_active) {
         pthread_join(usb_dac_charging_thread, NULL);
@@ -541,13 +596,14 @@ bool gui_network_usb_dac_active(void) {
            (!usb_mode_switch_active || usb_mode_switch_target == USB_MODE_DAC);
 }
 
-/* quiet: an automatic restore, which needs no toast. */
-static void usb_dac_enable(bool quiet) {
+/* quiet: an automatic restore, which needs no toast. Returns whether the
+ * request was accepted (started, or waiting for a host). */
+static bool usb_dac_enable(bool quiet) {
     if (adb_owns_usb_port()) {
         show_info_toast(TR("Turn off ADB first (Settings > System > Advanced), then enable USB DAC from here."));
-        return;
+        return false;
     }
-    if (usb_mode_switch_active || usb_bridge_restart_active || usb_dac_pause_pending) return;
+    if (usb_mode_switch_active || usb_bridge_restart_active || usb_dac_pause_pending) return false;
     if (!usb_mode_control_host_connected()) {
         current_settings.usb_dac_mode_enabled = true;
         usb_dac_paused = true;
@@ -555,18 +611,19 @@ static void usb_dac_enable(bool quiet) {
         settings_save_async(&current_settings);
         if (!quiet) show_info_toast(TR("Waiting for USB audio…"));
         gui_network_usb_dac_refresh();
-        return;
+        return true;
     }
-    if (!start_usb_mode_switch(USB_MODE_DAC)) return;
+    if (!start_usb_mode_switch(USB_MODE_DAC)) return false;
     current_settings.usb_dac_mode_enabled = true;
     usb_dac_paused = false;
     usb_dac_restore_pending = false;
     settings_save_async(&current_settings);
     if (!quiet) show_info_toast(TR("This may take a while"));
     gui_network_usb_dac_refresh();
+    return true;
 }
 
-void enable_usb_dac_mode(void) { usb_dac_enable(false); }
+void enable_usb_dac_mode(void) { (void) usb_dac_enable(false); }
 
 void gui_network_usb_dac_pause(void) {
     usb_dac_paused = true;
@@ -588,12 +645,39 @@ void gui_network_usb_dac_pause(void) {
 
 void gui_network_usb_dac_resume(void) {
     usb_dac_restore_pending = current_settings.usb_dac_mode_enabled;
+    gui_network_usb_dac_power_cancelled(USB_DAC_POWER_IDLE); /* the idle suspend has ended */
 }
 
-bool gui_network_usb_dac_shutdown(void) {
+/* A power-off already handed to persistence keeps the wait until it
+ * completes or gui_network_usb_dac_power_off_failed() reports it failed. */
+void gui_network_usb_dac_power_cancelled(usb_dac_power_action_t action) {
+    if (action == usb_dac_power_owner && !idle_shutdown_pending())
+        usb_dac_power_owner = USB_DAC_POWER_NONE;
+}
+
+void gui_network_usb_dac_power_off_failed(void) {
+    usb_dac_power_owner = USB_DAC_POWER_NONE;
+}
+
+/* Power-off releases the screen's hold first, waiting for it at most
+ * USB_DAC_POWER_POLICY_WAIT_MS. The first live action owns that wait until it
+ * ends; a second caller shares it without taking it over or restarting it. */
+static bool usb_dac_power_policy_waiting(usb_dac_power_action_t action) {
+    if (usb_dac_power_owner == USB_DAC_POWER_NONE) {
+        usb_dac_power_owner = action;
+        usb_dac_power_tick = lv_tick_get();
+    }
+    sync_usb_dac_policy();
+    return (usb_dac_policy_job || usb_dac_policy_held || !usb_dac_policy_known) &&
+           lv_tick_elaps(usb_dac_power_tick) < USB_DAC_POWER_POLICY_WAIT_MS;
+}
+
+bool gui_network_usb_dac_shutdown(usb_dac_power_action_t action) {
     gui_network_usb_dac_pause();
-    /* Storage teardown is refused during a library scan; the boot journal restores the role. */
-    if (gui_library_scan_active()) return true;
+    if (usb_dac_power_policy_waiting(action)) return false;
+    /* A stuck policy job or a Storage teardown refused during a library scan
+     * does not hold power-off back; the boot journal restores the policy. */
+    if (usb_dac_policy_job || gui_library_scan_active()) return true;
     return !usb_dac_pause_pending && !usb_mode_switch_active && !usb_bridge_restart_active &&
            !gui_shell_usb_dac_owns_output();
 }
@@ -607,11 +691,11 @@ void disable_usb_dac_mode(void) {
 }
 
 bool gui_network_toggle_usb_dac(void) {
-    if (current_settings.usb_dac_mode_enabled && (!usb_dac_paused || usb_dac_restore_pending))
-        disable_usb_dac_mode();
-    else enable_usb_dac_mode();
+    bool turning_on = !current_settings.usb_dac_mode_enabled || (usb_dac_paused && !usb_dac_restore_pending);
+    bool accepted = turning_on && usb_dac_enable(false);
+    if (!turning_on) disable_usb_dac_mode();
     gui_shell_refresh_quick_drawer_expansion_toggles();
-    return gui_network_usb_dac_active();
+    return accepted;
 }
 
 void gui_network_usb_dac_boot_reconcile(void) {

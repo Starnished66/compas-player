@@ -922,6 +922,20 @@ static void log_idle_blockers(bool external_power_blocks_idle) {
 
 /* Powers the device off (or suspends it) once the configured idle time has
  * passed with the screen off. */
+/* Whether idle suspend or power-off may go ahead now. One that no longer may
+ * (a cable arrived, background work started, it was refused) hands the USB
+ * DAC screen its policy back, panel still dark, unless its power-off is
+ * already under way. */
+static bool idle_power_action_ready(bool external_power_blocks_idle) {
+    bool ready = !idle_shutdown_attempted && current_settings.idle_shutdown_enabled &&
+        !idle_power_action_blocked(external_power_blocks_idle) &&
+        lv_tick_elaps(screen_off_since_tick) >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000 &&
+        !shutdown_background_work_active() &&
+        gui_network_prepare_radio_sleep();
+    if (!ready) gui_network_usb_dac_power_cancelled(USB_DAC_POWER_IDLE);
+    return ready;
+}
+
 static void poll_idle_shutdown(bool external_power_blocks_idle) {
     /* Deliberately independent of radios_suspended -- idle_shutdown_minutes
      * is a separate, normally-longer setting than RADIO_SUSPEND_DELAY_MS,
@@ -930,13 +944,9 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
      * except it explicitly shares the same DAC-mode/playing/external-
      * power/charging gate, since none of those should ever be interrupted
      * by the device powering itself off out from under them. */
-    if (!idle_shutdown_attempted && current_settings.idle_shutdown_enabled &&
-        !idle_power_action_blocked(external_power_blocks_idle) &&
-        lv_tick_elaps(screen_off_since_tick) >= (uint32_t) current_settings.idle_shutdown_minutes * 60 * 1000 &&
-        !shutdown_background_work_active() &&
-        gui_network_prepare_radio_sleep()) {
+    if (idle_power_action_ready(external_power_blocks_idle)) {
         if (current_settings.idle_suspend_enabled) {
-            if (!gui_network_usb_dac_shutdown()) return;
+            if (!gui_network_usb_dac_shutdown(USB_DAC_POWER_IDLE)) return;
             if (!gui_shell_bt_dac_shutdown(true)) {
                 idle_shutdown_attempted = true; /* no blocking retry every tick this screen-off period */
                 return;
@@ -972,7 +982,7 @@ static void poll_idle_shutdown(bool external_power_blocks_idle) {
              * indefinitely after a single spurious wake. */
             idle_shutdown_attempted = false;
         } else {
-            if (!gui_network_usb_dac_shutdown()) return;
+            if (!gui_network_usb_dac_shutdown(USB_DAC_POWER_IDLE)) return;
             (void) gui_shell_bt_dac_shutdown(false);
             idle_shutdown_attempted = true;
             idle_poweroff_requested = true;
@@ -1010,6 +1020,7 @@ static void poll_screen_transition_work(bool screen_on_now, bool screen_just_wok
     if (screen_just_woke) {
         gui_screen_off_memory_wake();
         inactivity_dimmed = false;
+        gui_network_usb_dac_power_cancelled(USB_DAC_POWER_IDLE);
         idle_shutdown_attempted = false;
         if (radios_suspended) {
             gui_shell_resume_connections(wifi_was_on_before_suspend, bt_was_on_before_suspend);
@@ -1027,6 +1038,7 @@ static void poll_screen_transition_work(bool screen_on_now, bool screen_just_wok
 static void poll_idle_poweroff_aborted(void) {
     if (!idle_poweroff_requested || idle_shutdown_pending()) return;
     idle_poweroff_requested = false;
+    gui_network_usb_dac_power_cancelled(USB_DAC_POWER_IDLE);
     gui_shell_bt_dac_resumed();
 }
 

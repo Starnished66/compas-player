@@ -1402,6 +1402,7 @@ const i18n_entry_t i18n_entries_nl[] = {
     {"albums\004Top rated", (const char * const[]){"Best beoordeeld"}, 1},
     {"device info\004Build", (const char * const[]){"Build"}, 1},
     {"github.com/Starnished66/compas-player", (const char * const[]){"github.com/Starnished66/compas-player"}, 1},
+    {"iPhone users must stay on this screen to use USB DAC mode with your %s.", (const char * const[]){"iPhone-gebruikers moeten op dit scherm blijven om de USB-DAC-modus met hun %s te gebruiken."}, 1},
     {"network error", (const char * const[]){"Netwerkfout"}, 1},
     {"unknown", (const char * const[]){"onbekend"}, 1},
 };

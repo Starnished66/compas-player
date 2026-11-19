@@ -65,8 +65,8 @@ int main(void) {
     poll_usb_mode_switch();
     assert(!atomic_load(&applies));
     assert(!gui_network_firmware_update_usb_blocked());
-    assert(gui_network_usb_dac_shutdown());
-    assert(gui_network_usb_dac_shutdown()); /* restart uses the same gate */
+    assert(gui_network_usb_dac_shutdown(USB_DAC_POWER_MENU));
+    assert(gui_network_usb_dac_shutdown(USB_DAC_POWER_MENU)); /* restart uses the same gate */
     assert(suspended == 1);
     assert(start_usb_mode_switch(USB_MODE_ADB));
     settle_usb();
@@ -94,7 +94,7 @@ int main(void) {
     enable_bt_dac_mode();
     assert(gui_network_usb_dac_pending());
     assert(gui_network_usb_has_work());
-    assert(!gui_network_usb_dac_shutdown());
+    assert(!gui_network_usb_dac_shutdown(USB_DAC_POWER_MENU));
     atomic_store(&hold_apply, false);
     /* A second poll starts Storage after the DAC worker completes. */
     for (int i = 0; i < 2000 && gui_network_usb_dac_pending(); i++) {
@@ -104,7 +104,7 @@ int main(void) {
     settle_usb();
     assert(current_settings.usb_mode == USB_MODE_STORAGE);
     assert(atomic_load(&applies) == 6);
-    assert(gui_network_usb_dac_shutdown());
+    assert(gui_network_usb_dac_shutdown(USB_DAC_POWER_MENU));
     assert(!gui_network_firmware_update_usb_blocked());
     puts("USB queued cancellation and launched completion passed");
 }

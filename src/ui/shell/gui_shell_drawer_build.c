@@ -35,14 +35,18 @@ static void quick_drawer_bt_dac_long_press_cb(lv_event_t * e) {
     quick_drawer_dismiss_for_navigation();
     gui_network_open_bt_dac();
 }
+static void quick_drawer_open_usb_dac(void) {
+    quick_drawer_dismiss_for_navigation();
+    gui_network_open_usb_dac();
+}
+/* Turning USB DAC on opens its screen, which an iPhone needs to connect. */
 static void quick_drawer_usb_dac_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
-    gui_network_toggle_usb_dac();
+    if (gui_network_toggle_usb_dac()) quick_drawer_open_usb_dac();
 }
 static void quick_drawer_usb_dac_long_press_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_LONG_PRESSED) return;
-    quick_drawer_dismiss_for_navigation();
-    gui_network_open_usb_dac();
+    quick_drawer_open_usb_dac();
 }
 static void quick_drawer_dlna_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;

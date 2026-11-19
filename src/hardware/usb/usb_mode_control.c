@@ -65,6 +65,11 @@ static bool dac_saved_charger_enabled;
 static bool dac_last_prepare_captured_baseline;
 static bool dac_saved_charger_valid;
 static bool dac_charging_disabled = true;
+/* A journal whose policy no longer holds (restored, or a failed fresh
+ * acquisition) still has this cleanup step outstanding; only it is retried. */
+static enum { DAC_JOURNAL_CLEAN, DAC_JOURNAL_UNLINK, DAC_JOURNAL_SYNC } dac_journal_cleanup;
+/* The USB DAC screen holds the DAC policy while no DAC gadget is bound. */
+static bool dac_policy_held;
 #endif
 
 /* The TCS1421 add-on driver accepts these four exact role words and exposes
@@ -184,9 +189,29 @@ static dac_journal_result_t load_dac_session_journal(char *role, size_t role_siz
 }
 #endif
 
+#if BOARD_R1_HARDWARE
+static bool finish_dac_journal_cleanup(void) {
+    if (dac_journal_cleanup == DAC_JOURNAL_UNLINK) {
+        if (unlink(USB_MODE_CONTROL_DAC_JOURNAL_PATH) != 0 && errno != ENOENT) {
+            fprintf(stderr, "usb_mode_control: DAC session journal removal failed; retrying cleanup only\n");
+            return false;
+        }
+        dac_journal_cleanup = DAC_JOURNAL_SYNC;
+    }
+    if (dac_journal_cleanup == DAC_JOURNAL_SYNC) {
+        if (!sync_dac_journal_directory()) {
+            fprintf(stderr, "usb_mode_control: DAC journal directory sync failed; retrying cleanup only\n");
+            return false;
+        }
+        dac_journal_cleanup = DAC_JOURNAL_CLEAN;
+    }
+    return true;
+}
+#endif
+
 static bool restore_dac_usb_policy(void) {
 #if BOARD_R1_HARDWARE
-    if (!dac_usb_policy_owned) return true;
+    if (!dac_usb_policy_owned) return finish_dac_journal_cleanup();
     /* A previous restore may have released the in-memory charger claim but
      * failed to remove the durable record. Reclaim it from the saved snapshot
      * before retrying, so a poll cannot change the value we eventually restore. */
@@ -206,12 +231,10 @@ static bool restore_dac_usb_policy(void) {
         fprintf(stderr, "usb_mode_control: DAC charger restore failed; retaining ownership and journal\n");
         return false;
     }
-    if (!remove_dac_session_journal()) {
-        fprintf(stderr, "usb_mode_control: DAC session journal removal failed; retaining ownership for retry\n");
-        return false;
-    }
+    /* Role and charger are verified restored: hardware ownership ends here. */
     dac_usb_policy_owned = false;
-    return true;
+    dac_journal_cleanup = DAC_JOURNAL_UNLINK;
+    return finish_dac_journal_cleanup();
 #else
     return true;
 #endif
@@ -221,57 +244,38 @@ static bool prepare_dac_usb_policy(void) {
 #if BOARD_R1_HARDWARE
     dac_last_prepare_captured_baseline = false;
     bool already_owned = dac_usb_policy_owned;
-    if (!dac_usb_policy_owned) {
+    if (!already_owned) {
         dac_saved_charger_valid = false;
         if (!r1_usb_role_read(dac_saved_usb_role, sizeof(dac_saved_usb_role))) {
             fprintf(stderr, "usb_mode_control: cannot read a supported R1 Type-C role; refusing DAC start\n");
             return false;
         }
         dac_last_prepare_captured_baseline = true;
-    } else {
-        dac_last_prepare_captured_baseline = true;
+        if (!charge_limiter_dac_session_capture_original_enabled(&dac_saved_charger_enabled)) {
+            fprintf(stderr, "usb_mode_control: failed to read R1 charging state for DAC\n");
+            return false;
+        }
     }
-    bool reclaimed = !already_owned || (dac_charging_disabled
-        ? charge_limiter_dac_session_resume(dac_saved_charger_enabled)
-        : charge_limiter_dac_session_release(dac_saved_charger_enabled));
-    if (!reclaimed) {
-        fprintf(stderr, "usb_mode_control: failed to reclaim R1 charger inhibit for DAC retry\n");
-        return false;
-    }
-    bool charger_enabled = false;
-    bool charger_ok = true;
-    bool captured = true;
-    if (already_owned) {
-        charger_enabled = dac_saved_charger_enabled;
-    } else if (dac_charging_disabled) {
-        charger_ok = charge_limiter_dac_session_begin(&charger_enabled);
-        captured = charge_limiter_dac_session_get_original_enabled(&charger_enabled);
-    } else {
-        charger_ok = charge_limiter_dac_session_capture_original_enabled(&charger_enabled);
-        captured = charger_ok;
-    }
-    if (!charger_ok && !captured) {
-        if (!already_owned) (void) charge_limiter_dac_session_end();
-        fprintf(stderr, "usb_mode_control: failed to inhibit R1 charging for DAC\n");
-        return false;
-    }
-    if (!already_owned) dac_saved_charger_enabled = charger_enabled;
+    dac_last_prepare_captured_baseline = true;
     dac_saved_charger_valid = true;
     dac_usb_policy_owned = true;
-    /* Persist on every attempt, including retries after a failed rollback.
-     * Sink must never be entered without a recoverable original charger value. */
+    /* Persist on every attempt, before any charger or role change. */
     if (!save_dac_session_journal(dac_saved_usb_role, dac_saved_charger_enabled)) {
         fprintf(stderr, "usb_mode_control: failed to persist DAC session recovery journal\n");
-        if (!already_owned && charge_limiter_dac_session_end()) dac_usb_policy_owned = false;
+        if (!already_owned) { /* nothing changed yet: drop the reservation, ownership and any journal */
+            charge_limiter_dac_session_cancel_reservation();
+            dac_usb_policy_owned = false;
+            dac_journal_cleanup = DAC_JOURNAL_UNLINK;
+            (void) finish_dac_journal_cleanup();
+        }
         return false;
     }
-    if (!dac_charging_disabled &&
-        !charge_limiter_dac_session_release(dac_saved_charger_enabled)) {
-        fprintf(stderr, "usb_mode_control: failed to allow R1 charging for DAC preference\n");
-        return false;
-    }
+    dac_journal_cleanup = DAC_JOURNAL_CLEAN; /* this journal is the live record */
+    bool charger_ok = dac_charging_disabled
+        ? charge_limiter_dac_session_resume(dac_saved_charger_enabled)
+        : charge_limiter_dac_session_release(dac_saved_charger_enabled);
     if (!charger_ok) {
-        fprintf(stderr, "usb_mode_control: failed to inhibit R1 charging for DAC\n");
+        fprintf(stderr, "usb_mode_control: failed to apply the R1 DAC charging preference\n");
         if (!already_owned) (void) restore_dac_usb_policy();
         return false;
     }
@@ -402,27 +406,30 @@ static bool function_linked(const char * gadget_dir, const char * name_prefix) {
 }
 
 #if BOARD_R1_HARDWARE
-static bool dac_gadget_may_be_bound(void) {
+typedef enum { DAC_GADGET_UNBOUND, DAC_GADGET_BOUND, DAC_GADGET_UNKNOWN } dac_gadget_state_t;
+
+/* A read error is UNKNOWN, never UNBOUND. */
+static dac_gadget_state_t dac_gadget_probe(void) {
     FILE *udc = fopen(ANDROID0_UDC_PATH, "r");
-    if (!udc) return errno != ENOENT;
+    if (!udc) return errno == ENOENT ? DAC_GADGET_UNBOUND : DAC_GADGET_UNKNOWN;
     char value[64];
     size_t len = fread(value, 1, sizeof(value) - 1, udc);
     bool readable = !ferror(udc) && memchr(value, '\0', len) == NULL;
     int extra = fgetc(udc);
     if (extra != EOF || !feof(udc)) readable = false;
     if (fclose(udc) != 0) readable = false;
-    if (!readable) return true;
+    if (!readable) return DAC_GADGET_UNKNOWN;
     if (len && value[len - 1] == '\n') --len;
     if (len && value[len - 1] == '\r') --len;
     value[len] = '\0';
-    if (len == 0 || strcmp(value, "none") == 0) return false;
+    if (len == 0 || strcmp(value, "none") == 0) return DAC_GADGET_UNBOUND;
 
     char path[256];
     snprintf(path, sizeof(path), "%s/configs/c.1", ANDROID0_DIR);
     DIR *dir = opendir(path);
     /* If the UDC is bound but configfs cannot be inspected, fail closed and
      * keep the charger inhibited until a later retry can prove UAC is gone. */
-    if (!dir) return true;
+    if (!dir) return DAC_GADGET_UNKNOWN;
     bool found = false;
     errno = 0;
     struct dirent *entry;
@@ -431,7 +438,12 @@ static bool dac_gadget_may_be_bound(void) {
     }
     bool read_error = errno != 0;
     if (closedir(dir) != 0) read_error = true;
-    return found || read_error;
+    if (found) return DAC_GADGET_BOUND;
+    return read_error ? DAC_GADGET_UNKNOWN : DAC_GADGET_UNBOUND;
+}
+
+static bool dac_gadget_may_be_bound(void) {
+    return dac_gadget_probe() != DAC_GADGET_UNBOUND;
 }
 #endif
 
@@ -704,6 +716,9 @@ static bool usb_mode_control_apply_gadget_locked(usb_mode_t mode) {
 }
 
 static bool finish_dac_usb_policy_apply(usb_mode_t mode, bool applied, bool dac_still_bound) {
+#if BOARD_R1_HARDWARE
+    if (dac_policy_held) return applied; /* the screen's release restores it */
+#endif
     if (mode == USB_MODE_DAC) {
         if (!applied && !dac_still_bound) {
             fprintf(stderr, "usb_mode_control: DAC gadget failed and is unbound; restoring pre-DAC USB policy\n");
@@ -718,8 +733,10 @@ static bool finish_dac_usb_policy_apply(usb_mode_t mode, bool applied, bool dac_
     /* Keep the R1 charger inhibited until teardown has proved the UAC gadget
      * is gone. A failed target switch may have left the old DAC bound, in
      * which case restoring DRP/charging would recreate the reported failure. */
-    if (dac_usb_policy_owned && !dac_still_bound) {
-        if (!restore_dac_usb_policy()) return false;
+    if ((dac_usb_policy_owned || dac_journal_cleanup != DAC_JOURNAL_CLEAN) && !dac_still_bound) {
+        /* Only a hardware restore failure fails the switch; journal cleanup is
+         * retried by the next apply or screen release. */
+        if (!restore_dac_usb_policy() && dac_usb_policy_owned) return false;
     } else if (dac_usb_policy_owned && dac_still_bound) {
         fprintf(stderr, "usb_mode_control: DAC remains bound after mode=%d failure; retaining charger inhibit\n",
                 (int) mode);
@@ -857,6 +874,23 @@ bool usb_mode_control_reconcile_dac_session(void) {
     pthread_mutex_unlock(&usb_mode_mutex);
     return restored;
 #else
+    return true;
+#endif
+}
+
+bool usb_mode_control_hold_dac_policy(bool hold) {
+#if BOARD_R1_HARDWARE
+    pthread_mutex_lock(&usb_mode_mutex);
+    /* prepare journals the saved role and charger before changing either. A
+     * bound DAC session keeps the policy; an unreadable gadget asks for a retry. */
+    dac_gadget_state_t gadget = dac_usb_policy_owned ? dac_gadget_probe() : DAC_GADGET_UNBOUND;
+    bool ok = hold ? prepare_dac_usb_policy()
+                   : gadget == DAC_GADGET_BOUND || (gadget == DAC_GADGET_UNBOUND && restore_dac_usb_policy());
+    dac_policy_held = hold && ok;
+    pthread_mutex_unlock(&usb_mode_mutex);
+    return ok;
+#else
+    (void) hold;
     return true;
 #endif
 }

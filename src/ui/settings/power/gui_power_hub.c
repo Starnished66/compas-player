@@ -245,16 +245,18 @@ static void power_restart_selector_long_press_cb(lv_event_t * e) {
 static void power_finish(int action) {
     if (gui_player_queue_write_busy()) {
         show_info_toast(TR("Queue checkpoint is still saving"));
+        gui_network_usb_dac_power_cancelled(USB_DAC_POWER_MENU);
         return;
     }
     (void) gui_shell_bt_dac_shutdown(false);
     if (action == 0) idle_shutdown_now();
     else idle_shutdown_reboot_now();
+    gui_network_usb_dac_power_cancelled(USB_DAC_POWER_MENU); /* only if it was refused */
 }
 
 /* USB DAC teardown runs off the UI thread, so power is removed once it is done. */
 static void power_dac_shutdown_cb(lv_timer_t * timer) {
-    if (!gui_network_usb_dac_shutdown()) return;
+    if (!gui_network_usb_dac_shutdown(USB_DAC_POWER_MENU)) return;
     int action = (int) (intptr_t) lv_timer_get_user_data(timer);
     lv_timer_delete(timer);
     power_finish(action);
@@ -281,8 +283,9 @@ static void power_action_clicked_cb(lv_event_t * e) {
             return;
         }
         power_action_hide();
-        if (gui_network_usb_dac_shutdown()) power_finish(action);
-        else lv_timer_create(power_dac_shutdown_cb, 100, (void *) (intptr_t) action);
+        if (gui_network_usb_dac_shutdown(USB_DAC_POWER_MENU)) power_finish(action);
+        else if (!lv_timer_create(power_dac_shutdown_cb, 100, (void *) (intptr_t) action))
+            gui_network_usb_dac_power_cancelled(USB_DAC_POWER_MENU);
         return;
     }
     power_action_hide();
