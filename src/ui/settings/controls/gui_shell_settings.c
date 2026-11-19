@@ -5,6 +5,7 @@
 #include "../../shell/gui_notifications.h"
 #include "../../shell/gui_reload.h"
 #include "../../shell/gui_shell.h"
+#include "gui_setting_switches.h"
 #include "../../appearance/gui_theme.h"
 #include "../../text/i18n/i18n.h"
 #include "../../widgets/builders/screen_builders.h"
@@ -344,6 +345,13 @@ static void topbar_battery_percentage_toggle_cb(lv_event_t * e) {
     topbar_set_clicked_row_switch(e, current_settings.show_battery_percent);
 }
 
+static void topbar_hide_player_topbar_toggle_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    bool hide = !current_settings.hide_player_topbar;
+    gui_settings_set_hide_player_topbar(hide);
+    topbar_set_clicked_row_switch(e, hide);
+}
+
 typedef struct {
     int position;
     const char * label;
@@ -409,6 +417,8 @@ static void populate_topbar_settings_screen(void) {
         }
         add_pill_toggle_row(settings_topbar_list, TR("Battery percentage"), false,
                             topbar_battery_percentage_toggle_cb);
+        add_pill_toggle_row(settings_topbar_list, TR("Hide player/lyrics top bar"), false,
+                            topbar_hide_player_topbar_toggle_cb);
         add_pill_chevron_row(settings_topbar_list, TR("Clock position"), topbar_clock_position_row_cb);
     }
     for (size_t i = 0; i < count; ++i)
@@ -416,6 +426,8 @@ static void populate_topbar_settings_screen(void) {
             (current_settings.topbar_hidden_elements & topbar_visibility_options[i].hidden_bit) == 0);
     gui_pill_toggle_row_set_checked(lv_obj_get_child(settings_topbar_list, count),
                                     current_settings.show_battery_percent);
+    gui_pill_toggle_row_set_checked(lv_obj_get_child(settings_topbar_list, count + 1),
+                                    current_settings.hide_player_topbar);
 }
 
 static lv_obj_t * build_topbar_settings_screen(void) {

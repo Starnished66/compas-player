@@ -253,18 +253,16 @@ static lv_obj_t * build_player_layout_choice_screen(void) {
 }
 
 static lv_obj_t * build_lyrics_settings_screen(void) {
-    lv_obj_t * rows[4] = {0};
+    lv_obj_t * rows[3] = {0};
     pill_list_item_t items[] = {
         { TR("Show lyrics"), PILL_ACCESSORY_TOGGLE, current_settings.lyrics_enabled, NULL, lyrics_switch_event_cb, NULL },
         { TR("Lyrics text size"), PILL_ACCESSORY_CHEVRON, false, lyrics_font_size_settings_row_cb, NULL, NULL },
-        { TR("Hide player/lyrics top bar"), PILL_ACCESSORY_TOGGLE, current_settings.hide_player_topbar, NULL, hide_player_topbar_switch_event_cb, NULL },
         { TR("Keep lyrics screen on"), PILL_ACCESSORY_TOGGLE, current_settings.lyrics_keep_screen_on, NULL, lyrics_keep_screen_on_switch_event_cb, NULL },
     };
-    for (unsigned i = 0; i < 4; ++i) items[i].out_row = &rows[i];
-    lv_obj_t * scr = build_pill_list_screen(TR("Lyrics"), generic_back_cb, items, 4,
+    for (unsigned i = 0; i < 3; ++i) items[i].out_row = &rows[i];
+    lv_obj_t * scr = build_pill_list_screen(TR("Lyrics"), generic_back_cb, items, 3,
         gui_theme_accent_style(), GUI_ROW_GAP, 100);
     wrap_row_label(rows[2]);
-    wrap_row_label(rows[3]);
     finalize_screen_navigation(scr);
     return scr;
 }
