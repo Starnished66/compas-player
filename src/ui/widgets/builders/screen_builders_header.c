@@ -30,6 +30,7 @@ static const struct {
     { "navigation/more.png", "titlebar/breeze_menu.png" },
     { "settings/sound.png", "titlebar/breeze_sound.png" },
     { "settings/playback.png", "titlebar/breeze_playback.png" },
+    { "sub_back/set.png", "titlebar/breeze_settings.png" },
     { "submenu/music_database.png", "titlebar/breeze_database.png" },
     { "playlist_actions/trash.png", "titlebar/breeze_delete.png" },
     { "stream_media/download.png", "titlebar/breeze_download.png" },
