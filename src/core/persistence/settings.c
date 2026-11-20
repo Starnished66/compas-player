@@ -480,7 +480,7 @@ static void set_defaults(player_settings_t * out) {
     out->screen_timeout_seconds = 30;
     out->screen_dimming_enabled = true;
     out->screen_dim_delay_seconds = 10;
-    out->hide_player_topbar = false;
+    out->hide_player_topbar = true;
     out->topbar_hidden_elements = 0;
     out->topbar_clock_position = TOPBAR_CLOCK_CENTER;
     out->screen_upside_down = false;
