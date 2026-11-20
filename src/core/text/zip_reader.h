@@ -7,7 +7,7 @@
 #define ZIP_MAX_UNCOMPRESSED_BYTES (256u * 1024u)
 #define ZIP_MAX_COMPRESSED_BYTES   (256u * 1024u)
 #define ZIP_MAX_CD_BYTES           (256u * 1024u)
-#define ZIP_MAX_ENTRIES            2000u
+#define ZIP_MAX_ENTRIES            2048u
 
 typedef enum {
     ZIP_OK = 0,
