@@ -52,3 +52,4 @@ __pycache__/
 
 # Tests are local only.
 /scripts/tests/
+src/**/tests/
