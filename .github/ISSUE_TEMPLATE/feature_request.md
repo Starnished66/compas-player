@@ -1,15 +1,25 @@
 ---
 name: Feature request
-about: "Request a feature to be added to the player (Note: Submitting a feature does not guarantee that the feature will be implemented.)"
-title: "[Feature request] "
-labels: ""
+about: Suggest something new for the player
+title: "[Feature Request] "
+labels: "feature"
 assignees: ""
 ---
+
+Requests are welcome, but not every request can be implemented.
 
 ## Feature description
 
 Describe the feature you'd like to see added.
 
-## Concept 
+## Why
+
+What would you use it for?
+
+## Version
+
+- Compás version:
+
+## Concept
 
 Attach images or videos illustrating your proposed feature. Remove passwords, tokens, and private information.

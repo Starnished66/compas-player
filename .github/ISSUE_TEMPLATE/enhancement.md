@@ -1,14 +1,24 @@
 ---
 name: Enhancement
-about: "Propose an enhancement to the player (Note: Submitting an enhancement does not guarantee that it will be implemented.)"
+about: Improve something the player already does
 title: "[Enhancement] "
-labels: ""
+labels: "enhancement"
 assignees: ""
 ---
 
+Suggestions are welcome, but not every suggestion can be implemented.
+
 ## Enhancement description
 
-Describe the proposed enhancement.
+Which part of the player would you change, and how?
+
+## Why
+
+What problem does it solve for you?
+
+## Version
+
+- Compás version:
 
 ## Concept
 
