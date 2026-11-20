@@ -22,6 +22,8 @@
 #include "../../../core/system/lifecycle/dir_fd_path.h"
 #include "../../../core/persistence/storage_paths.h"
 #include "tagcache_generation_refs.h"
+#include "../../browser/paths/library_paths.h"
+#include "../../browser/paths/library_ignore.h"
 #include "../../artwork/support/library_endian.h"
 #include "../../../core/system/logging/db_log.h"
 #include "../../../core/text/utf8_util.h"

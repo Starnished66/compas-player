@@ -127,11 +127,15 @@ void tagcache_upsert_year_changed(const char * path, int32_t mtime, int32_t size
                                   const char * artist, const char * album, const char * album_artist,
                                   const char * genre, int32_t track_number, int32_t disc_number,
                                   int32_t release_year, bool * out_tags_changed);
-/* Commits the pass: rebuilds indexes and persists. A row not seen during the
- * pass is removed only when stat() reports ENOENT, any other stat error keeps
- * it. A rebuild after a failed load rejects an empty result and leaves the
- * generation pointer unchanged. Returns false on rejection or write failure,
- * in which case the committed reader is reopened. */
+/* Commits the pass: rebuilds indexes and persists. A row not seen during a
+ * full pass is removed when its file is gone (stat reports ENOENT) or the walk
+ * would not deliver it: the file is a symlink, or a folder below the music
+ * root on its path is. Either way its rating and play history go with it.
+ * Any other stat error keeps the row unless such a folder link is confirmed,
+ * and a targeted (preserve-unseen) pass never removes unseen rows. A rebuild
+ * after a failed load rejects an empty result and leaves the generation
+ * pointer unchanged. Returns false on rejection or write failure, in which
+ * case the committed reader is reopened. */
 /* Releases the caller query lock during private generation construction. */
 bool tagcache_end_update_with_lock(void (*unlock)(void), void (*lock)(void));
 /* Discard staged scan mutations and reopen the committed files. */

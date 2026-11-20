@@ -293,15 +293,44 @@ static bool write_all(void (*unlock)(void), void (*lock)(void)) {
     return true;
 }
 
-/* stat() of a stored path with the query lock released; true only for ENOENT. */
-static bool stored_path_missing(const char *path, void (*unlock)(void), void (*lock)(void)) {
+/* Rows of one folder are adjacent, so the last folder's verdict is reused.
+ * Cleared at the start of each commit pass and again before the rewrite, so
+ * removals always act on a fresh read of the folders. */
+static char verdict_dir[TAGCACHE_PATH_MAX];
+static library_ignore_t verdict;
+
+static library_ignore_t ignore_verdict(const char *path) {
+    const char *slash = strrchr(path, '/');
+    size_t dir_len = slash ? (size_t) (slash - path) : 0;
+    if (verdict_dir[0] && !strncmp(verdict_dir, path, dir_len) && !verdict_dir[dir_len]) return verdict;
+    verdict = library_path_under_symlink(LIBRARY_STORED_ROOT, path);
+    if (dir_len < sizeof(verdict_dir)) { memcpy(verdict_dir, path, dir_len); verdict_dir[dir_len] = '\0'; }
+    else verdict_dir[0] = '\0';
+    return verdict;
+}
+
+/* Whether an unseen row's file is excluded or gone, judged from its own lstat. */
+static bool stored_file_gone(const char *path, const char *host) {
     struct stat st;
+    if (lstat(host, &st) == 0) return S_ISLNK(st.st_mode) || ignore_verdict(path) == LIBRARY_IGNORED;
+    if (errno == ENOENT) return true;
+    /* Any other error: remove only if a folder above the file is a confirmed link. */
+    return library_path_under_symlink(LIBRARY_STORED_ROOT, path) == LIBRARY_IGNORED;
+}
+
+/* True when an unseen row should go: its file is gone (lstat says ENOENT) or
+ * still there but excluded, like a deleted file: a symlink or below a
+ * symlinked folder. The walk delivers neither. Any other stat error keeps it
+ * unless a symlinked folder above the file is confirmed, and a path that
+ * cannot be mapped to a file here (compas-sdtool) is kept too. The query lock
+ * is released around the filesystem calls. */
+static bool stored_path_gone(const char *path, void (*unlock)(void), void (*lock)(void)) {
     if (unlock) unlock();
     char file[TAGCACHE_PATH_MAX + 256];
-    bool missing = path[0] && stat(storage_stored_path(path, file, sizeof(file)), &st) != 0 &&
-                   errno == ENOENT;
+    const char *host = path[0] ? library_host_path(path, file, sizeof(file)) : NULL;
+    bool gone = host && stored_file_gone(path, host);
     if (lock) lock();
-    return missing;
+    return gone;
 }
 
 /* A failed end-of-pass drops the whole session (staging, scan view, seen set,
@@ -314,7 +343,7 @@ static bool end_update_fail(void) {
     return false;
 }
 
-/* True when a row the lazy scan never saw has vanished from disk; a read
+/* True when a row the lazy scan never saw must go (stored_path_gone); a read
  * failure sets update_failed. */
 static bool lazy_unseen_row_missing(void (*unlock)(void), void (*lock)(void)) {
     for (int32_t slot = 0; slot < ent_count; slot++) {
@@ -327,7 +356,7 @@ static bool lazy_unseen_row_missing(void (*unlock)(void), void (*lock)(void)) {
             update_failed = true;
             return false;
         }
-        if (stored_path_missing(path, unlock, lock)) return true;
+        if (stored_path_gone(path, unlock, lock)) return true;
     }
     return false;
 }
@@ -357,15 +386,16 @@ static int end_update_lazy_gate(void (*unlock)(void), void (*lock)(void)) {
  * whose file is gone, and counts the live rows. */
 static bool end_update_rewrite_index(void (*unlock)(void), void (*lock)(void)) {
     live_count = 0;
+    verdict_dir[0] = '\0';   /* folders may have changed since the publication gate */
     for (int32_t slot = 0; slot < ent_count; slot++) {
         struct index_entry idx;
         if (!reader_index(slot, &idx)) return false;
         if (!scan_preserve_unseen && !(idx.flag & (FLAG_DELETED | FLAG_SEEN))) {
             char path[TAGCACHE_PATH_MAX];
             if (!reader_string(tag_filename, idx.tag_seek[tag_filename], slot, path, sizeof(path))) return false;
-            bool missing = stored_path_missing(path, unlock, lock);
+            bool gone = stored_path_gone(path, unlock, lock);
             if (!reader_index(slot, &idx)) return false;
-            if (missing) idx.flag |= FLAG_DELETED;
+            if (gone) idx.flag |= FLAG_DELETED;
         }
         idx.flag &= ~FLAG_SEEN;
         if (!(idx.flag & FLAG_DELETED)) live_count++;
@@ -377,6 +407,7 @@ static bool end_update_rewrite_index(void (*unlock)(void), void (*lock)(void)) {
 
 bool tagcache_end_update_with_lock(void (*unlock)(void), void (*lock)(void)) {
     if (!db_open) return false;
+    verdict_dir[0] = '\0';
     if (!db_identity_current()) {
         update_failed = true;
         tagcache_abort_update();
