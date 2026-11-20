@@ -1,4 +1,5 @@
 #include "library_walk.h"
+#include "../../browser/paths/library_ignore.h"
 #include "../../parsers/cue/cue_parser.h"
 #include "../../sacd/sacd_iso.h"
 #include <dirent.h>
@@ -62,13 +63,7 @@ static bool walk_all_songs_recursive(const char * dir_path, file_browser_song_vi
     /* One path buffer for the whole frame: this function recurses to
      * SCAN_ALL_SONGS_MAX_DEPTH on a fixed-size thread stack. */
     char path_buf[PATH_MAX];
-    int probe_len = snprintf(path_buf, sizeof(path_buf), "%s/database.ignore", dir_path);
-    bool has_ignore = (probe_len > 0 && (size_t) probe_len < sizeof(path_buf) && access(path_buf, F_OK) == 0);
-
-    probe_len = snprintf(path_buf, sizeof(path_buf), "%s/database.unignore", dir_path);
-    bool has_unignore = (probe_len > 0 && (size_t) probe_len < sizeof(path_buf) && access(path_buf, F_OK) == 0);
-
-    if (has_ignore != has_unignore) add_files = has_unignore;
+    add_files = library_dir_includes(dir_path, path_buf, sizeof(path_buf), add_files, NULL);
 
     bool fatal = false;
     struct dirent * de;

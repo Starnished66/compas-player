@@ -295,7 +295,7 @@ static bool write_all(void (*unlock)(void), void (*lock)(void)) {
 
 /* Rows of one folder are adjacent, so the last folder's verdict is reused.
  * Cleared at the start of each commit pass and again before the rewrite, so
- * removals always act on a fresh read of the folders. */
+ * removals always act on a fresh read of the folders and markers. */
 static char verdict_dir[TAGCACHE_PATH_MAX];
 static library_ignore_t verdict;
 
@@ -303,7 +303,7 @@ static library_ignore_t ignore_verdict(const char *path) {
     const char *slash = strrchr(path, '/');
     size_t dir_len = slash ? (size_t) (slash - path) : 0;
     if (verdict_dir[0] && !strncmp(verdict_dir, path, dir_len) && !verdict_dir[dir_len]) return verdict;
-    verdict = library_path_under_symlink(LIBRARY_STORED_ROOT, path);
+    verdict = library_path_ignored(LIBRARY_STORED_ROOT, path);
     if (dir_len < sizeof(verdict_dir)) { memcpy(verdict_dir, path, dir_len); verdict_dir[dir_len] = '\0'; }
     else verdict_dir[0] = '\0';
     return verdict;
@@ -319,9 +319,10 @@ static bool stored_file_gone(const char *path, const char *host) {
 }
 
 /* True when an unseen row should go: its file is gone (lstat says ENOENT) or
- * still there but excluded, like a deleted file: a symlink or below a
- * symlinked folder. The walk delivers neither. Any other stat error keeps it
- * unless a symlinked folder above the file is confirmed, and a path that
+ * still there but excluded, like a deleted file: a symlink, below a symlinked
+ * folder, or under database.ignore. The walk delivers none of those. Any other
+ * stat or marker error keeps it unless a symlinked folder above the file is
+ * confirmed, and a path that
  * cannot be mapped to a file here (compas-sdtool) is kept too. The query lock
  * is released around the filesystem calls. */
 static bool stored_path_gone(const char *path, void (*unlock)(void), void (*lock)(void)) {
@@ -386,7 +387,7 @@ static int end_update_lazy_gate(void (*unlock)(void), void (*lock)(void)) {
  * whose file is gone, and counts the live rows. */
 static bool end_update_rewrite_index(void (*unlock)(void), void (*lock)(void)) {
     live_count = 0;
-    verdict_dir[0] = '\0';   /* folders may have changed since the publication gate */
+    verdict_dir[0] = '\0';   /* folders and markers may have changed since the gate */
     for (int32_t slot = 0; slot < ent_count; slot++) {
         struct index_entry idx;
         if (!reader_index(slot, &idx)) return false;

@@ -108,7 +108,7 @@ bool metadata_db_try_artist_row(const char * raw_artist, int64_t * out_offset);
 /* Starts a scan pass against the SD-resident tagcache. Unchanged files
  * are marked seen; new/changed files are upserted. metadata_db_end_update()
  * removes unseen rows whose file is confirmed missing or now excluded
- * (a symlink below the music root on its path). */
+ * (database.ignore, a symlink below the music root on its path). */
 void metadata_db_begin_update(void);
 /* Targeted refresh mode keeps all unselected rows and their song IDs. */
 void metadata_db_begin_targeted_update(void);
@@ -127,8 +127,8 @@ bool metadata_db_get(const char * path, int64_t mtime, int64_t size, cached_tags
 bool metadata_db_put(const char * path, int64_t mtime, int64_t size, const cached_tags_t * tags);
 
 /* Ends a successful scan pass: removes unseen rows whose file is confirmed
- * missing or excluded (a symlink below the music root on the path; a
- * targeted pass keeps them), then commits. Returns false if the on-disk write failed;
+ * missing or excluded (database.ignore, a symlink below the music root on
+ * the path; a targeted pass keeps them), then commits. Returns false if the on-disk write failed;
  * the last committed generation remains loadable. */
 bool metadata_db_end_update(void);
 

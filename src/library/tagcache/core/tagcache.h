@@ -129,9 +129,10 @@ void tagcache_upsert_year_changed(const char * path, int32_t mtime, int32_t size
                                   int32_t release_year, bool * out_tags_changed);
 /* Commits the pass: rebuilds indexes and persists. A row not seen during a
  * full pass is removed when its file is gone (stat reports ENOENT) or the walk
- * would not deliver it: the file is a symlink, or a folder below the music
- * root on its path is. Either way its rating and play history go with it.
- * Any other stat error keeps the row unless such a folder link is confirmed,
+ * would not deliver it: under database.ignore, the file is a symlink, or a
+ * folder below the music root on its path is. Either way its rating and play
+ * history go with it. Any other stat or marker error keeps the row unless such
+ * a folder link is confirmed,
  * and a targeted (preserve-unseen) pass never removes unseen rows. A rebuild
  * after a failed load rejects an empty result and leaves the generation
  * pointer unchanged. Returns false on rejection or write failure, in which
