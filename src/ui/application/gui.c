@@ -20,6 +20,7 @@
 #include "../../core/persistence/bt_rc_trust_settings.h"
 #include "../../network/bluetooth/control/bt_link_key_watch.h"
 #include "../../core/system/logging/db_log.h"
+#include "../player/queue/resume_crash_guard.h"
 #include "../effects/transition_compositor.h"
 #include "../../network/bluetooth/control/bluetooth_control.h"
 #include "../../hardware/device/headphone_status.h"
@@ -488,7 +489,7 @@ static void auto_resume_playback_at_boot(void) {
         int resume_count, resume_index;
         if (build_saved_resume_playlist(&resume_playlist, &resume_count, &resume_index)) {
             if (install_saved_resume_playlist(resume_playlist, resume_count)) {
-                if (boot_resume_mode == 2) {
+                if (resume_crash_guard_filter(boot_resume_mode) == 2) {
                     /* Do not open ALSA at all until the user presses Play.  On
                      * a headphone-less boot, start-then-pause could lose the
                      * race to an output-open failure and consume this queue. */
@@ -533,6 +534,7 @@ void gui_init(uint32_t screen_width, uint32_t screen_height) {
 }
 
 void gui_deinit(void) {
+    resume_crash_guard_clear();
     settings_save_drain();
     gui_screen_power_deinit();
     gui_control_poll_deinit();

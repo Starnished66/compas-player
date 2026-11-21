@@ -5,6 +5,7 @@
 #include "../../shell/gui_navigation.h"
 #include "player_queue_model.h"
 #include "player_queue_storage.h"
+#include "resume_crash_guard.h"
 #include "../../../audio/engine/audio.h"
 #include "../../../core/persistence/settings.h"
 #include "../../../core/persistence/storage_paths.h"
@@ -469,7 +470,7 @@ bool gui_player_restore_sd_queue(bool is_boot) {
 
     if (!install_saved_resume_playlist(resume_playlist, resume_count)) return false;
 
-    int resume_mode = is_boot ? gui_player_boot_resume_mode() : current_settings.resume_mode;
+    int resume_mode = is_boot ? resume_crash_guard_filter(gui_player_boot_resume_mode()) : current_settings.resume_mode;
     if (resume_mode == 1) {
         play_track_at_from(resume_index, position);
     } else if (resume_mode == 2) {
