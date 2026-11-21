@@ -57,6 +57,11 @@ uint32_t gui_anim_ms(uint32_t base_ms); /* src/ui/appearance/gui_theme.c */
 #define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
 
+/* A failed LVGL assert aborts (SIGABRT, logged by the crash handler in src/app/main.c)
+ * instead of freezing the UI in LVGL's default while(1). */
+#define LV_ASSERT_HANDLER_INCLUDE <stdlib.h>
+#define LV_ASSERT_HANDLER abort();
+
 /* UI bitmap fonts are loaded from assets at startup by src/ui/text/fonts/ui_fonts.c.
  * Keep the LVGL-generated bitmap tables out of the executable while
  * preserving their public symbol names through mutable descriptors declared
