@@ -585,35 +585,57 @@ bool aac_seek_to_pcm_frame(aac_decoder_t * dec, uint64_t frame_index) {
     /* AAC state needs a short run-up after a cold reset. Decode two access
      * units before the target and discard their PCM, then trim within the
      * target unit to make the result sample-accurate. */
-    uint64_t start_frame = target_frame > 2 ? target_frame - 2 : 0;
-    NeAACDecClose(dec->handle);
-    dec->handle = NeAACDecOpen();
-    if (!dec->handle) return false;
-    configure_decoder(dec->handle);
-
     uint8_t frame_buf[ADTS_MAX_FRAME_BYTES];
-    unsigned int frame_length = read_compressed_frame(dec, start_frame, frame_buf, sizeof(frame_buf));
-    if (frame_length == 0) return false;
+    uint64_t start_frame = target_frame > 2 ? target_frame - 2 : 0;
+    unsigned int frame_length;
+    /* A damaged run-up frame is not fatal: start closer to the target. */
+    while ((frame_length = read_compressed_frame(dec, start_frame, frame_buf, sizeof(frame_buf))) == 0) {
+        if (start_frame >= target_frame) return false;
+        start_frame++;
+    }
+
+    /* Initialise a fresh handle first so a failed seek leaves the old handle
+     * and position untouched. */
+    NeAACDecHandle fresh = NeAACDecOpen();
+    if (!fresh) return false;
+    configure_decoder(fresh);
 
     unsigned long sample_rate;
     unsigned char channels;
+    bool init_ok;
     if (dec->source_type == AAC_SOURCE_ADTS) {
-        if (NeAACDecInit(dec->handle, frame_buf, frame_length, &sample_rate, &channels) < 0) return false;
+        init_ok = NeAACDecInit(fresh, frame_buf, frame_length, &sample_rate, &channels) >= 0;
     } else {
         uint32_t config_size;
         const uint8_t * config = mp4_demux_get_codec_config(dec->demux, &config_size);
-        if (NeAACDecInit2(dec->handle, (unsigned char *) config, config_size, &sample_rate, &channels) != 0) return false;
+        init_ok = NeAACDecInit2(fresh, (unsigned char *) config, config_size, &sample_rate, &channels) == 0;
     }
+    if (!init_ok) {
+        NeAACDecClose(fresh);
+        return false;
+    }
+    NeAACDecClose(dec->handle);
+    dec->handle = fresh;
 
     dec->current_frame_index = start_frame;
     dec->carry_frames = 0;
     dec->carry_read_pos = 0;
     dec->consecutive_errors = 0;
 
+    /* Recoverable errors in the run-up skip that frame; fail only if no
+     * frame decodes. */
+    bool decoded = false;
     while (dec->current_frame_index <= target_frame) {
-        if (!decode_next_frame(dec)) return false;
-        if (dec->current_frame_index <= target_frame) dec->carry_read_pos = dec->carry_frames;
+        decoder_read_status_t status = DECODER_READ_OK;
+        dec->carry_frames = dec->carry_read_pos = 0;
+        if (decode_next_frame_ex(dec, &status)) {
+            decoded = true;
+            if (dec->current_frame_index <= target_frame) dec->carry_read_pos = dec->carry_frames;
+        } else if (status != DECODER_READ_RECOVERABLE_ERROR) {
+            return false;
+        }
     }
+    if (!decoded) return false;
     dec->carry_read_pos = (uint64_t)discard < dec->carry_frames ? discard : dec->carry_frames;
     dec->pcm_position = frame_index;
     return true;
