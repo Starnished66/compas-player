@@ -3,6 +3,7 @@
 
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -14,7 +15,9 @@ static const char * const crash_log_names[] = {
 
 static bool crash_log_up_to_date(const struct stat * src, const char * dst_path) {
     struct stat dst;
-    return stat(dst_path, &dst) == 0 && dst.st_size == src->st_size && dst.st_mtime == src->st_mtime;
+    /* FAT stores mtimes at 2 s granularity. */
+    return stat(dst_path, &dst) == 0 && dst.st_size == src->st_size &&
+           llabs((long long) dst.st_mtime - (long long) src->st_mtime) <= 2;
 }
 
 static void crash_log_copy(const char * src_path, const char * dst_path, const struct stat * src) {
