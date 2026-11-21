@@ -1,6 +1,7 @@
 #include "remote_control_internal.h"
 #include "remote_grow_buf.h"
 #include "../../../library/metadata/parsing/metadata.h"
+#include "../../../library/artwork/coordinator/artwork_coordinator.h"
 #include "../../../library/browser/files/file_browser.h"
 #include "../../../library/artwork/support/library_endian.h"
 #include "../../../library/playlists/rating_writer.h"
@@ -135,11 +136,17 @@ void handle_art_request(int cfd, const char * path) {
         return;
     }
 
+    /* The parse runs in an isolated child under the artwork memory admission, like the catalog art. */
+    if (artwork_coordinator_acquire(ARTWORK_PRIO_WARMER, 1024u * 1024u, 500, NULL, NULL) != ARTWORK_ACQUIRE_OK) {
+        send_response(cfd, "503 Service Unavailable", "text/plain", "Artwork busy");
+        return;
+    }
     track_metadata_t meta;
     memset(&meta, 0, sizeof(meta));
-    metadata_read(song_path, &meta);
+    metadata_artwork_result_t artwork = metadata_read_artwork_isolated(song_path, &meta, 5000, ARTWORK_PRIO_WARMER);
+    artwork_coordinator_release(ARTWORK_PRIO_WARMER);
 
-    if (meta.picture_data && meta.picture_size > 0) {
+    if (artwork == METADATA_ARTWORK_FOUND && meta.picture_data && meta.picture_size > 0) {
         send_response_binary(cfd, "200 OK", sniff_image_content_type(meta.picture_data, meta.picture_size),
                               meta.picture_data, meta.picture_size);
     } else {
