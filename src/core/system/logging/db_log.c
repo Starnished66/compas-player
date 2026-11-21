@@ -12,11 +12,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#ifdef HOST_BUILD
-#define DB_LOG_DIR "./music/.logs"
-#else
-#define DB_LOG_DIR "/data/mnt/sd_0/.logs"
-#endif
 #define DB_LOG_PATH DB_LOG_DIR "/database_artwork.log"
 #define DB_LOG_ROTATED_PATH DB_LOG_DIR "/database_artwork.log.1"
 #define RELOAD_DIAG_PATH DB_LOG_DIR "/reload_diag.log"

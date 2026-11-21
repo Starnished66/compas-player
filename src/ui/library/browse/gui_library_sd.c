@@ -7,6 +7,7 @@
 #include "../../../network/bluetooth/control/bluetooth_control.h"
 #include "../../application/gui.h"
 #include "../../../core/storage/sd_fsck_run.h"
+#include "../../../core/system/logging/crash_log_sync.h"
 #include "../../../library/browser/files/file_browser.h"
 #include "../../../library/browser/files/file_ops.h"
 #include "../../storage/sd_card_identity.h"
@@ -395,6 +396,7 @@ static void sd_hotplug_mounted(bool replaced_between_polls, bool have_current_de
         sd_handoff_pending = false;
     } else if (!boot_library_recheck_done) {
         boot_library_recheck_done = true;
+        crash_log_sync_to_sd();
         fallback_font_on_sd_mounted();
         if (metadata_db_get_load_outcome() == METADATA_DB_LOAD_UNMOUNTED && !library_rescan_active) {
             gui_folder_actions_invalidate_storage_targets();

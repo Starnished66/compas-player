@@ -7,6 +7,13 @@
 
 #include "debug_log.h"
 
+/* Folder on the SD card that holds every opt-in diagnostic log. */
+#ifdef HOST_BUILD
+#define DB_LOG_DIR "./music/.logs"
+#else
+#define DB_LOG_DIR "/data/mnt/sd_0/.logs"
+#endif
+
 static inline void db_log_rotate_file_if_needed_locked(FILE ** file, const char * path, const char * rotated_path, long max_bytes) {
     if (fseek(*file, 0, SEEK_END) != 0) return;
     long size = ftell(*file);
