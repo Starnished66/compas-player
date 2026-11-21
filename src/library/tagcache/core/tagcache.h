@@ -22,7 +22,7 @@
 
 /* Layout version of the on-card database this build writes (the version of its
  * index files). Anything that reads the database must carry a reader for it. */
-#define TAGCACHE_DATABASE_FORMAT 8u
+#define TAGCACHE_DATABASE_FORMAT 9u
 
 #define TAGCACHE_PATH_MAX 600
 #define TAGCACHE_TAG_MAX 128
@@ -239,6 +239,8 @@ uint32_t tagcache_stats_revision(void);
 /* 1: legacy raw-title ranks; 2: displayed-title ASCII ranks; 3: Unicode
  * collation; 4: Unicode collation with inverted Spanish punctuation ordering. */
 int tagcache_title_order_version(void);
+/* Format of the loaded index files. */
+int tagcache_index_version(void);
 
 int32_t tagcache_title_rank_of_path(const char * path);
 int32_t tagcache_recency_rank_of_path(const char * path);
@@ -246,13 +248,13 @@ int tagcache_group_index(int kind, const char * name, const char * album_artist)
 
 int tagcache_cmp_ascii(const char * a, const char * b);
 
-/* First artist name a raw ARTIST tag is filed under. */
+/* First artist name a raw ARTIST tag is filed under. Artists split at ';' and at " / ", not "AC/DC". */
 void tagcache_artist_primary(const char * raw_artist, char * out, size_t out_size);
 /* Exact bounded artist membership names for a song's raw ARTIST tag. */
 int tagcache_artist_names(const char * raw_artist, char out[][TAGCACHE_TAG_MAX], int max_names);
-/* Genres: a raw GENRE tag is split at ; , and / (same rules as artists, but no name limit and
- * no length clip). fn gets each distinct part as (start, len), not NUL-terminated, and returns
- * false to stop. Returns the parts visited; 0 for an empty tag. */
+/* Genres: a raw GENRE tag is split at any ; , or / (no name limit and no length clip). fn gets
+ * each distinct part as (start, len), not NUL-terminated, and returns false to stop. Returns the
+ * parts visited; 0 for an empty tag. */
 int tagcache_genre_each(const char * raw_genre, bool (*fn)(const char * start, size_t len, void * user), void * user);
 bool tagcache_genre_matches(const char * raw_genre, const char * name);
 

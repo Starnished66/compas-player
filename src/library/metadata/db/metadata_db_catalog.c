@@ -20,10 +20,10 @@ static metadata_db_catalog_result_t catalog_page_begin_locked(
     if (title_order_version < 1 || title_order_version > 4)
         return METADATA_DB_CATALOG_UNAVAILABLE;
     snprintf(out_page->library_id, sizeof(out_page->library_id), "%s", metadata_db_catalog_library_id);
-    /* The trailing format version invalidates clients that cached the older
-     * title-rank order while retaining the same library and tagcache generation. */
-    snprintf(out_page->revision, sizeof(out_page->revision), "%s:%d:%d", metadata_db_catalog_library_id,
-             generation, title_order_version);
+    /* The trailing versions invalidate clients that cached an older title order or index format
+     * of the same library and tagcache generation. */
+    snprintf(out_page->revision, sizeof(out_page->revision), "%s:%d:%d:%d", metadata_db_catalog_library_id,
+             generation, title_order_version, tagcache_index_version());
     if (expected_revision && strcmp(expected_revision, out_page->revision) != 0)
         return METADATA_DB_CATALOG_STALE;
     return METADATA_DB_CATALOG_OK;

@@ -59,6 +59,10 @@ int tagcache_title_order_version(void) {
     return db_open ? (int)committed_reader.title_order_version : 0;
 }
 
+int tagcache_index_version(void) {
+    return db_open ? (int)committed_reader.loaded_index_version : 0;
+}
+
 static bool load_generation(int32_t gen) {
     reader_legacy_active = false;
     reader_close_indexes();

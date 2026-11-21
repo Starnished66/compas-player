@@ -198,7 +198,7 @@ static const char *tc_index_suffixes[TC_IX_COUNT] = {
 };
 
 static const char *tc_index_version_ending(uint32_t version, bool v5) {
-    return version >= 7u ? ".v7" : version >= 6u ? ".v6" :
+    return version >= 9u ? ".v9" : version >= 7u ? ".v7" : version >= 6u ? ".v6" :
            version >= 5u && v5 ? ".v5" : "";
 }
 
@@ -262,7 +262,8 @@ static void reader_unlink_version_set(int32_t gen, uint32_t version) {
     }
     snprintf(suffix, sizeof(suffix), ".query%s", tc_index_version_ending(version, true));
     tc_unlink_with_tmp(gen, suffix);
-    if (version == 5u) return;
+    /* v7 and later share the .v4 album files; the v7 pass removes them. */
+    if (version == 5u || version >= 9u) return;
     const char *extra[] = {".album_recent", ".album_recent_inverse", ".album_year",
                            ".album_year_inverse", ".album_artist_year",
                            ".album_artist_year_inverse", ".album_meta"};
@@ -369,7 +370,7 @@ bool reader_write_indexes(int32_t gen) {
 static bool reader_index_meta_valid(const struct tc_index_meta *m, int32_t gen) {
     if (m->magic != TC_INDEX_MAGIC ||
         (m->version != 3u && m->version != 4u && m->version != 5u && m->version != 6u &&
-         m->version != 7u && m->version != TC_INDEX_VERSION) ||
+         m->version != 7u && m->version != 8u && m->version != TC_INDEX_VERSION) ||
         m->generation != gen || m->serial != master_serial || m->commitid != master_commitid ||
         m->entry_count != ent_count || m->live_entries < 0 || m->live_entries > ent_count)
         return false;
@@ -459,6 +460,7 @@ void reader_unlink_indexes(int32_t gen) {
     reader_unlink_version_set(gen, 5u);
     reader_unlink_version_set(gen, 6u);
     reader_unlink_version_set(gen, 7u);
+    reader_unlink_version_set(gen, 9u);
 }
 
 int reader_create_temp(void) {
@@ -491,13 +493,29 @@ void reader_close_indexes(void) {
     reader_query_cache_block = 0;
 }
 
-/* Next trimmed, non-empty part of a raw tag split at any of seps, clipped to max_len (0 = no clip). */
-static bool span_next(const char **cursor, const char *seps, size_t max_len, const char **start, size_t *len) {
+/* A '/' in seps always separates; one not in seps separates only between whitespace ("A / B"),
+ * so "AC/DC" stays whole. */
+static bool split_is_sep(const char *seps, const char *raw, const char *p) {
+    if (*p == '/' && !strchr(seps, '/'))
+        return p > raw && (unsigned char) p[-1] <= ' ' && p[1] && (unsigned char) p[1] <= ' ';
+    return strchr(seps, *p) != NULL;
+}
+
+/* Artist separators. An index set from before v9 split at every slash, so lookups on one keep
+ * that rule; a build marks its reader v9 first. */
+static const char *artist_seps(void) {
+    uint32_t v = reader_loaded_index_version;
+    return v && v < TC_INDEX_MIGRATE_BELOW ? ";/" : ";";
+}
+
+/* Next trimmed, non-empty part of a raw tag split at seps, clipped to max_len (0 = no clip). */
+static bool span_next(const char *raw, const char **cursor, const char *seps, size_t max_len,
+                      const char **start, size_t *len) {
     const char *p = *cursor;
     while (*p) {
-        while (*p && strchr(seps, *p)) p++;
+        while (*p && split_is_sep(seps, raw, p)) p++;
         const char *s = p;
-        while (*p && !strchr(seps, *p)) p++;
+        while (*p && !split_is_sep(seps, raw, p)) p++;
         const char *e = p;
         while (e > s && (unsigned char) e[-1] <= ' ') e--;
         while (s < e && (unsigned char) *s <= ' ') s++;
@@ -523,7 +541,7 @@ static bool span_equals(const char *a, size_t alen, const char *b, size_t blen) 
 static bool span_seen(const char *raw, const char *seps, size_t max_len, const char *before_start, const char *s, size_t len) {
     const char *p = raw, *start;
     size_t n;
-    while (span_next(&p, seps, max_len, &start, &n) && start < before_start)
+    while (span_next(raw, &p, seps, max_len, &start, &n) && start < before_start)
         if (span_equals(start, n, s, len)) return true;
     return false;
 }
@@ -538,7 +556,7 @@ static int split_walk(const char *raw, const char *seps, int limit, size_t max_l
     const char *p = raw, *s;
     size_t len;
     int n = 0;
-    while ((!limit || n < limit) && span_next(&p, seps, max_len, &s, &len)) {
+    while ((!limit || n < limit) && span_next(raw, &p, seps, max_len, &s, &len)) {
         if (span_seen(raw, seps, max_len, s, s, len)) continue;
         n++;
         if (!fn(s, len, user)) return n;
@@ -560,7 +578,7 @@ static bool fill_name(const char *start, size_t len, void *user) {
 /* Artists: at most TAGCACHE_ARTIST_SPLIT_MAX names, each bounded to a tag. */
 static int split_artist(const char *raw, char names[TAGCACHE_ARTIST_SPLIT_MAX][TAGCACHE_PATH_MAX]) {
     name_fill_t fill = { names, 0 };
-    split_walk(raw, ";/", TAGCACHE_ARTIST_SPLIT_MAX, TAGCACHE_TAG_MAX - 1, fill_name, &fill);
+    split_walk(raw, artist_seps(), TAGCACHE_ARTIST_SPLIT_MAX, TAGCACHE_TAG_MAX - 1, fill_name, &fill);
     return fill.n;
 }
 
@@ -580,7 +598,7 @@ static bool names_match(const char *raw, const char *seps, int limit, size_t max
 }
 
 static bool tagcache_artist_matches(const char *raw, const char *name) {
-    return names_match(raw, ";/", TAGCACHE_ARTIST_SPLIT_MAX, TAGCACHE_TAG_MAX - 1, name);
+    return names_match(raw, artist_seps(), TAGCACHE_ARTIST_SPLIT_MAX, TAGCACHE_TAG_MAX - 1, name);
 }
 
 int tagcache_artist_names(const char *raw, char out[][TAGCACHE_TAG_MAX], int max_names) {
@@ -1284,9 +1302,9 @@ bool reader_build_indexes(void) {
     return ok;
 }
 
-/* Rebuild every derived component into the isolated v7+ filename set. The
+/* Rebuild every derived component into the isolated v9 filename set. The
  * writer publishes the new metadata only after syncing the complete set, so
- * any failure leaves the prior v3-v6 metadata and files usable. */
+ * any failure leaves the prior v3-v8 metadata and files usable. */
 bool reader_migrate_indexes(int32_t gen) {
     if (reader_loaded_index_version >= TC_INDEX_MIGRATE_BELOW) return true;
     struct tc_index_meta old_meta;
