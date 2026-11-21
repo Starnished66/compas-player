@@ -44,6 +44,7 @@ typedef struct {
     player_layout_create_fn create;
     player_layout_timeline_fn timeline;
     char path[MAX_LAYOUT_PATH];
+    int version;        /* compas_layout_version from the XML consts, 0 when absent */
     bool session;       /* registered by a plugin for this session */
     bool from_callback; /* ... from a callback rather than while loading, so it outlives plugin resets */
     char plugin_owner[PLAYER_LAYOUT_ACTION_MAX];
@@ -363,6 +364,45 @@ int player_layouts_find(const char * id) {
     return -1;
 }
 
+/* Bundled layouts the store also ships: bundled id, the id its Lua
+ * registers, the id the SD plugin scan gives the same XML. The newer of the
+ * two wins (compas_layout_version), the store copy on a tie. */
+static const struct { const char * bundled, * session, * scanned; } store_layouts[] = {
+    { "gallery", "plugin.gallery_player", "plugin.GalleryPlayer.gallery_player" },
+    { "orbit", "plugin.orbit_player", "plugin.OrbitPlayer.orbit_player" },
+    { "panorama", "plugin.panorama_player", "plugin.PanoramaPlayer.panorama_player" },
+};
+#define STORE_LAYOUT_COUNT (sizeof(store_layouts) / sizeof(store_layouts[0]))
+
+/* True for an id that belongs to a bundled/store pair. */
+static bool in_store_pair(const char * id) {
+    for (size_t i = 0; i < STORE_LAYOUT_COUNT; ++i)
+        if (strcmp(id, store_layouts[i].bundled) == 0 || strcmp(id, store_layouts[i].session) == 0 ||
+            strcmp(id, store_layouts[i].scanned) == 0) return true;
+    return false;
+}
+
+/* Index of the present store entry of a pair, or -1. */
+static int store_index(size_t pair) {
+    int index = player_layouts_find(store_layouts[pair].session);
+    return index >= 0 ? index : player_layouts_find(store_layouts[pair].scanned);
+}
+
+/* Entry for an id, or for the other member of its pair when that id was
+ * dropped as the older copy. */
+static int find_resolved(const char * id) {
+    int index = player_layouts_find(id);
+    if (index >= 0 || !id) return index;
+    for (size_t i = 0; i < STORE_LAYOUT_COUNT; ++i) {
+        if (strcmp(id, store_layouts[i].bundled) == 0) return store_index(i);
+        if (strcmp(id, store_layouts[i].session) == 0 || strcmp(id, store_layouts[i].scanned) == 0) {
+            index = player_layouts_find(store_layouts[i].bundled);
+            return index >= 0 ? index : store_index(i);
+        }
+    }
+    return -1;
+}
+
 static bool path_is_within_root(const char * path, const char * root) {
     size_t root_len = strlen(root);
     return strncmp(path, root, root_len) == 0 && path[root_len] == '/';
@@ -374,7 +414,7 @@ bool player_layouts_canonical_id(const char * id, char * out, size_t size) {
     if (!id || (strcmp(id, PLAYER_LAYOUT_ID_DEFAULT) != 0 && !id_is_valid(id))) return false;
 
     ensure_builtin_entry();
-    int index = player_layouts_find(id);
+    int index = find_resolved(id);
     if (index < 0) return false;
     const layout_entry_t * entry = &entries[index];
     const char * canonical_id = entry->info.id;
@@ -421,6 +461,45 @@ bool player_layouts_canonical_id(const char * id, char * out, size_t size) {
 static void remove_entry(int index) {
     memmove(&entries[index], &entries[index + 1], (size_t) (entry_count - index - 1) * sizeof(entries[0]));
     --entry_count;
+}
+
+/* compas_layout_version declared in the layout's <consts>, 0 when missing or
+ * unreadable. Layouts are a few KB, so a bounded read of the head is enough. */
+static int read_layout_version(const char * path) {
+    static char buf[16 * 1024 + 1];
+    FILE * f = fopen(path, "rb");
+    if (!f) return 0;
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    char * name = strstr(buf, "name=\"compas_layout_version\"");
+    if (!name) return 0;
+    char * start = name;
+    while (start > buf && *start != '<') --start;
+    char * end = strchr(name, '>');
+    char * value = strstr(start, "value=\"");
+    if (!value || (end && value > end)) return 0;
+    return (int) strtol(value + 7, NULL, 10);
+}
+
+/* For each bundled layout the store also ships, drops the older copy (the
+ * bundled one on a tie loses to the store). The dropped id stays reachable
+ * through find_resolved(). Entry 0 is never a bundled id. */
+static void drop_older_of_pairs(void) {
+    for (size_t i = 0; i < STORE_LAYOUT_COUNT; ++i) {
+        int bundled = player_layouts_find(store_layouts[i].bundled);
+        int store = store_index(i);
+        if (bundled <= 0 || store < 0) continue;
+        if (entries[store].version >= entries[bundled].version) {
+            remove_entry(bundled);
+            continue;
+        }
+        const char * ids[] = { store_layouts[i].session, store_layouts[i].scanned };
+        for (size_t k = 0; k < 2; ++k) {
+            int index = player_layouts_find(ids[k]);
+            if (index > 0) remove_entry(index);
+        }
+    }
 }
 
 /* Appends or replaces in place, keeping table order stable for the Settings
@@ -559,9 +638,9 @@ static bool same_id(const char * a, const char * b) {
 
 const char * player_layouts_effective_id(void) {
     ensure_builtin_entry();
-    if (session_selected[0] && player_layouts_find(session_selected) >= 0) return session_selected;
-    if (current_settings.player_layout[0] && player_layouts_find(current_settings.player_layout) >= 0)
-        return current_settings.player_layout;
+    int index = session_selected[0] ? find_resolved(session_selected) : -1;
+    if (index < 0 && current_settings.player_layout[0]) index = find_resolved(current_settings.player_layout);
+    if (index >= 0) return entries[index].info.id;
     return PLAYER_LAYOUT_ID_DEFAULT;
 }
 
@@ -592,6 +671,8 @@ bool player_layouts_session_register_xml(const char * id, const char * display_n
     e->session = true;
     e->from_callback = from_callback;
     snprintf(e->path, sizeof(e->path), "%s", path);
+    e->version = in_store_pair(id) ? read_layout_version(e->path) : 0;
+    drop_older_of_pairs();
     return true;
 }
 
@@ -609,7 +690,9 @@ void player_layouts_session_reset(void) {
     for (int i = entry_count - 1; i >= 1; --i) {
         if (entries[i].session && !entries[i].from_callback) remove_entry(i);
     }
-    if (session_selected[0] && player_layouts_find(session_selected) < 0) session_selected[0] = '\0';
+    /* Brings back a bundled layout whose store version just went away. */
+    player_layouts_rescan();
+    if (session_selected[0] && find_resolved(session_selected) < 0) session_selected[0] = '\0';
 }
 
 bool player_layouts_session_clear_selection(void) {
@@ -795,7 +878,9 @@ static void rescan_xml_layouts(void) {
         layout_entry_t * e = upsert_entry(found[i].id, found[i].name, PLAYER_LAYOUT_XML_FILE);
         if (!e) break;
         snprintf(e->path, sizeof(e->path), "%s", found[i].path);
+        e->version = in_store_pair(found[i].id) ? read_layout_version(e->path) : 0;
     }
+    drop_older_of_pairs();
 }
 
 void player_layouts_rescan(void) {
@@ -1405,7 +1490,7 @@ invalid_interactions:
 lv_obj_t * player_layouts_create(const char * id, lv_obj_t * parent, player_layout_kind_t * kind_out) {
     invalidate_active_layout();
     ensure_builtin_entry();
-    int index = player_layouts_find(id);
+    int index = find_resolved(id);
     if (index < 0 || !parent) return NULL;
     const layout_entry_t * e = &entries[index];
     if (kind_out) *kind_out = e->info.kind;
