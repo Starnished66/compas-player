@@ -8,9 +8,17 @@
 
 #include <stdlib.h>
 
-int l_plugin_list_apps(lua_State * L) {
-    int count = 0;
-    app_manifest_t * apps = app_registry_scan(APP_ROOT, app_board_id(), &count);
+typedef struct {
+    app_manifest_t * apps;
+    int count;
+} apps_ctx;
+
+static void apps_cleanup(void * mem) { free(mem); }
+
+static int apps_push_lua(lua_State * L) {
+    apps_ctx * ctx = lua_touserdata(L, 1);
+    app_manifest_t * apps = ctx->apps;
+    int count = ctx->count;
     lua_createtable(L, count, 0);
     for (int i = 0; i < count; i++) {
         lua_createtable(L, 0, 4);
@@ -28,8 +36,13 @@ int l_plugin_list_apps(lua_State * L) {
         lua_setfield(L, -2, "opens");
         lua_rawseti(L, -2, i + 1);
     }
-    free(apps);
     return 1;
+}
+
+int l_plugin_list_apps(lua_State * L) {
+    apps_ctx ctx = { NULL, 0 };
+    ctx.apps = app_registry_scan(APP_ROOT, app_board_id(), &ctx.count);
+    return plugin_lua_push_then_cleanup(L, apps_push_lua, &ctx, 1, apps_cleanup, ctx.apps);
 }
 
 int l_plugin_launch_app(lua_State * L) {

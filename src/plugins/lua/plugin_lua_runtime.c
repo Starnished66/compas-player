@@ -42,6 +42,18 @@ int plugin_lua_pcall_then_cleanup(lua_State * L, void * ud, int nresults,
     return nresults;
 }
 
+/* For a native buffer that is already allocated: `push` builds the Lua results
+ * from `ud` under a protected call, so a refused allocation still reaches
+ * `cleanup`. */
+int plugin_lua_push_then_cleanup(lua_State * L, lua_CFunction push, void * ud, int nresults,
+                                 void (*cleanup)(void *), void * mem) {
+    if (!lua_checkstack(L, 2)) {
+        if (cleanup) cleanup(mem);
+        return luaL_error(L, "stack overflow");
+    }
+    lua_pushcfunction(L, push);
+    return plugin_lua_pcall_then_cleanup(L, ud, nresults, cleanup, mem);
+}
 
 const char * plugin_lua_check_external_path(lua_State * L, int index, const char * api) {
     const char * path = luaL_checkstring(L, index);

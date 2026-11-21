@@ -334,6 +334,7 @@ int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
     lua_sethook(L, plugin_call_timeout_hook, LUA_MASKCOUNT, 10000);
 
     int result;
+    plugin_lua_memory_enforce(L, true); /* balanced below, also after a hard abort */
     if (setjmp(plugin_call_abort_jmp) == 0) {
         plugin_call_abort_armed = 1;
         result = lua_pcall(L, nargs, nresults, errfunc);
@@ -356,6 +357,7 @@ int plugin_call(lua_State * L, int nargs, int nresults, int errfunc) {
 
     /* Restores the enclosing call's hook when nested; otherwise clears it,
      * so there is no cost between plugin calls. */
+    plugin_lua_memory_enforce(L, false);
     lua_sethook(L, saved_hook, saved_hook_mask, saved_hook_count);
     plugin_call_abort_armed = saved_armed;
     memcpy(plugin_call_abort_jmp, saved_jmp, sizeof(jmp_buf));

@@ -1,6 +1,7 @@
 #include "plugin_library_bindings.h"
 
 #include "lauxlib.h"
+#include "../../lua/plugin_lua_runtime.h"
 #include "plugin_library_bindings_internal.h"
 
 #include "../../../ui/plugins/gui_plugin_library.h"
@@ -13,18 +14,33 @@
  * get_next_album_tracks() below -- pushes a malloc'd gui_plugin_* string
  * array as a 1-indexed Lua table (or nil if it came back empty/NULL) and
  * frees the C array, since nothing on the Lua side needs it once copied in. */
+typedef struct {
+    char ** items;
+    int count;
+} string_array_ctx;
+
+static void string_array_cleanup(void * mem) {
+    string_array_ctx * ctx = mem;
+    gui_plugin_free_string_array(ctx->items, ctx->count);
+}
+
+static int string_array_push_lua(lua_State * L) {
+    string_array_ctx * ctx = lua_touserdata(L, 1);
+    lua_createtable(L, ctx->count, 0);
+    for (int i = 0; i < ctx->count; i++) {
+        lua_pushstring(L, ctx->items[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
 int plugin_library_push_string_array_result(lua_State * L, char ** items, int count) {
     if (!items || count <= 0) {
         lua_pushnil(L);
         return 1;
     }
-    lua_newtable(L);
-    for (int i = 0; i < count; i++) {
-        lua_pushstring(L, items[i]);
-        lua_rawseti(L, -2, i + 1);
-    }
-    gui_plugin_free_string_array(items, count);
-    return 1;
+    string_array_ctx ctx = { items, count };
+    return plugin_lua_push_then_cleanup(L, string_array_push_lua, &ctx, 1, string_array_cleanup, &ctx);
 }
 
 /* plugin.get_artist_albums(artist) -> { album_name, ... } | nil */
@@ -88,13 +104,46 @@ static void push_group_row(lua_State * L, const group_row_t * row) {
     lua_pushstring(L, row->album_artist); lua_setfield(L, -2, "album_artist");
 }
 
-static int push_song_rows_result(lua_State * L, const song_row_t * rows, int count) {
-    lua_newtable(L);
-    for (int i = 0; i < count; i++) {
+/* The rows array is malloc'd by the caller; the push runs protected so a
+ * refused Lua allocation still frees it. */
+typedef struct {
+    const void * rows;
+    int count;
+} rows_ctx;
+
+static void rows_cleanup(void * mem) { free(mem); }
+
+static int song_rows_push_lua(lua_State * L) {
+    rows_ctx * ctx = lua_touserdata(L, 1);
+    const song_row_t * rows = ctx->rows;
+    lua_createtable(L, ctx->count, 0);
+    for (int i = 0; i < ctx->count; i++) {
         push_song_row(L, &rows[i]);
         lua_rawseti(L, -2, i + 1);
     }
     return 1;
+}
+
+static int group_rows_push_lua(lua_State * L) {
+    rows_ctx * ctx = lua_touserdata(L, 1);
+    const group_row_t * rows = ctx->rows;
+    lua_createtable(L, ctx->count, 0);
+    for (int i = 0; i < ctx->count; i++) {
+        push_group_row(L, &rows[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+/* Takes ownership of rows (frees it). */
+static int push_song_rows_result(lua_State * L, song_row_t * rows, int count) {
+    rows_ctx ctx = { rows, count };
+    return plugin_lua_push_then_cleanup(L, song_rows_push_lua, &ctx, 1, rows_cleanup, rows);
+}
+
+static int push_group_rows_result(lua_State * L, group_row_t * rows, int count) {
+    rows_ctx ctx = { rows, count };
+    return plugin_lua_push_then_cleanup(L, group_rows_push_lua, &ctx, 1, rows_cleanup, rows);
 }
 
 /* plugin.library_song_count() -> integer */
@@ -135,7 +184,6 @@ int l_plugin_library_get_songs(lua_State * L) {
     int64_t total = 0;
     int n = rows ? gui_plugin_library_get_songs(query, artist, album_artist, album, offset, limit, rows, &total) : 0;
     push_song_rows_result(L, rows, n);
-    free(rows);
     lua_pushinteger(L, (lua_Integer) total);
     return 2;
 }
@@ -147,9 +195,7 @@ int l_plugin_library_search(lua_State * L) {
 
     song_row_t * rows = malloc(sizeof(song_row_t) * GUI_PLUGIN_LIBRARY_MAX_PAGE); /* see get_songs()'s own comment */
     int n = rows ? gui_plugin_library_search(query, limit, rows) : 0;
-    int result = push_song_rows_result(L, rows, n);
-    free(rows);
-    return result;
+    return push_song_rows_result(L, rows, n);
 }
 
 /* plugin.library_get_song(id) -> song | nil */
@@ -172,13 +218,7 @@ int l_plugin_library_get_artists(lua_State * L) {
 
     group_row_t * rows = malloc(sizeof(group_row_t) * GUI_PLUGIN_LIBRARY_MAX_PAGE); /* see get_songs()'s own comment */
     int n = rows ? gui_plugin_library_get_artists(offset, limit, rows) : 0;
-    lua_newtable(L);
-    for (int i = 0; i < n; i++) {
-        push_group_row(L, &rows[i]);
-        lua_rawseti(L, -2, i + 1);
-    }
-    free(rows);
-    return 1;
+    return push_group_rows_result(L, rows, n);
 }
 
 /* plugin.library_get_albums(offset, limit, artist) -> { {name, count,
@@ -191,11 +231,5 @@ int l_plugin_library_get_albums(lua_State * L) {
 
     group_row_t * rows = malloc(sizeof(group_row_t) * GUI_PLUGIN_LIBRARY_MAX_PAGE); /* see get_songs()'s own comment */
     int n = rows ? gui_plugin_library_get_albums(offset, limit, artist_filter, rows) : 0;
-    lua_newtable(L);
-    for (int i = 0; i < n; i++) {
-        push_group_row(L, &rows[i]);
-        lua_rawseti(L, -2, i + 1);
-    }
-    free(rows);
-    return 1;
+    return push_group_rows_result(L, rows, n);
 }

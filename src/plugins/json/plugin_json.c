@@ -2,6 +2,7 @@
 #include "../../core/text/utf8_util.h"
 
 #include "lauxlib.h"
+#include "../lua/plugin_lua_runtime.h"
 #include "cJSON.h"
 
 #include <stdbool.h>
@@ -254,6 +255,23 @@ static cJSON * lua_to_cjson(lua_State * L, int index, int depth, const json_limi
     }
 }
 
+typedef struct {
+    cJSON * json;
+    const json_limits_t * lim;
+    int entries;
+    const char * err;
+} json_decode_ctx;
+
+static void json_delete_cleanup(void * mem) { cJSON_Delete(mem); }
+
+/* Runs protected: a refused Lua allocation must not skip the cJSON cleanup. */
+static int json_decode_push_lua(lua_State * L) {
+    json_decode_ctx * ctx = lua_touserdata(L, 1);
+    if (!push_cjson(L, ctx->json, 0, ctx->lim, &ctx->entries, &ctx->err)) return fail(L, ctx->err);
+    lua_pushnil(L);
+    return 2;
+}
+
 int l_plugin_json_decode(lua_State * L) {
     size_t len = 0;
     const char * s = luaL_checklstring(L, 1, &len);
@@ -266,13 +284,15 @@ int l_plugin_json_decode(lua_State * L) {
     cJSON * json = cJSON_ParseWithLength(s, len);
     if (!json) return fail(L, "invalid json");
 
-    int entries = 0;
-    const char * err = "invalid json";
-    if (!push_cjson(L, json, 0, &lim, &entries, &err)) {
-        cJSON_Delete(json);
-        return fail(L, err);
-    }
-    cJSON_Delete(json);
+    json_decode_ctx ctx = { json, &lim, 0, "invalid json" };
+    return plugin_lua_push_then_cleanup(L, json_decode_push_lua, &ctx, 2, json_delete_cleanup, json);
+}
+
+static void json_free_cleanup(void * mem) { cJSON_free(mem); }
+
+static int json_encode_push_lua(lua_State * L) {
+    const char * printed = lua_touserdata(L, 1);
+    lua_pushstring(L, printed);
     lua_pushnil(L);
     return 2;
 }
@@ -297,8 +317,5 @@ int l_plugin_json_encode(lua_State * L) {
         cJSON_free(printed);
         return fail(L, "invalid utf-8");
     }
-    lua_pushlstring(L, printed, n);
-    cJSON_free(printed);
-    lua_pushnil(L);
-    return 2;
+    return plugin_lua_push_then_cleanup(L, json_encode_push_lua, printed, 2, json_free_cleanup, printed);
 }

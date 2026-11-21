@@ -22,4 +22,9 @@ lua_Integer plugin_lua_opt_integer_field(lua_State * L, int idx, const char * na
 int plugin_lua_pcall_then_cleanup(lua_State * L, void * ud, int nresults,
                                   void (*cleanup)(void *), void * mem);
 
+/* Pushes `push` and runs it through plugin_lua_pcall_then_cleanup(), for a
+ * native buffer that already exists. */
+int plugin_lua_push_then_cleanup(lua_State * L, lua_CFunction push, void * ud, int nresults,
+                                 void (*cleanup)(void *), void * mem);
+
 #endif /* PLUGIN_LUA_RUNTIME_H */

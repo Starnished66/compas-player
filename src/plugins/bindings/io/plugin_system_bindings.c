@@ -304,15 +304,27 @@ static int l_plugin_led_release(lua_State * L) {
  * .list(prefix) -- see plugin_storage.h's own threat-model comment.
  * Values round-trip arbitrary bytes (luaL_checklstring/lua_pushlstring),
  * not just NUL-terminated text. */
+typedef struct {
+    const char * data;
+    size_t len;
+} bytes_ctx;
+
+static void bytes_free_cleanup(void * mem) { free(mem); }
+
+static int bytes_push_lua(lua_State * L) {
+    bytes_ctx * ctx = lua_touserdata(L, 1);
+    lua_pushlstring(L, ctx->data, ctx->len);
+    return 1;
+}
+
 static int l_plugin_storage_get(lua_State * L) {
     const char * id = require_plugin_id(L);
     const char * key = luaL_checkstring(L, 1);
     char * value = NULL;
     size_t value_len = 0;
     if (plugin_storage_get(id, key, &value, &value_len)) {
-        lua_pushlstring(L, value, value_len);
-        free(value);
-        return 1;
+        bytes_ctx ctx = { value, value_len };
+        return plugin_lua_push_then_cleanup(L, bytes_push_lua, &ctx, 1, bytes_free_cleanup, value);
     }
     if (lua_gettop(L) >= 2) {
         lua_pushvalue(L, 2);
@@ -343,22 +355,36 @@ static int l_plugin_storage_delete(lua_State * L) {
     return 1;
 }
 
+typedef struct {
+    char ** keys;
+    int count;
+} key_list_ctx;
+
+static void key_list_cleanup(void * mem) {
+    key_list_ctx * ctx = mem;
+    for (int i = 0; i < ctx->count; i++) free(ctx->keys[i]);
+    free(ctx->keys);
+}
+
+static int key_list_push_lua(lua_State * L) {
+    key_list_ctx * ctx = lua_touserdata(L, 1);
+    lua_createtable(L, ctx->count, 0);
+    for (int i = 0; i < ctx->count; i++) {
+        lua_pushstring(L, ctx->keys[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
 static int l_plugin_storage_list(lua_State * L) {
     const char * id = require_plugin_id(L);
     const char * prefix = luaL_optstring(L, 1, "");
-    char ** keys = NULL;
-    int count = plugin_storage_list(id, prefix, &keys);
-    if (count < 0) {
+    key_list_ctx ctx = { NULL, 0 };
+    ctx.count = plugin_storage_list(id, prefix, &ctx.keys);
+    if (ctx.count < 0) {
         return plugin_lua_push_error(L, "plugin.storage.list failed");
     }
-    lua_newtable(L);
-    for (int i = 0; i < count; i++) {
-        lua_pushstring(L, keys[i]);
-        lua_rawseti(L, -2, i + 1);
-        free(keys[i]);
-    }
-    free(keys);
-    return 1;
+    return plugin_lua_push_then_cleanup(L, key_list_push_lua, &ctx, 1, key_list_cleanup, &ctx);
 }
 
 /* plugin.secrets.get/set/exists/delete -- deliberately no .list(), so a
@@ -371,9 +397,8 @@ static int l_plugin_secrets_get(lua_State * L) {
     char * value = NULL;
     size_t value_len = 0;
     if (plugin_secrets_get(id, key, &value, &value_len)) {
-        lua_pushlstring(L, value, value_len);
-        free(value);
-        return 1;
+        bytes_ctx ctx = { value, value_len };
+        return plugin_lua_push_then_cleanup(L, bytes_push_lua, &ctx, 1, bytes_free_cleanup, value);
     }
     lua_pushnil(L);
     return 1;

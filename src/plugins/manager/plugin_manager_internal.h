@@ -247,6 +247,10 @@ typedef struct {
     bool active;
 } plugin_interval_t;
 
+/* plugin_manager.c: turns the memory cap of state L on (true) or off for the
+ * calls between. Nests. */
+void plugin_lua_memory_enforce(lua_State * L, bool on);
+
 /* plugin_call.c */
 bool plugin_state_frozen(lua_State * L);
 void plugin_unref(lua_State * L, int ref);

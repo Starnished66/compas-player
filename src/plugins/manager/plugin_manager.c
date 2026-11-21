@@ -330,6 +330,51 @@ static void discard_failed_plugin_load(plugin_instance_t * inst, lua_State * L,
     loading_plugin_slot = -1;
 }
 
+/* Per-state memory cap. Each plugin state counts its own live bytes; inside a
+ * protected plugin call (plugin_call()) a growth past the cap fails like an
+ * out-of-memory, which Lua turns into a catchable error for that plugin only.
+ * Outside protected calls nothing is refused: the C code that pushes
+ * arguments or builds results there has no handler, and a refusal would abort
+ * the whole player. Frees are never refused. */
+#define PLUGIN_LUA_MEMORY_CAP ((size_t) 8 * 1024 * 1024)
+
+typedef struct {
+    size_t used;
+    int enforce; /* nesting depth of protected calls on this state */
+} plugin_lua_mem_t;
+
+static plugin_lua_mem_t plugin_lua_mem[PLUGIN_MAX_FILES]; /* ud of each state, by plugin slot */
+
+/* Only the state being called is capped; another plugin's state is not inside
+ * a protected call just because this one is. */
+void plugin_lua_memory_enforce(lua_State * L, bool on) {
+    void * ud = NULL;
+    lua_getallocf(L, &ud);
+    plugin_lua_mem_t * mem = ud;
+    mem->enforce += on ? 1 : -1;
+}
+
+static void * plugin_lua_alloc(void * ud, void * ptr, size_t osize, size_t nsize) {
+    plugin_lua_mem_t * mem = ud;
+    size_t old = ptr ? osize : 0; /* osize is a type tag when ptr is NULL */
+    if (nsize == 0) {
+        free(ptr);
+        mem->used -= old;
+        return NULL;
+    }
+    if (nsize > old && mem->enforce > 0 && mem->used + (nsize - old) > PLUGIN_LUA_MEMORY_CAP) return NULL;
+    void * p = realloc(ptr, nsize);
+    if (p) mem->used = mem->used - old + nsize;
+    return p;
+}
+
+/* lua_newstate() installs no panic handler, unlike luaL_newstate(). */
+static int plugin_lua_panic(lua_State * L) {
+    const char * msg = lua_tostring(L, -1);
+    fprintf(stderr, "[plugins] PANIC: unprotected error in call to Lua API (%s)\n", msg ? msg : "unknown error");
+    return 0;
+}
+
 static void load_plugin_file(const char * path) {
     const char * base = strrchr(path, '/');
     base = base ? base + 1 : path;
@@ -337,10 +382,12 @@ static void load_plugin_file(const char * path) {
         fprintf(stderr, "[plugins] suppressing legacy theme loader %s\n", path);
         return;
     }
-    lua_State * L = luaL_newstate();
-    if (!L) return;
-    plugin_lua_register_main_state(L); /* the only Lua states in the process are plugin states */
     int slot = plugin_instance_count;
+    memset(&plugin_lua_mem[slot], 0, sizeof(plugin_lua_mem[slot]));
+    lua_State * L = lua_newstate(plugin_lua_alloc, &plugin_lua_mem[slot], luaL_makeseed(NULL));
+    if (!L) return;
+    lua_atpanic(L, plugin_lua_panic);
+    plugin_lua_register_main_state(L); /* the only Lua states in the process are plugin states */
     plugin_instance_t * inst = &plugin_instances[slot];
     memset(inst, 0, sizeof(*inst));
     inst->L = plugin_lua_main_state(L);
