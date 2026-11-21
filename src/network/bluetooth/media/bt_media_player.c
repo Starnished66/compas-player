@@ -70,6 +70,7 @@ void bt_media_player_wake(void) {
 }
 
 static void call_register_player(bool register_it);
+static void start_connect_thread(void);
 
 static void copy_utf8(char * dst, size_t size, const char * src) {
     if (!src) src = "";
@@ -695,10 +696,17 @@ static void * dispatch_thread_func(void * arg) {
             int settle_left_ms = BT_MEDIA_PLAYER_METADATA_SETTLE_MS - (int) (metadata_stable_seconds * 1000.0);
             timeout_ms = settle_left_ms > 0 ? settle_left_ms + 1 : BT_MEDIA_PLAYER_SEND_RETRY_MS;
         }
-        bt_dbus_wait_dispatch(conn, atomic_load(&wake_fd), timeout_ms);
+        if (!bt_dbus_wait_dispatch(conn, atomic_load(&wake_fd), timeout_ms) && !dbus_connection_get_is_connected(conn)) break;
     }
 
-    return NULL; /* unreached -- this thread runs for the app's whole lifetime, same as audio.c's playback thread */
+    /* The bus went away (for example bt_control restarted dbus-daemon). conn is only used by this
+     * thread, so drop it here and let a fresh connect thread build a new connection and dispatch
+     * thread. */
+    DBG_LOG("bt_media_player: bus disconnected, reconnecting\n");
+    dbus_connection_unref(conn);
+    conn = NULL;
+    start_connect_thread();
+    return NULL;
 }
 
 /* Bounded retry for dbus_bus_get() to tolerate slow or in-progress D-Bus startup. */
@@ -718,6 +726,8 @@ static bool attempt_connect_once(void) {
         return false;
     }
     dbus_error_free(&err);
+    /* dbus_bus_get() makes the library _exit(1) the whole player when the bus drops. */
+    dbus_connection_set_exit_on_disconnect(conn, FALSE);
 
     int ownership = dbus_bus_request_name(conn, BT_MEDIA_PLAYER_BUS_NAME,
                                           DBUS_NAME_FLAG_DO_NOT_QUEUE, &err);
@@ -740,7 +750,7 @@ static bool attempt_connect_once(void) {
         dbus_error_free(&match_err);
     }
     dbus_connection_add_filter(conn, interfaces_added_filter, NULL, NULL);
-    /* The shared connection: other threads may read its replies or queue messages on it. */
+    /* conn is used only by the dispatch thread started below; wake_fd lets it be woken to dispatch. */
     bt_dbus_wake_attach(conn, atomic_load(&wake_fd));
     DBG_LOG("bt_media_player: connected to system bus and registered %s\n", BT_MEDIA_PLAYER_OBJECT_PATH);
 
@@ -769,15 +779,19 @@ static void * connect_thread_func(void * arg) {
     }
 }
 
+static void start_connect_thread(void) {
+    pthread_t connect_thread;
+    if (pthread_create(&connect_thread, NULL, connect_thread_func, NULL) == 0) {
+        pthread_detach(connect_thread);
+    } else {
+        atomic_store_explicit(&connect_thread_started, false, memory_order_release);
+    }
+}
+
 void bt_media_player_init(void) {
     if (!atomic_exchange_explicit(&connect_thread_started, true, memory_order_acq_rel)) {
         atomic_store(&wake_fd, bt_dbus_wake_create());
-        pthread_t connect_thread;
-        if (pthread_create(&connect_thread, NULL, connect_thread_func, NULL) == 0) {
-            pthread_detach(connect_thread);
-        } else {
-            atomic_store_explicit(&connect_thread_started, false, memory_order_release);
-        }
+        start_connect_thread();
     }
 }
 
