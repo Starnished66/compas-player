@@ -2,6 +2,8 @@
 #include "usb_dsd_output.h"
 #include "../effects/peq.h"
 #include "../../core/system/logging/debug_log.h"
+#include "../../core/system/logging/db_log.h"
+#include "../../core/time/monotonic.h"
 #include "../../core/process/subprocess.h"
 #include "../../hardware/device/headphone_status.h"
 #include "../../network/bluetooth/control/bluetooth_control.h"
@@ -34,6 +36,124 @@ static bool owner_valid = false;
 static pthread_t owner_thread;
 static pthread_mutex_t config_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Playback health counters (see audio_output_diag_t). Written by the audio
+ * thread, which is the only caller of the ALSA write wrappers, so a relaxed
+ * load and store is enough. */
+static atomic_uint diag_xruns_track, diag_xruns_session;
+static atomic_uint diag_slowest_track_us, diag_slowest_session_us;
+static atomic_bool diag_have_write_end;
+/* The next write's underrun delta is not counted (skip, seek). */
+static atomic_bool diag_absorb_xruns;
+static atomic_uint diag_write_end_us;
+static struct pcm * diag_pcm;
+static unsigned int diag_pcm_xruns_seen;
+
+static void diag_add(atomic_uint * counter, unsigned int add) {
+    atomic_store_explicit(counter, atomic_load_explicit(counter, memory_order_relaxed) + add, memory_order_relaxed);
+}
+
+static void diag_max(atomic_uint * slot, unsigned int value) {
+    if (value > atomic_load_explicit(slot, memory_order_relaxed)) atomic_store_explicit(slot, value, memory_order_relaxed);
+}
+
+void audio_output_diag_get(audio_output_diag_t * out) {
+    out->xruns_track = atomic_load_explicit(&diag_xruns_track, memory_order_relaxed);
+    out->xruns_session = atomic_load_explicit(&diag_xruns_session, memory_order_relaxed);
+    out->slowest_us_track = atomic_load_explicit(&diag_slowest_track_us, memory_order_relaxed);
+    out->slowest_us_session = atomic_load_explicit(&diag_slowest_session_us, memory_order_relaxed);
+}
+
+/* Finished tracks wait here for audio_output_diag_log_pending. Audio thread
+ * only (push and log both run on it), so plain stores, no lock. When full the
+ * oldest record is dropped. */
+#define DIAG_RING_SIZE 64
+typedef struct {
+    char name[48];
+    uint32_t rate, bits, xruns, slowest_ms;
+} diag_track_record_t;
+static diag_track_record_t diag_ring[DIAG_RING_SIZE];
+static unsigned int diag_ring_head, diag_ring_count;
+static diag_track_record_t diag_last_pushed;
+
+void audio_output_diag_new_track(void) {
+    atomic_store_explicit(&diag_xruns_track, 0, memory_order_relaxed);
+    atomic_store_explicit(&diag_slowest_track_us, 0, memory_order_relaxed);
+    memset(&diag_last_pushed, 0, sizeof(diag_last_pushed));
+}
+
+void audio_output_diag_push_track(const char * name, unsigned int rate, unsigned int bits) {
+    diag_track_record_t r;
+    r.xruns = atomic_load_explicit(&diag_xruns_track, memory_order_relaxed);
+    r.slowest_ms = atomic_load_explicit(&diag_slowest_track_us, memory_order_relaxed) / 1000u;
+    /* Nothing played, or nothing new since the last push of this track. */
+    if ((r.xruns == 0 && r.slowest_ms == 0) ||
+        (r.xruns == diag_last_pushed.xruns && r.slowest_ms == diag_last_pushed.slowest_ms)) return;
+    diag_last_pushed.xruns = r.xruns;
+    diag_last_pushed.slowest_ms = r.slowest_ms;
+    r.rate = rate;
+    r.bits = bits;
+    size_t n = 0;
+    for (; name && name[n] && n < sizeof(r.name) - 1; n++) r.name[n] = name[n];
+    r.name[n] = '\0';
+    unsigned int slot;
+    if (diag_ring_count == DIAG_RING_SIZE) { /* drop the oldest */
+        slot = diag_ring_head;
+        diag_ring_head = (diag_ring_head + 1) % DIAG_RING_SIZE;
+    } else {
+        slot = (diag_ring_head + diag_ring_count++) % DIAG_RING_SIZE;
+    }
+    diag_ring[slot] = r;
+}
+
+/* Writes the pending records to the debug log. May block on the log, so call
+ * it only with the device closed and no lock held. */
+void audio_output_diag_log_pending(void) {
+    audio_output_diag_t d;
+    audio_output_diag_get(&d);
+    while (diag_ring_count > 0) {
+        const diag_track_record_t * r = &diag_ring[diag_ring_head];
+        DB_LOG("audio", "playback %s %u Hz %u bit: underruns %u, slowest gap between writes %u ms (session: underruns %u, slowest %u ms)",
+               r->name, r->rate, r->bits, r->xruns, r->slowest_ms, d.xruns_session, d.slowest_us_session / 1000u);
+        diag_ring_head = (diag_ring_head + 1) % DIAG_RING_SIZE;
+        diag_ring_count--;
+    }
+}
+
+/* The stream is cut on purpose (skip, seek): the buffer may run dry while the
+ * next decode starts. That is silence by design, not a dropout. */
+void audio_output_diag_discontinuity(void) {
+    atomic_store_explicit(&diag_have_write_end, false, memory_order_relaxed);
+    atomic_store_explicit(&diag_absorb_xruns, true, memory_order_relaxed);
+}
+
+/* The one ALSA write: pcm_writei plus two clock reads and the atomic stores
+ * above, no locks or syscalls beyond the clock. */
+static int diag_pcm_writei(struct pcm * pcm, const void * buf, unsigned int frames) {
+    uint32_t start_us = monotonic_us32();
+    if (atomic_load_explicit(&diag_have_write_end, memory_order_relaxed)) {
+        uint32_t gap_us = start_us - atomic_load_explicit(&diag_write_end_us, memory_order_relaxed);
+        diag_max(&diag_slowest_track_us, gap_us);
+        diag_max(&diag_slowest_session_us, gap_us);
+    }
+    int ret = pcm_writei(pcm, buf, frames);
+    atomic_store_explicit(&diag_write_end_us, monotonic_us32(), memory_order_relaxed);
+    atomic_store_explicit(&diag_have_write_end, true, memory_order_relaxed);
+    unsigned int xruns = pcm_get_xruns(pcm);
+    if (pcm != diag_pcm || xruns < diag_pcm_xruns_seen) {
+        diag_pcm = pcm;
+        diag_pcm_xruns_seen = 0;
+    }
+    if (xruns != diag_pcm_xruns_seen) {
+        if (!atomic_load_explicit(&diag_absorb_xruns, memory_order_relaxed)) {
+            diag_add(&diag_xruns_track, xruns - diag_pcm_xruns_seen);
+            diag_add(&diag_xruns_session, xruns - diag_pcm_xruns_seen);
+        }
+        diag_pcm_xruns_seen = xruns;
+    }
+    atomic_store_explicit(&diag_absorb_xruns, false, memory_order_relaxed);
+    return ret;
+}
 
 static bool caller_owns_output(void) {
     bool owns;
@@ -541,6 +661,8 @@ static void close_device_state(void) {
     if (target == OUTPUT_TARGET_BT) close_bt_device();
     if (target == OUTPUT_TARGET_USB) close_usb_device();
     if (pcm) pcm_close(pcm);
+    /* The idle time until the next write is not decode time. */
+    atomic_store_explicit(&diag_have_write_end, false, memory_order_relaxed);
     /* Back to PCM as soon as the DoP stream is gone. */
     if (dop_switch_written == 1) (void) set_dop_switch(false);
     pthread_mutex_lock(&state_mutex);
@@ -804,7 +926,7 @@ bool audio_output_write(const int16_t * buf, uint64_t frames, unsigned int chann
         /* pcm_writei blocks until ALSA has room -- natural backpressure.
          * Verify the full frame count was accepted; a short or negative
          * return means the device had an error (underrun, hw reset, etc.) */
-        int ret = pcm_writei(alsa_pcm, buf, (unsigned int) frames);
+        int ret = diag_pcm_writei(alsa_pcm, buf, (unsigned int) frames);
         if (ret < 0 || (unsigned int) ret != (unsigned int) frames) {
             uint64_t written = (ret > 0) ? (uint64_t) ret : 0;
             if (out_frames_written) *out_frames_written = written;
@@ -882,7 +1004,7 @@ bool audio_output_write_s24(const int32_t * buf, uint64_t frames, unsigned int c
         /* pcm_writei blocks until ALSA has room -- natural backpressure.
          * tinyalsa sizes bytes per frame internally from pcm->config.format
          * (PCM_FORMAT_S24_LE -> 4 bytes per sample / 8 bytes per stereo frame). */
-        int ret = pcm_writei(alsa_pcm, buf, (unsigned int) frames);
+        int ret = diag_pcm_writei(alsa_pcm, buf, (unsigned int) frames);
         if (ret < 0 || (unsigned int) ret != (unsigned int) frames) {
             uint64_t written = (ret > 0) ? (uint64_t) ret : 0;
             if (out_frames_written) *out_frames_written = written;

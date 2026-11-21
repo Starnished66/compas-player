@@ -105,6 +105,32 @@ bool audio_output_dop_rate_refused(unsigned int sample_rate);
  * returns false with *out_frames_written = 0. */
 bool audio_output_write(const int16_t * buf, uint64_t frames, unsigned int channels, uint64_t * out_frames_written);
 
+/* Playback health counters, plain atomics written by the audio thread
+ * around its ALSA writes and read from anywhere. Underruns are the ones
+ * tinyalsa recovered silently. slowest_us is the longest time the audio
+ * thread spent between two writes (decode, DSP, lock waits and track opens;
+ * the write's own wait for buffer room is excluded), where anything near the ALSA buffer length
+ * (about 170 ms) means an underrun. "track" resets at each track start,
+ * "session" never does. Local ALSA output only; Bluetooth and USB pipes
+ * are not counted. */
+typedef struct {
+    uint32_t xruns_track, xruns_session;
+    uint32_t slowest_us_track, slowest_us_session;
+} audio_output_diag_t;
+
+void audio_output_diag_get(audio_output_diag_t * out);
+void audio_output_diag_new_track(void);
+/* Audio thread only. Queues the track's counters for the log (a few stores,
+ * no lock); nothing is queued for a track that played nothing or has not
+ * changed since its last push. */
+void audio_output_diag_push_track(const char * name, unsigned int rate, unsigned int bits);
+/* Audio thread only. Writes the queued records to the debug log; may block,
+ * so call it with the device closed and no lock held. */
+void audio_output_diag_log_pending(void);
+/* Audio thread only. The stream is cut on purpose (skip, seek): the next
+ * write's gap and underruns are not counted. */
+void audio_output_diag_discontinuity(void);
+
 /* Writes 32-bit frames (right-justified in low 24-bits, PCM_FORMAT_S24_LE) to local hardware, a Bluetooth/USB PCM pipe, or direct USB DSD.
  * Only valid when the device was successfully opened in S24_LE.
  * Returns false immediately if called while audio_output_is_s24_active() is false. */

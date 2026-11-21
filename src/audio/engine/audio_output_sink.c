@@ -106,7 +106,8 @@ void write_device(const int16_t * buf, uint64_t frames, unsigned int channels) {
     }
 }
 #else
-void audio_output_clear_pending(void) {}
+/* Nothing is queued here to drop, but a skip or seek cuts the stream. */
+void audio_output_clear_pending(void) { audio_output_diag_discontinuity(); }
 void audio_output_drain_pending(void) {}
 /* Target build: thin wrappers around the shared audio_output module (see
  * audio_output.h) for output routing and format configuration. */

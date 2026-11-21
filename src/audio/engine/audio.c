@@ -1015,6 +1015,34 @@ typedef struct {
     int replaygain_mode;
 } startup_request_t;
 
+/* A new track starts counting its own underruns and slowest decode gap. */
+static void diag_track_begin(void) {
+#ifndef HOST_BUILD
+    audio_output_diag_new_track();
+#endif
+}
+
+/* Writes the queued track numbers to the debug log. Only with the device
+ * closed and audio_mutex dropped (it may block on the log). */
+static void diag_log_pending(void) {
+#ifndef HOST_BUILD
+    audio_output_diag_log_pending();
+#endif
+}
+
+/* Queues the track's numbers for the log, just before they are reset or the
+ * track ends. Stores only; the log write happens at pause or stop. */
+static void diag_track_end(const playback_session_t * s) {
+#ifndef HOST_BUILD
+    if (s->cur_path_local)
+        audio_output_diag_push_track(safe_path_tail(s->cur_path_local),
+                                     s->cur_open ? s->cur_dec.sample_rate : 0,
+                                     s->cur_open ? s->cur_dec.source_bit_depth : 0);
+#else
+    (void) s;
+#endif
+}
+
 /* Idles until a track is requested (serving stop and loop-clip commands on
  * the way), then takes the request. Enters and returns unlocked. */
 static void session_wait_for_request(playback_session_t * s, startup_request_t * req) {
@@ -1035,6 +1063,7 @@ static void session_wait_for_request(playback_session_t * s, startup_request_t *
     peq_note_pcm_discontinuity();
     free(s->cur_path_local);
     s->cur_path_local = restart_path; restart_path = NULL; /* ownership transferred */
+    diag_track_begin();
     req->start_seconds = restart_start_seconds;
     s->cur_replaygain_linear = restart_replaygain_linear;
     s->cur_replaygain_applied = restart_replaygain_applied;
@@ -1241,7 +1270,10 @@ static bool session_start_track(playback_session_t * s, const startup_request_t 
 
 /* Releases the per-track playback helpers once the playback loop is left. */
 static void session_after_track_loop(playback_session_t * s) {
-    if (s->should_restart) audio_output_clear_pending();
+    if (s->should_restart) {
+        diag_track_end(s);
+        audio_output_clear_pending();
+    }
     audio_clear_ab_switch();
     ab_switch_free_job(s->ab_active);
     s->ab_active = NULL;
@@ -1255,11 +1287,13 @@ static void session_after_track_loop(playback_session_t * s) {
 /* Closes the finished track and publishes the terminal state. Enters and
  * returns unlocked. */
 static void session_end_track(playback_session_t * s) {
+    diag_track_end(s);
     close_decoder_if_open(&s->nxt_dec, &s->nxt_open);
     if (s->cur_open) { decoder_close(&s->cur_dec); s->cur_open = false; }
     if (s->natural_eof) audio_output_drain_pending();
     else audio_output_clear_pending();
     close_device();
+    diag_log_pending();
     free(s->cur_path_local);
     s->cur_path_local = NULL;
 
@@ -1307,6 +1341,8 @@ static void chunk_pause_fade_and_wait_locked(playback_session_t * s) {
                                                               vol, s->cur_path_local);
         }
         close_device();
+        diag_track_end(s);
+        diag_log_pending();
         s->need_fade_in = true;
         s->startup_pause_no_fade = false;
         pthread_mutex_lock(&audio_mutex);
@@ -1588,6 +1624,10 @@ static pb_step_t chunk_apply_seek(playback_session_t * s, chunk_cmd_t * c) {
     close_decoder_if_open(&s->nxt_dec, &s->nxt_open);
     s->nxt_format_matches = false;
     if (c->seek_frame > s->cur_dec.total_frames) c->seek_frame = s->cur_dec.total_frames;
+#ifndef HOST_BUILD
+    /* After the fade-out: the seek's own silence is not an underrun. */
+    audio_output_diag_discontinuity();
+#endif
     if (decoder_seek(&s->cur_dec, c->seek_frame)) {
         s->cur_frames_played_local = c->seek_frame;
         ab_pcm_alternate = false;
@@ -1929,6 +1969,7 @@ static pb_step_t track_end_or_handoff(playback_session_t * s, const chunk_cmd_t 
             return PB_NEXT_CHUNK;
         }
 
+        diag_track_end(s);
         decoder_t previous_dec = s->cur_dec;
         char *previous_path = s->cur_path_local;
         s->cur_dec = s->nxt_dec;
@@ -1939,6 +1980,7 @@ static pb_step_t track_end_or_handoff(playback_session_t * s, const chunk_cmd_t 
         s->cur_replaygain_linear = s->nxt_replaygain_linear_local;
         s->cur_replaygain_applied = s->nxt_replaygain_applied_local;
         s->cur_path_local = next_path; next_path = NULL;
+        diag_track_begin();
         free(active_path);
         active_path = s->cur_path_local ? strdup(s->cur_path_local) : NULL;
         playback_generation++;
@@ -2242,6 +2284,7 @@ static void crossfade_promote_next(playback_session_t * s, const chunk_cmd_t * c
     pthread_mutex_lock(&audio_mutex);
     bool snap_still_valid = staged_next_valid_locked(c->staged_next.generation, chunk_staged_path(c), s->cur_generation);
     if (snap_still_valid) {
+        diag_track_end(s);
         decoder_close(&s->cur_dec);
         s->cur_dec = s->nxt_dec;
 #ifndef HOST_BUILD
@@ -2256,6 +2299,7 @@ static void crossfade_promote_next(playback_session_t * s, const chunk_cmd_t * c
         s->cur_replaygain_applied = s->nxt_replaygain_applied_local;
         free(s->cur_path_local);
         s->cur_path_local = next_path; next_path = NULL;
+        diag_track_begin();
         free(active_path);
         active_path = s->cur_path_local ? strdup(s->cur_path_local) : NULL;
         playback_generation++;

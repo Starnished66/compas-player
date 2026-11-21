@@ -92,6 +92,11 @@ TINYALSA_NATIVE_DSD_STAMP = $(TINYALSA_DIR)/.compas_native_dsd
 $(TINYALSA_NATIVE_DSD_STAMP): $(TINYALSA_NATIVE_DSD_PATCH) $(TINYALSA_DIR)/include/tinyalsa/pcm.h $(TINYALSA_DIR)/src/pcm.c scripts/tools/patches/apply-tracked-patch.sh
 	$(VENDOR_PATCH_APPLY) $(TINYALSA_DIR) $(TINYALSA_NATIVE_DSD_PATCH)
 	@touch $@
+TINYALSA_XRUNS_PATCH = patches/audio/tinyalsa/tinyalsa_xruns.patch
+TINYALSA_XRUNS_STAMP = $(TINYALSA_DIR)/.compas_xruns
+$(TINYALSA_XRUNS_STAMP): $(TINYALSA_XRUNS_PATCH) $(TINYALSA_NATIVE_DSD_STAMP) scripts/tools/patches/apply-tracked-patch.sh
+	$(VENDOR_PATCH_APPLY) $(TINYALSA_DIR) $(TINYALSA_XRUNS_PATCH)
+	@touch $@
 FAAD2_DIR = faad2
 ALAC_DIR = alac
 OPUS_DIR = opus
@@ -1345,9 +1350,11 @@ $(BUILD_TARGET_DIR)/lv_xml/%.o: $(LV_XML_DIR)/%.c $(LVGL_PATCH_STAMP) $(TARGET_C
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TARGET_CFLAGS) $(LV_XML_CFLAGS) -c $< -o $@
 
-$(BUILD_TARGET_DIR)/tinyalsa/%.o: $(TINYALSA_DIR)/%.c $(TINYALSA_NATIVE_DSD_STAMP) $(TARGET_CPU_FLAGS_STAMP)
+$(BUILD_TARGET_DIR)/tinyalsa/%.o: $(TINYALSA_DIR)/%.c $(TINYALSA_NATIVE_DSD_STAMP) $(TINYALSA_XRUNS_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)
 	$(CROSS_CC) $(TINYALSA_CFLAGS) $(TARGET_CPU_FLAGS) $(TARGET_CODE_SECTION_FLAGS) -c $< -o $@
+
+$(BUILD_TARGET_DIR)/audio/output/audio_output.o: $(TINYALSA_XRUNS_STAMP)
 
 $(BUILD_TARGET_DIR)/audio/output/usb_dsd_output.o: src/audio/output/usb_dsd_output.c $(TINYALSA_NATIVE_DSD_STAMP) $(TARGET_CPU_FLAGS_STAMP)
 	@mkdir -p $(dir $@)

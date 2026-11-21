@@ -456,7 +456,8 @@ static void status_catalog_revision_json(char * out, size_t out_size) {
 
 /* Formats the status JSON; takes status_mutex itself for the playback snapshot. */
 static void status_format(char * out, size_t out_size, const char * revision_json, bool bluetooth_audio_output,
-                          unsigned settings_revision, unsigned settings_epoch) {
+                          unsigned settings_revision, unsigned settings_epoch,
+                          unsigned audio_underruns, unsigned audio_slowest_ms) {
     char title_esc[512] = {0}, artist_esc[512] = {0}, album_esc[512] = {0};
     char model_esc[128] = {0}, version_esc[128] = {0};
     char accent_color[12] = {0};
@@ -480,6 +481,7 @@ static void status_format(char * out, size_t out_size, const char * revision_jso
              "\"catalog_revision\":%s,\"features\":{\"plugin_store\":true,\"plugin_management\":true,\"player_layouts\":true},"
              "\"bluetooth_audio_output\":%s,\"dac_mode\":\"%s\",\"bluetooth_dac_mode\":%s,\"favorite\":%s,\"rating\":%d,\"accent_color\":%s,"
              "\"device_model\":\"%s\",\"player_version\":\"%s\",\"settingsRevision\":%u,\"settingsEpoch\":%u,"
+             "\"audio_underruns\":%u,\"audio_slowest_ms\":%u,"
              "\"sort_modes\":[%d,%d,%d],\"collection_job\":{\"id\":%u,\"state\":\"%s\",\"error\":\"%s\"}}",
              status_playing ? "true" : "false", status_paused ? "true" : "false", title_esc, artist_esc, album_esc,
              status_position_seconds, status_duration_seconds, (double) status_volume, status_play_mode,
@@ -487,7 +489,8 @@ static void status_format(char * out, size_t out_size, const char * revision_jso
              bluetooth_audio_output ? "true" : "false",
              status_dac_mode == REMOTE_DAC_USB ? "usb" : status_dac_mode == REMOTE_DAC_BLUETOOTH ? "bluetooth" : "none",
              status_dac_mode == REMOTE_DAC_BLUETOOTH ? "true" : "false", status_rating > 0 ? "true" : "false", status_rating, accent_json,
-             model_esc, version_esc, settings_revision, settings_epoch, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
+             model_esc, version_esc, settings_revision, settings_epoch,
+             audio_underruns, audio_slowest_ms, status_library_sorting[0], status_library_sorting[1], status_library_sorting[2],
              collection_job_id, collection_job_busy ? "pending" : collection_job_failed ? "error" : collection_job_id ? "done" : "idle", job_error);
     pthread_mutex_unlock(&status_mutex);
 }
@@ -501,12 +504,18 @@ void handle_status_get(int cfd) {
      * lock and must not be nested with the playback-status snapshot lock. */
 #ifndef HOST_BUILD
     bool bluetooth_audio_output = audio_output_is_bluetooth_requested();
+    audio_output_diag_t audio_diag; /* atomics, no audio lock */
+    audio_output_diag_get(&audio_diag);
+    unsigned audio_underruns = audio_diag.xruns_session;
+    unsigned audio_slowest_ms = audio_diag.slowest_us_session / 1000u;
 #else
     bool bluetooth_audio_output = false; /* host builds have no Bluetooth route */
+    unsigned audio_underruns = 0, audio_slowest_ms = 0; /* nor the ALSA counters */
 #endif
     unsigned settings_epoch = settings_registry_epoch();
     unsigned settings_revision = settings_registry_revision(); /* own lock; not nested under status_mutex */
-    status_format(out, sizeof(out), revision_json, bluetooth_audio_output, settings_revision, settings_epoch);
+    status_format(out, sizeof(out), revision_json, bluetooth_audio_output, settings_revision, settings_epoch,
+                  audio_underruns, audio_slowest_ms);
     send_response(cfd, "200 OK", "application/json", out);
 }
 

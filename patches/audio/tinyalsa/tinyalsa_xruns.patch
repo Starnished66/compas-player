@@ -1,0 +1,31 @@
+--- a/include/tinyalsa/pcm.h
++++ b/include/tinyalsa/pcm.h
+@@ -335,6 +335,9 @@
+ 
+ unsigned int pcm_get_buffer_size(const struct pcm *pcm);
+ 
++/** Underruns recovered since open. */
++unsigned int pcm_get_xruns(const struct pcm *pcm);
++
+ unsigned int pcm_frames_to_bytes(const struct pcm *pcm, unsigned int frames);
+ 
+ unsigned int pcm_bytes_to_frames(const struct pcm *pcm, unsigned int bytes);
+--- a/src/pcm.c
++++ b/src/pcm.c
+@@ -364,6 +364,16 @@
+     return pcm->buffer_size;
+ }
+ 
++/** Gets the number of underruns (EPIPE) recovered by pcm_write since open.
++ * @param pcm A PCM handle.
++ * @return The underrun count.
++ * @ingroup libtinyalsa-pcm
++ */
++unsigned int pcm_get_xruns(const struct pcm *pcm)
++{
++    return (unsigned int)pcm->xruns;
++}
++
+ /** Gets the channel count of the PCM.
+  * @param pcm A PCM handle.
+  * @return The channel count of the PCM.
