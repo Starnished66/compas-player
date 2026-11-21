@@ -804,7 +804,7 @@ const i18n_entry_t i18n_entries_es[] = {
     {"Paused", (const char * const[]){"En pausa"}, 1},
     {"Paused while MSEB is on", (const char * const[]){"En pausa mientras MSEB está activado"}, 1},
     {"Paused: headphones disconnected", (const char * const[]){"En pausa: audífonos desconectados"}, 1},
-    {"Pauses the Equalizer while on", (const char * const[]){"Pausa el ecualizador mientras está activado"}, 1},
+    {"Pauses the Equalizer while on", (const char * const[]){"EQ pausado mientras MSEB está activo"}, 1},
     {"Peaking\nLow shelf\nHigh shelf", (const char * const[]){"Pico\nEstante bajo\nEstante alto"}, 1},
     {"Per album", (const char * const[]){"Por álbum"}, 1},
     {"Per track", (const char * const[]){"Por pista"}, 1},
