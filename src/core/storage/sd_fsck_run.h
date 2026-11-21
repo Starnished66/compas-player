@@ -6,8 +6,7 @@
 #include <stdbool.h>
 
 typedef struct {
-    bool started;           /* card was unmounted and a check is running */
-    bool released_handles;  /* release_handles ran; the card may still be mounted */
+    bool started;           /* the card is being unmounted and checked in the background */
 } sd_repair_kick_result_t;
 
 /* True while a check is running or its remount is still waiting for the
@@ -27,9 +26,9 @@ bool sd_repair_current_readonly(bool * readonly);
 void sd_repair_complete(bool mounted, bool readonly);
 
 /* When the SD mount is read-only, unmount it and check the filesystem on
- * a background thread. release_handles may close library files if the
- * first unmount is busy; it may be NULL. A failed unmount with no release
- * callback is not remembered, so a later call can close files and retry.
+ * a background thread, sync and unmount included. release_handles closes
+ * library files before the unmount; it may be NULL. A failed unmount ends in
+ * the same remount hand-off as a finished check.
  * Automatic polling remembers one attempt per card, whether it repairs the
  * filesystem or not; a deliberate menu action may retry a completed attempt.
  * A check the player did not survive is remembered across reboots and is not

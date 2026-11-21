@@ -243,8 +243,19 @@ static int run_fsck(char * const argv[], uint64_t memory_limit) {
     }
 }
 
+static bool unmount_card(const char * mount_point);
+
 static void * repair_thread(void * arg) {
     (void) arg;
+    /* sync() and umount can stall for a long time on a failing card, so they run here, not on
+     * the UI thread. A card that cannot be detached goes straight to the remount hand-off. */
+    if (!unmount_card(repair_mount_point)) {
+        boot_checkpoint("sd repair unmount failed");
+        atomic_store_explicit(&repair_tool_ok, false, memory_order_relaxed);
+        atomic_store_explicit(&repair_fsck_code, -1, memory_order_relaxed);
+        atomic_store_explicit(&repair_phase, PHASE_REMOUNT, memory_order_release);
+        return NULL;
+    }
     long start_offset = log_size();
     int code = run_fsck(repair_plan.argv, repair_memory_limit);
     char * tail = malloc(SD_FSCK_OUTPUT_TAIL);
@@ -340,7 +351,7 @@ static sd_repair_note_t unavailable_note(bool manual) {
 }
 
 static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool manual) {
-    sd_repair_kick_result_t result = { false, false };
+    sd_repair_kick_result_t result = { false };
     if (sd_repair_in_progress()) return result;
 
     char * mounts = malloc(16384);
@@ -428,27 +439,8 @@ static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool 
         boot_checkpoint("sd repair skipped, loop guard unavailable");
         return result;
     }
-    bool unmounted = unmount_card(repair_mount_point);
-    if (!unmounted && release_handles) {
-        release_handles();
-        result.released_handles = true;
-        unmounted = unmount_card(repair_mount_point);
-    }
-    if (!unmounted) {
-        /* Nothing was detached, so there is no unfinished check to record.
-         * A busy card with nobody to close is retried on a later poll.
-         * After the files are closed, another failure is final so the
-         * poll does not tear the library down every cycle. */
-        clear_marker();
-        if (result.released_handles) {
-            remember_attempt(key);
-            post_note(SD_REPAIR_NOTE_FAILED);
-            boot_checkpoint("sd repair unmount failed");
-        } else if (manual) {
-            post_note(SD_REPAIR_NOTE_FAILED);
-        }
-        return result;
-    }
+    /* Closed before the unmount starts, since an open file keeps the card busy. */
+    if (release_handles) release_handles();
 
     remember_attempt(key);
     repair_kind = info.kind;
@@ -458,8 +450,7 @@ static sd_repair_kick_result_t repair_kick(void (* release_handles)(void), bool 
     atomic_store_explicit(&repair_phase, PHASE_FSCK, memory_order_release);
     pthread_t thread;
     if (pthread_create(&thread, NULL, repair_thread, NULL) != 0) {
-        /* The card is already unmounted. Ask the UI thread to mount it
-         * again instead of leaving it detached. */
+        /* Ask the UI thread to mount the card again (a no-op if it is still mounted). */
         atomic_store_explicit(&repair_phase, PHASE_REMOUNT, memory_order_release);
         boot_checkpoint("sd repair thread failed");
         return result;
@@ -497,12 +488,12 @@ void sd_repair_complete(bool mounted, bool readonly) { (void) mounted; (void) re
 sd_repair_note_t sd_repair_take_note(void) { return SD_REPAIR_NOTE_NONE; }
 sd_repair_kick_result_t sd_readonly_repair_kick(void (* release_handles)(void)) {
     (void) release_handles;
-    sd_repair_kick_result_t result = { false, false };
+    sd_repair_kick_result_t result = { false };
     return result;
 }
 sd_repair_kick_result_t sd_manual_repair_kick(void (* release_handles)(void)) {
     (void) release_handles;
-    sd_repair_kick_result_t result = { false, false };
+    sd_repair_kick_result_t result = { false };
     return result;
 }
 

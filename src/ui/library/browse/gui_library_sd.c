@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/wait.h>
 
 
 static bool sd_format_active;
@@ -437,26 +438,19 @@ void poll_sd_card_hotplug(void) {
 
     bool mount_observed = false;
     bool mounted = sd_card_root_is_mounted_observed(&mount_observed);
-    sd_repair_kick_result_t repair = { false, false };
-    bool repair_kick_attempted = false;
     if (mounted && !sd_repair_in_progress()) {
         /* Only a card the kernel remounted read-only is checked; see sd_fsck.h. */
-        repair_kick_attempted = true;
-        repair = sd_readonly_repair_kick(release_sd_handles_for_repair);
+        sd_readonly_repair_kick(release_sd_handles_for_repair);
     }
-    if (repair_kick_attempted) {
-        if (repair.started || !sd_card_root_is_mounted()) {
-            mounted = false;
-            mount_observed = false;
-            was_mounted = false;
-            sd_handoff_pending = true;
-            sd_forget_card_identity();
-        } else if (repair.released_handles) {
-            /* The check could not unmount. Reload the library that was
-             * closed to make the unmount attempt. */
-            was_mounted = false;
-            sd_handoff_pending = true;
-        }
+    /* While the repair owns the card (the unmount happens on its thread) the
+     * card counts as gone on every poll, so no reload races the unmount and a
+     * failed unmount still reaches the remount hand-off. */
+    if (sd_repair_in_progress() || (mounted && !sd_card_root_is_mounted())) {
+        mounted = false;
+        mount_observed = false;
+        was_mounted = false;
+        sd_handoff_pending = true;
+        sd_forget_card_identity();
     }
     show_sd_repair_note();
     if (sd_handoff_pending || sd_repair_in_progress()) {
@@ -579,7 +573,16 @@ static bool sd_format_card_worker(void) {
     ssize_t ignored = write(fdisk_write_fd, fdisk_cmds, strlen(fdisk_cmds));
     (void) ignored;
     close(fdisk_write_fd);
-    subprocess_terminate(fdisk_pid); /* reaps it -- `w` alone isn't guaranteed to have taken effect yet */
+    /* fdisk exits on its own once it has written the table after `w`; killing it earlier could
+     * lose the write. Only a hung fdisk is terminated (which also reaps it). */
+    bool fdisk_exited = false;
+    for (int waited_ms = 0; waited_ms < 10000 && !fdisk_exited; waited_ms += 50) {
+        int status;
+        pid_t done = waitpid(fdisk_pid, &status, WNOHANG);
+        if (done == fdisk_pid || (done < 0 && errno != EINTR)) fdisk_exited = true;
+        else usleep(50000);
+    }
+    if (!fdisk_exited) subprocess_terminate(fdisk_pid);
 
     char * partprobe_argv[] = { (char *) "partprobe", (char *) "/dev/mmcblk0", NULL };
     subprocess_run_timeout(partprobe_argv, NULL, 0, 10000);
