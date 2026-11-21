@@ -2695,8 +2695,11 @@ static void * audio_thread_func(void * arg) {
     /* A modest priority boost, not full SCHED_FIFO: real-time scheduling
      * would risk priority inversion against audio_mutex (also taken by the
      * UI thread for format/volume reads), which could make things worse
-     * under contention rather than better. nice(-5) just makes this thread
-     * win CFS scheduling contests against normal-priority UI/decode work
+     * under contention rather than better. nice(-15) makes this thread win
+     * CFS scheduling contests against normal-priority UI/decode work (about
+     * 97% of the core against one nice-0 task, where -5 gave about 75%, not
+     * enough for 24/192 with MSEB under load). It sleeps whenever the ALSA
+     * buffer is full, so it only takes the core while it is behind
      * (library scans/MP3 indexing already deliberately lower their own
      * priority the same way, see mp3_index_worker's nice(10) in audio_mp3_index.c) without
      * that inversion risk. Best-effort: fails silently without CAP_SYS_NICE
@@ -2705,7 +2708,7 @@ static void * audio_thread_func(void * arg) {
      * the ALSA buffer covers less wall-clock time and a UI-caused scheduling
      * delay is more likely to outlast it -- see open_device()'s own comment
      * on why period_size is now rate-scaled for the same reason. */
-    (void) nice(-5);
+    (void) nice(-15);
 
     playback_session_t session = {
         .tempo_rate = 1.0,

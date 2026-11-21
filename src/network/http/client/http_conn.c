@@ -6,6 +6,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include "../../../core/process/worker_thread.h"
 #include "http_conn.h"
 #include "http_client.h" /* for struct http_cancel_token's real definition */
 #include "../../security/ca_bundle.h"
@@ -96,6 +97,7 @@ typedef struct {
 
 static void * dns_resolve_thread_func(void * arg) {
     dns_resolve_ctx_t * ctx = (dns_resolve_ctx_t *) arg;
+    worker_lower_priority(0); /* may be created from the audio thread (-15) */
 
     struct addrinfo hints, * addr_list = NULL;
     memset(&hints, 0, sizeof(hints));

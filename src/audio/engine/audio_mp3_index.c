@@ -1,6 +1,7 @@
 /* MP3 seek-point index: shared state, on-disk cache, background worker and
  * the request that the playback thread makes. All state is guarded by
  * audio_mutex unless declared atomic. */
+#include "../../core/process/worker_thread.h"
 #include "audio_internal.h"
 #include "audio_helpers.h"
 #include "../../ui/text/i18n/i18n.h"
@@ -255,7 +256,8 @@ static void * mp3_index_worker(void * arg) {
     set_worker_thread_name("mp3index");
     install_thread_crash_altstack(); /* see its own comment (main.c) */
     mp3_index_job_t * job = arg;
-    (void) nice(10); /* keep the single-core playback thread responsive */
+    /* Absolute, not relative: this inherits the audio thread's -15. */
+    worker_lower_priority(WORKER_NICE_BACKGROUND);
 
     drmp3_seek_point * cached_points = NULL;
     drmp3_uint32 cached_count = 0;

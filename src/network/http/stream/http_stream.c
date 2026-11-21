@@ -1,6 +1,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include "../../../core/process/worker_thread.h"
 #include "http_stream.h"
 #include "../../../core/system/logging/debug_log.h"
 #include "../client/http_conn.h"
@@ -251,9 +252,9 @@ static bool send_stream_request(http_conn_t *conn, const char *host, const char 
     return true;
 }
 
-static bool open_response(const char * url, bool verify_tls, int redirects_left,
-                          bool range, uint64_t offset, const char * if_range, bool request_icy,
-                          http_cancel_token_t * cancel, uint64_t deadline_ms, response_t * r) {
+static bool open_response_raw(const char * url, bool verify_tls, int redirects_left,
+                              bool range, uint64_t offset, const char * if_range, bool request_icy,
+                              http_cancel_token_t * cancel, uint64_t deadline_ms, response_t * r) {
     memset(r, 0, sizeof(*r));
     bool https;
     char host[256], port[16], path[2048];
@@ -296,7 +297,7 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
             return false;
         /* An entity validator applies only to the original origin and must
      * not be forwarded if a redirect changes the selected resource. */
-        return open_response(location, verify_tls, redirects_left - 1, range,
+        return open_response_raw(location, verify_tls, redirects_left - 1, range,
                              offset, NULL, request_icy, cancel, deadline_ms, r);
     }
     if (range) {
@@ -321,6 +322,23 @@ fail:
     free(r->conn);
     r->conn = NULL;
     return false;
+}
+
+/* Every connect and TLS handshake goes through here. The audio thread runs at
+ * nice -15 and opens streams and seek reconnects itself; at that priority a
+ * handshake would starve the UI, so it runs at normal priority and the
+ * caller's priority is restored afterwards. Callers at 0 or above are untouched. */
+static bool open_response(const char * url, bool verify_tls, int redirects_left,
+                          bool range, uint64_t offset, const char * if_range, bool request_icy,
+                          http_cancel_token_t * cancel, uint64_t deadline_ms, response_t * r) {
+    errno = 0;
+    int caller_nice = getpriority(PRIO_PROCESS, 0);
+    bool lowered = errno == 0 && caller_nice < 0;
+    if (lowered) worker_lower_priority(0);
+    bool ok = open_response_raw(url, verify_tls, redirects_left, range, offset, if_range,
+                                request_icy, cancel, deadline_ms, r);
+    if (lowered) worker_raise_priority(caller_nice);
+    return ok;
 }
 
 static bool push_ring(http_stream_t * s, const uint8_t * data, size_t len) {
@@ -382,6 +400,7 @@ static bool push_stream_body(http_stream_t * s, const uint8_t * data, size_t len
 
 static void * pump(void * arg) {
     http_stream_t * s = arg;
+    worker_lower_priority(0); /* created from the audio thread: don't inherit its -15 */
     uint8_t buf[HTTP_CONN_READ_CHUNK];
     for (;;) {
         pthread_mutex_lock(&s->mutex);
@@ -459,6 +478,7 @@ static bool start_pump(http_stream_t * s) {
 
 static void * gated_pump(void * arg) {
     pump_gate_t * gate = arg;
+    worker_lower_priority(0); /* created from the audio thread: don't inherit its -15 */
     pthread_mutex_lock(&gate->mutex);
     while (!gate->released)
         pthread_cond_wait(&gate->cond, &gate->mutex);
