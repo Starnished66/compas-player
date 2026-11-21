@@ -156,9 +156,9 @@ static void blend_overlay_onto_base(lv_draw_buf_t * base, lv_obj_t * overlay_obj
     lv_draw_buf_destroy(overlay);
 }
 
-/* Screen-only RGB565 base for target_screen -- player_dismiss_btn's hidden
- * flag (Player's own standalone back arrow, part of gui_player_get_screen()'s own
- * subtree, not a separate layer) is temporarily forced to its TARGET-state
+/* Screen-only RGB565 base for target_screen -- player_dismiss_btn's top-bar
+ * shift (Player's own standalone back arrow, part of gui_player_get_screen()'s own
+ * subtree, not a separate layer) is temporarily set to its TARGET-state
  * value (based on current_settings.hide_player_topbar, never on whichever
  * live screen happens to be active right now) before snapshotting, then
  * restored immediately after -- safe because nothing here ever yields to a
@@ -175,13 +175,11 @@ static lv_draw_buf_t * snapshot_screen_base(lv_obj_t * target_screen) {
     if (!target_screen) return NULL;
 
     lv_obj_t * dismiss_btn = gui_player_get_dismiss_btn();
-    bool dismiss_target_hidden = current_settings.hide_player_topbar && target_screen == gui_player_get_screen();
     bool dismiss_touched = (dismiss_btn != NULL && target_screen == gui_player_get_screen());
-    bool dismiss_was_hidden = false;
+    int32_t dismiss_prev_shift = 0;
     if (dismiss_touched) {
-        dismiss_was_hidden = lv_obj_has_flag(dismiss_btn, LV_OBJ_FLAG_HIDDEN);
-        if (dismiss_target_hidden) lv_obj_add_flag(dismiss_btn, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_remove_flag(dismiss_btn, LV_OBJ_FLAG_HIDDEN);
+        dismiss_prev_shift = lv_obj_get_style_translate_y(dismiss_btn, LV_PART_MAIN);
+        gui_player_apply_dismiss_topbar(current_settings.hide_player_topbar);
     }
 
     UI_TRACE_SPAN_BEGIN(perf_span);
@@ -195,8 +193,8 @@ static lv_draw_buf_t * snapshot_screen_base(lv_obj_t * target_screen) {
                       UI_TRACE_SPAN_STATIC_SNAPSHOT, perf_span);
 
     if (dismiss_touched) {
-        if (dismiss_was_hidden) lv_obj_add_flag(dismiss_btn, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_remove_flag(dismiss_btn, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_translate_y(dismiss_btn, dismiss_prev_shift, LV_PART_MAIN);
+        lv_obj_update_layout(dismiss_btn);
     }
     return base;
 }

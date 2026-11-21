@@ -156,7 +156,7 @@ static const layout_image_t layout_images[] = {
     { "loop", "playing_plane/loop.png" },
     { "single", "playing_plane/single.png" },
     { "random", "playing_plane/random.png" },
-    { "btn_back", "sub_back/btn_back.png" },
+    { "btn_back", "navigation/back.png" },
     /* Pressed variants and the rest of the stock Now Playing artwork. Files
      * missing from a theme just draw nothing. */
     { "btn_play_s", "playing_plane/btn_play_s.png" },
@@ -1378,13 +1378,11 @@ static lv_obj_t * create_xml_layout(const char * entry_path, lv_obj_t * parent) 
     register_layout_folder_images(scope, entry_path);
     for (size_t i = 0; scope && i < sizeof(layout_images) / sizeof(layout_images[0]); ++i) {
         const char * image = asset_path(layout_images[i].relative_path);
-#if defined(BOARD_TEMPOTEC_V1)
+        /* Same back chevron as every screen header. */
         if (strcmp(layout_images[i].name, "btn_back") == 0) {
-            image = asset_path("navigation/back.png");
             const char * chevron = titlebar_breeze_icon(image);
             if (chevron) image = chevron;
         }
-#endif
         lv_xml_register_image(scope, layout_images[i].name, image);
     }
 

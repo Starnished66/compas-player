@@ -67,6 +67,18 @@ static lv_obj_t * create_cover_card(lv_obj_t * scr) {
     return card;
 }
 
+/* Metadata labels span the width between the back button and its mirror, so
+ * long text never scrolls under the chevron and centered text stays centered. */
+static void place_metadata_label(lv_obj_t * label) {
+#if defined(BOARD_TEMPOTEC_V1)
+    const int32_t inset = player_x(22);
+#else
+    const int32_t inset = HEADER_BUTTON_WIDTH;
+#endif
+    lv_obj_set_x(label, inset);
+    lv_obj_set_width(label, BOARD_SCREEN_WIDTH - 2 * inset);
+}
+
 static void create_metadata_labels(lv_obj_t * scr, const lv_font_t * player_title_font, const lv_font_t * player_meta_font) {
     lv_obj_t * title = lv_label_create(scr);
     lv_obj_set_name_static(title, "title");
@@ -74,8 +86,7 @@ static void create_metadata_labels(lv_obj_t * scr, const lv_font_t * player_titl
     lv_obj_add_style(title, gui_player_backdrop_text_style(false), 0);
     lv_obj_set_style_text_font(title, player_title_font, 0);
     lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_x(title, player_x(22));
-    lv_obj_set_width(title, BOARD_SCREEN_WIDTH - 2 * player_x(22));
+    place_metadata_label(title);
 
     lv_obj_t * album = lv_label_create(scr);
     lv_obj_set_name_static(album, "album");
@@ -83,9 +94,8 @@ static void create_metadata_labels(lv_obj_t * scr, const lv_font_t * player_titl
     lv_obj_add_style(album, gui_player_backdrop_text_style(true), 0);
     lv_obj_set_style_text_font(album, player_meta_font, 0);
     lv_obj_set_style_text_align(album, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_x(album, player_x(22));
+    place_metadata_label(album);
     /* Content height so circular marquee does not fall back to vertical scrolling. */
-    lv_obj_set_width(album, BOARD_SCREEN_WIDTH - 2 * player_x(22));
     lv_obj_set_height(album, LV_SIZE_CONTENT);
 
     lv_obj_t * artist = lv_label_create(scr);
@@ -94,43 +104,21 @@ static void create_metadata_labels(lv_obj_t * scr, const lv_font_t * player_titl
     lv_obj_add_style(artist, gui_player_backdrop_text_style(true), 0);
     lv_obj_set_style_text_font(artist, player_meta_font, 0);
     lv_obj_set_style_text_align(artist, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_x(artist, player_x(22));
+    place_metadata_label(artist);
     /* Circular marquee falls back to vertical scrolling when text exceeds
      * a fixed height. Fit the actual font metrics (including loaded fallback
      * fonts) while retaining the fixed width for horizontal overflow. */
-    lv_obj_set_width(artist, BOARD_SCREEN_WIDTH - 2 * player_x(22));
     lv_obj_set_height(artist, LV_SIZE_CONTENT);
 }
 
 static void create_dismiss_button(lv_obj_t * scr) {
-    /* Back/dismiss button. build_header_back_button()'s shared 64x64 default
-     * (TITLE_ROW_HEIGHT, used by every other screen's header) would reach
-     * further into the album label's row than the symmetric 44x44 "more"
-     * target on the opposite corner -- shrink to match it instead of
-     * needlessly widening this corner's overlap with the metadata block. */
+    /* The same back chevron, size and place as every screen header. */
     lv_obj_t * dismiss = build_header_back_button(scr, NULL);
     lv_obj_set_name_static(dismiss, "dismiss_btn");
 #if defined(BOARD_TEMPOTEC_V1)
     lv_obj_set_size(dismiss, 32, 32);
     lv_obj_set_pos(dismiss, 0, 8);
-#else
-    lv_obj_set_size(dismiss, player_s(44), player_s(44));
-    lv_obj_set_pos(dismiss, player_x(22), player_y(62));
 #endif
-    /* The reference keeps the status bar unobstructed and has no visible
-     * back arrow on the Player. Retain the transparent hit target so the
-     * established tap-to-dismiss behavior remains available. */
-    lv_obj_t * dismiss_arrow = lv_obj_get_child(dismiss, 0);
-    if (dismiss_arrow) {
-        /* The Now Playing dismiss target intentionally retains its original
-         * hidden stock back asset; the visible navigation back glyph is for
-         * standard screen headers only. */
-#if !defined(BOARD_TEMPOTEC_V1)
-        lv_image_set_src(dismiss_arrow, asset_path("sub_back/btn_back.png"));
-        lv_obj_set_style_image_recolor_opa(dismiss_arrow, LV_OPA_TRANSP, 0);
-        lv_obj_add_flag(dismiss_arrow, LV_OBJ_FLAG_HIDDEN);
-#endif
-    }
 }
 
 static void create_quality_pill(lv_obj_t * scr) {

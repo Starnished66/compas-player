@@ -246,6 +246,8 @@ void gui_player_poll_confirmed_playback(void);
 void gui_player_poll_waveform(void);
 
 void gui_player_sync_topbar_visibility(lv_obj_t * screen);
+/* Shift the back button up into the status bar's place when the bar is hidden. */
+void gui_player_apply_dismiss_topbar(bool topbar_hidden);
 void gui_player_refresh_font_geometry(void);
 lv_obj_t * gui_player_get_dismiss_btn(void);
 /* UI-thread accessor; optional generation identifies pixel replacements. */

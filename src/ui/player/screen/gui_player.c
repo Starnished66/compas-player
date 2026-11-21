@@ -1892,10 +1892,24 @@ const char * gui_player_get_now_playing_album(void) {
     return player_track_album_text ? player_track_album_text : "";
 }
 
+/* With the top bar hidden the back button is not hidden: it shifts up into
+ * the bar's place, clamped so it never leaves the screen. The layout-authored
+ * y is recovered by removing the translate already folded into the coords. */
+void gui_player_apply_dismiss_topbar(bool topbar_hidden) {
+    if (!player_dismiss_btn) return;
+    lv_obj_update_layout(player_dismiss_btn);
+    int32_t cur = lv_obj_get_style_translate_y(player_dismiss_btn, LV_PART_MAIN);
+    int32_t base_y = lv_obj_get_y(player_dismiss_btn) - cur;
+    int32_t shift = topbar_hidden ? LV_MIN(STATUS_BAR_CLEARANCE, LV_MAX(base_y, 0)) : 0;
+    if (shift == -cur) return;
+    lv_obj_set_style_translate_y(player_dismiss_btn, -shift, LV_PART_MAIN);
+    lv_obj_update_layout(player_dismiss_btn);
+}
+
 void gui_player_sync_topbar_visibility(lv_obj_t * screen) {
     if (player_dismiss_btn) {
-        if (player_inline_lyrics_is_open() || player_inline_lyrics_is_animating() ||
-            (current_settings.hide_player_topbar && screen == player_screen))
+        gui_player_apply_dismiss_topbar(current_settings.hide_player_topbar && screen == player_screen);
+        if (player_inline_lyrics_is_open() || player_inline_lyrics_is_animating())
             lv_obj_add_flag(player_dismiss_btn, LV_OBJ_FLAG_HIDDEN);
         else
             lv_obj_remove_flag(player_dismiss_btn, LV_OBJ_FLAG_HIDDEN);
