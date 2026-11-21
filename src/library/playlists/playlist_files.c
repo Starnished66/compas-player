@@ -695,6 +695,49 @@ static void free_entry_blocks(playlist_blocks_t * list) {
     free(list->pending);
 }
 
+/* Only regular files are read; a FIFO or device could block or never end. */
+static bool m3u_is_regular(FILE * f) {
+    struct stat st;
+    return fstat(fileno(f), &st) == 0 && S_ISREG(st.st_mode);
+}
+
+#define M3U_MAX_LINE_BYTES (64u * 1024)
+
+/* Like getline(), but a path line longer than the cap returns -2. An
+ * over-long comment line (starting with '#') is truncated at the cap instead,
+ * so embedded data in a tag never fails the playlist. The length is counted,
+ * so embedded NULs stay detectable with strlen(). */
+static ssize_t m3u_getline(char ** line, size_t * cap, FILE * f) {
+    size_t n = 0;
+    bool truncating = false;
+    int c;
+    while ((c = getc_unlocked(f)) != EOF) {
+        if (truncating) {
+            if (c == '\n') break;
+            continue;
+        }
+        if (n + 2 > *cap) {
+            if (n + 2 > M3U_MAX_LINE_BYTES + 1) {
+                if ((*line)[0] != '#') return -2;
+                truncating = true;
+                if (c == '\n') break;
+                continue;
+            }
+            size_t grown_cap = *cap ? *cap * 2 : 256;
+            if (grown_cap > M3U_MAX_LINE_BYTES + 1) grown_cap = M3U_MAX_LINE_BYTES + 1;
+            char * grown = realloc(*line, grown_cap);
+            if (!grown) return -2;
+            *line = grown;
+            *cap = grown_cap;
+        }
+        (*line)[n++] = (char) c;
+        if (c == '\n') break;
+    }
+    if (n == 0 && c == EOF) return -1;
+    (*line)[n] = '\0';
+    return (ssize_t) n;
+}
+
 /* Keep EXTINF and preceding comments with their entry. Editing never
  * filters unavailable files, and offsets identify duplicate occurrences. */
 
@@ -703,8 +746,9 @@ static bool read_entry_blocks(const char * path, playlist_blocks_t * out) {
     FILE * f = fopen(path, "r");
     char * line = NULL;
     size_t cap = 0, used = 0;
-    bool ok = f != NULL;
-    while (ok && getline(&line, &cap, f) >= 0) {
+    bool ok = f != NULL && m3u_is_regular(f);
+    ssize_t got = 0;
+    while (ok && (got = m3u_getline(&line, &cap, f)) >= 0) {
         char * text = line;
         if (out->count == 0 && used == 0 && library_utf8_bom_skip(text) == 3) { text += 3; out->bom = true; }
         if (strncmp(text, "#EXTM3U", 7) == 0) continue;
@@ -722,6 +766,7 @@ static bool read_entry_blocks(const char * path, playlist_blocks_t * out) {
         out->pending = NULL;
         used = 0;
     }
+    if (got == -2) ok = false;
     if (f) { if (ferror(f)) ok = false; fclose(f); }
     free(line);
     return ok;
@@ -918,13 +963,14 @@ playlist_read_status_t playlist_files_read_ex(const char * path, char *** out_pa
     *out_paths = NULL; *out_count = 0;
     FILE * f = fopen(path, "r");
     if (!f) return PLAYLIST_READ_IO_ERROR;
+    if (!m3u_is_regular(f)) { fclose(f); return PLAYLIST_READ_INVALID; }
     char ** paths = NULL, * line = NULL;
     int count = 0, capacity = 0;
     size_t line_size = 0;
     ssize_t length;
     bool first = true;
     playlist_read_status_t status = PLAYLIST_READ_OK;
-    while ((length = getline(&line, &line_size, f)) >= 0) {
+    while ((length = m3u_getline(&line, &line_size, f)) >= 0) {
         if ((size_t) length != strlen(line)) { status = PLAYLIST_READ_INVALID; break; }
         char * entry = line;
         if (first && library_utf8_bom_skip(entry) == 3) entry += 3;
@@ -949,7 +995,8 @@ playlist_read_status_t playlist_files_read_ex(const char * path, char *** out_pa
         if (!paths[count]) { status = PLAYLIST_READ_NO_MEMORY; break; }
         count++;
     }
-    if (ferror(f)) status = PLAYLIST_READ_IO_ERROR;
+    if (length == -2) status = PLAYLIST_READ_INVALID;
+    else if (ferror(f)) status = PLAYLIST_READ_IO_ERROR;
     free(line); fclose(f);
     if (status != PLAYLIST_READ_OK) {
         for (int i = 0; i < count; i++) free(paths[i]);
