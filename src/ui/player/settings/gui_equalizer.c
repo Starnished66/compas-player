@@ -10,6 +10,7 @@
 #include "../../text/rendering/fallback_font.h"
 #include "../../assets/assets.h"
 #include "../../../audio/effects/peq.h"
+#include "../../../audio/effects/mseb.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -71,6 +72,7 @@ static lv_obj_t * eq_profile_button_label;
 static lv_obj_t * eq_main_content;
 static lv_obj_t * eq_footer;
 static lv_obj_t * eq_bypass_state_label;
+static lv_obj_t * eq_mseb_note_label;
 static lv_obj_t * eq_title_label;
 static bool eq_graph_visible;
 static lv_obj_t * eq_graph_panel, *eq_graph_chart, *eq_graph_caption;
@@ -273,13 +275,33 @@ void gui_equalizer_crossfeed_row_event_cb(lv_event_t * e) {
     if (settings_crossfeed_screen) nav_push(settings_crossfeed_screen);
 }
 
+/* MSEB owns tone shaping while it is on, so the audio path skips the PEQ.
+ * The saved PEQ settings are untouched; the UI only shows them as paused. */
+static bool eq_paused_by_mseb(void) {
+    mseb_config_t config;
+    mseb_get_config(&config);
+    return config.enabled;
+}
+
+static void eq_refresh_bypass_widgets(void) {
+    const bool paused = eq_paused_by_mseb();
+    if (eq_bypass_switch) {
+        if (peq_get_bypass()) lv_obj_clear_state(eq_bypass_switch, LV_STATE_CHECKED);
+        else lv_obj_add_state(eq_bypass_switch, LV_STATE_CHECKED);
+        lv_obj_set_state(eq_bypass_switch, LV_STATE_DISABLED, paused);
+    }
+    if (eq_bypass_state_label) {
+        lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? TR("OFF") : TR("ON"));
+        lv_obj_set_flag(eq_bypass_state_label, LV_OBJ_FLAG_HIDDEN, paused);
+    }
+    if (eq_mseb_note_label) lv_obj_set_flag(eq_mseb_note_label, LV_OBJ_FLAG_HIDDEN, !paused);
+}
+
 static void eq_bypass_switch_event_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
     /* Switch shows "EQ Enabled" -- checked means NOT bypassed. */
     peq_set_bypass(!lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
     peq_save();
-    if (eq_bypass_state_label)
-        lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? TR("OFF") : TR("ON"));
     refresh_all_eq_widgets();
 }
 
@@ -479,11 +501,7 @@ static void eq_set_current_profile_from_path(const char * path) {
  * everything at once, unlike the individual per-field setters that only
  * ever touch one widget). */
 static void refresh_all_eq_widgets(void) {
-    if (eq_bypass_switch) {
-        if (peq_get_bypass()) lv_obj_clear_state(eq_bypass_switch, LV_STATE_CHECKED);
-        else lv_obj_add_state(eq_bypass_switch, LV_STATE_CHECKED);
-    }
-    if (eq_bypass_state_label) lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? TR("OFF") : TR("ON"));
+    eq_refresh_bypass_widgets();
     if (eq_preamp_slider) lv_slider_set_value(eq_preamp_slider, (int32_t) (peq_get_preamp_db() * 10.0), LV_ANIM_OFF);
     if (eq_preamp_value_label) lv_label_set_text_fmt(eq_preamp_value_label, TR("%+.2f dB"), peq_get_preamp_db());
     if (eq_crossfeed_slider) lv_slider_set_value(eq_crossfeed_slider, (int32_t) lround(peq_get_crossfeed() * 100.0), LV_ANIM_OFF);
@@ -551,7 +569,7 @@ static void eq_refresh_graph(void) {
             lv_chart_set_series_value_by_id2(eq_graph_chart, eq_graph_series, (uint32_t)i, x, value);
         }
         lv_chart_refresh(eq_graph_chart);
-        const bool off = peq_get_bypass();
+        const bool off = peq_get_bypass() || eq_paused_by_mseb();
         if (eq_graph_caption) {
             if (with_preamp) lv_label_set_text(eq_graph_caption, off ? TR("Combined response (dB) · EQ off") : TR("Combined response (dB)"));
             else lv_label_set_text(eq_graph_caption, off ? TR("EQ correction (dB) · EQ off") : TR("EQ correction (dB)"));
@@ -1129,6 +1147,7 @@ static lv_obj_t * build_eq_screen(void) {
     eq_bypass_switch = lv_switch_create(scr);
     align_screen_header_action(eq_bypass_switch, 16);
     lv_obj_add_style(eq_bypass_switch, gui_theme_accent_style(), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_opa(eq_bypass_switch, LV_OPA_40, LV_STATE_DISABLED);
     eq_bypass_state_label = lv_label_create(scr);
     lv_label_set_text(eq_bypass_state_label, peq_get_bypass() ? TR("OFF") : TR("ON"));
     lv_obj_add_style(eq_bypass_state_label, &style_theme_text_muted, 0);
@@ -1153,6 +1172,12 @@ static lv_obj_t * build_eq_screen(void) {
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(content, GUI_ROW_GAP, 0);
+    eq_mseb_note_label = lv_label_create(content);
+    lv_label_set_text(eq_mseb_note_label, TR("Paused while MSEB is on"));
+    lv_obj_set_width(eq_mseb_note_label, ui_list_row_width());
+    lv_label_set_long_mode(eq_mseb_note_label, LV_LABEL_LONG_WRAP);
+    lv_obj_add_style(eq_mseb_note_label, &style_theme_text_muted, 0);
+    lv_obj_set_style_text_font(eq_mseb_note_label, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_t * bandnav = lv_obj_create(content);
     lv_obj_set_size(bandnav, ui_list_row_width(), BOARD_SCALE_PX(50));
     lv_obj_set_style_bg_opa(bandnav, LV_OPA_TRANSP, 0);
@@ -1425,7 +1450,7 @@ void gui_equalizer_teardown_screens(void) {
     eq_crossfeed_angle_menu = NULL;
     eq_freq_slider = eq_gain_slider = eq_q_slider = NULL;
     eq_type_menu = eq_freq_value_label = eq_gain_value_label = eq_q_value_label = NULL;
-    eq_band_number_label = eq_profile_button_label = eq_main_content = eq_footer = eq_bypass_state_label = NULL;
+    eq_band_number_label = eq_profile_button_label = eq_main_content = eq_footer = eq_bypass_state_label = eq_mseb_note_label = NULL;
     eq_graph_panel = eq_graph_chart = eq_graph_caption = eq_graph_reference = eq_graph_preamp_switch = NULL;
     eq_graph_series = NULL;
     eq_graph_min_label = eq_graph_low_label = eq_graph_zero_label = NULL;
@@ -1442,7 +1467,8 @@ void gui_equalizer_teardown_screens(void) {
 void gui_equalizer_update_summary(lv_obj_t * summary_label) {
     char name[256];
     eq_profile_display_name(eq_current_profile_name, name, sizeof(name));
-    lv_label_set_text_fmt(summary_label, "%s · %s", peq_get_bypass() ? TR("Off") : TR("On"), name);
+    const char * state = peq_get_bypass() ? TR("Off") : eq_paused_by_mseb() ? TR("Paused") : TR("On");
+    lv_label_set_text_fmt(summary_label, "%s · %s", state, name);
 }
 
 void gui_equalizer_accent_changed(void) {

@@ -20,7 +20,7 @@
 enum { PAGE_MSEB, PAGE_STAGE, PAGE_PRESETS, PAGE_MANAGE, PAGE_CONFIRM, PAGE_COUNT };
 static lv_obj_t * screens[PAGE_COUNT], * lists[PAGE_COUNT], * titles[PAGE_COUNT];
 static setting_slider_t tone_sliders[11], stage_sliders[10];
-static lv_obj_t * mseb_enabled_row, * stage_enabled_row, * stage_preset_menu;
+static lv_obj_t * mseb_eq_note, * mseb_enabled_row, * stage_enabled_row, * stage_preset_menu;
 static lv_obj_t * mseb_range_menu, * tone_overflow[11];
 static unsigned mseb_shape;
 static bool mseb_legacy;
@@ -384,8 +384,14 @@ static int tone_value(const native_mseb_state_t * state, int i) {
                                    : state->config.values[i];
 }
 
+/* MSEB skips the parametric EQ; with the EQ off there is nothing to pause. */
+static void refresh_mseb_eq_note(void) {
+    if (mseb_eq_note) lv_obj_set_flag(mseb_eq_note, LV_OBJ_FLAG_HIDDEN, peq_get_bypass());
+}
+
 static void refresh_mseb_controls(const native_mseb_state_t * state) {
     gui_pill_toggle_row_set_checked(mseb_enabled_row, state->config.enabled);
+    refresh_mseb_eq_note();
     if (mseb_range_menu) gui_option_menu_set_selected(mseb_range_menu,
         state->range == 20 ? 0 : state->range == 40 ? 1 : 2);
     for (int i = 0; i <= MSEB_CONTROL_COUNT; ++i) {
@@ -412,12 +418,14 @@ static void populate_mseb(void) {
     }
     clear_sliders(PAGE_MSEB);
     memset(tone_overflow, 0, sizeof(tone_overflow));
-    mseb_enabled_row = mseb_range_menu = NULL;
+    mseb_enabled_row = mseb_range_menu = mseb_eq_note = NULL;
     lv_obj_clean(list);
     mseb_legacy = state.legacy;
     mseb_shape = shape;
     if (state.legacy) { add_pill_chevron_row(list, TR("Switch to stock MSEB"), convert_legacy); return; }
     mseb_enabled_row = add_pill_toggle_row(list, TR("Enabled"), state.config.enabled, mseb_enabled);
+    mseb_eq_note = add_wrapped_section_header(list, TR("Pauses the Equalizer while on"));
+    refresh_mseb_eq_note();
     mseb_range_menu = add_pill_option_menu_row(list, TR("Adjustment range"), "±20\n±40\n±100", state.range == 20 ? 0 : state.range == 40 ? 1 : 2, range_changed);
     for (int i = 0; i <= MSEB_CONTROL_COUNT; i++) {
         if (i == MSEB_CONTROL_COUNT) {
@@ -515,6 +523,6 @@ void gui_native_audio_deinit(void) {
         if (screens[i]) lv_obj_delete(screens[i]);
         screens[i] = lists[i] = titles[i] = NULL;
     }
-    mseb_enabled_row = stage_enabled_row = stage_preset_menu = mseb_range_menu = NULL;
+    mseb_enabled_row = stage_enabled_row = stage_preset_menu = mseb_range_menu = mseb_eq_note = NULL;
     memset(tone_overflow, 0, sizeof(tone_overflow));
 }
