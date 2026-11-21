@@ -3765,6 +3765,9 @@ static int start_decoder(vorb *f)
       c->sparse = ordered ? 0 : get_bits(f,1);
 
       if (c->dimensions == 0 && c->entries != 0)    return error(f, VORBIS_invalid_setup);
+      // sanity caps: keeps allocations and entries*dimensions math far from 32-bit overflow
+      if (c->entries > (1 << 20) || (c->entries != 0 && c->dimensions > (1u << 20) / (unsigned int) c->entries))
+                                                    return error(f, VORBIS_invalid_setup);
 
       if (c->sparse)
          lengths = (uint8 *) setup_temp_malloc(f, c->entries);
