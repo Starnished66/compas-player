@@ -44,6 +44,7 @@
 #include "../../effects/frosted_glass.h"
 #include "../layout/player_layout.h"
 #include "../layout/player_layouts.h"
+#include "../layout/layout_crash_guard.h"
 #include "../layout/player_layout_internal.h"
 #include "../layout/player_layout_builtin.h"
 #include "../transport/player_seekbar.h"
@@ -1315,7 +1316,7 @@ static lv_obj_t * build_player_screen(uint32_t screen_width, uint32_t screen_hei
     lv_obj_add_style(scr, &style_theme_screen_bg, 0);
 
     if (refresh_registry) player_layouts_init(player_layout_create_builtin);
-    const char * layout_id = player_layouts_effective_id();
+    const char * layout_id = layout_crash_guard_filter(player_layouts_effective_id());
     bool built = false;
     if (strcmp(layout_id, PLAYER_LAYOUT_ID_DEFAULT) != 0) {
         player_layout_kind_t kind;

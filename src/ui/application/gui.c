@@ -477,6 +477,7 @@ static void auto_resume_playback_at_boot(void) {
      * Tracks in SUBSONIC_STREAM_CACHE_DIR are skipped to prevent resuming into
      * transient cache files without network connectivity. */
     bool setup_active = gui_setup_show_if_needed();
+    if (resume_crash_guard_skip_restore()) return; /* the last paused boot died: restore nothing */
     bool sd_restored = false;
     if (!setup_active && sd_card_root_is_mounted()) {
         sd_restored = gui_player_restore_sd_queue(true);

@@ -6,6 +6,8 @@
 #include "../../../library/tagcache/core/tagcache.h"
 #include "../../../audio/engine/audio.h"
 #include "reboot_handoff.h"
+#include "../../../ui/player/queue/resume_crash_guard.h"
+#include "../../../ui/player/layout/layout_crash_guard.h"
 #include "../../../network/bluetooth/control/bluetooth_control.h"
 #include <stdio.h>
 #ifndef HOST_BUILD
@@ -46,6 +48,8 @@ static bool parent_is_bootloader(void) {
 
 bool idle_shutdown_reboot_handoff(void) {
 #ifndef HOST_BUILD
+    resume_crash_guard_clear(); /* a deliberate restart is not a crash */
+    layout_crash_guard_clean_exit();
     bt_control_debug_capture_release(true); /* the supervisor unmounts the card next */
     /* Let the supervisor release the SD card before restarting it. The
      * supervisor recognizes this status as a requested reboot. */
@@ -102,6 +106,8 @@ static void shutdown_terminal(int action) {
         if (!idle_shutdown_reboot_handoff() && action == 2) (void)selector_request_cancel();
         return;
     }
+    resume_crash_guard_clear(); /* a deliberate power-off is not a crash */
+    layout_crash_guard_clean_exit();
     bt_control_debug_capture_release(true);
     sync();
     execl("/sbin/poweroff", "poweroff", (char *)NULL);

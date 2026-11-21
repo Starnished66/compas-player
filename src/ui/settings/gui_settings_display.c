@@ -14,6 +14,7 @@
 #include "../appearance/gui_themes.h"
 #include "../shell/gui_reload.h"
 #include "../player/layout/player_layouts.h"
+#include "../player/layout/layout_crash_guard.h"
 #include <stdio.h>
 #include <string.h>
 #include "gui_settings_internal.h"
@@ -181,9 +182,12 @@ static void player_layout_choice_row_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     const player_layout_info_t * info = player_layouts_get((int) (intptr_t) lv_event_get_user_data(e));
     if (!info) return;
-    if (strcmp(info->id, player_layouts_effective_id()) == 0) return;
+    /* Re-selecting the saved layout is a no-op, unless the crash guard is
+     * hiding it: then it lifts the fallback and applies it. */
+    if (strcmp(info->id, player_layouts_effective_id()) == 0 && !layout_crash_guard_tripped()) return;
     /* Picking a layout here replaces a plugin's session layout too. */
     player_layouts_session_clear_selection();
+    layout_crash_guard_clear(); /* a user choice ends the crash fallback */
     snprintf(current_settings.player_layout, sizeof(current_settings.player_layout), "%s",
              strcmp(info->id, PLAYER_LAYOUT_ID_DEFAULT) == 0 ? "" : info->id);
     settings_save_async(&current_settings);

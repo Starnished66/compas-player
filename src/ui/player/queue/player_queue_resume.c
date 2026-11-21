@@ -423,6 +423,7 @@ int gui_player_boot_resume_mode(void) {
 bool gui_player_restore_sd_queue(bool is_boot) {
     atomic_store(&sd_card_absent_immediate, false);
 
+    if (is_boot && resume_crash_guard_skip_restore()) return false;
     if (is_boot) {
         /* This can be called a second time shortly after boot -- once from
          * gui_init() directly, and again from poll_sd_card_hotplug()'s
@@ -471,6 +472,8 @@ bool gui_player_restore_sd_queue(bool is_boot) {
     if (!install_saved_resume_playlist(resume_playlist, resume_count)) return false;
 
     int resume_mode = is_boot ? resume_crash_guard_filter(gui_player_boot_resume_mode()) : current_settings.resume_mode;
+    /* A later restore in a boot the guard paused must stay paused too. */
+    if (!is_boot && resume_mode == 1 && resume_crash_guard_tripped()) resume_mode = 2;
     if (resume_mode == 1) {
         play_track_at_from(resume_index, position);
     } else if (resume_mode == 2) {
