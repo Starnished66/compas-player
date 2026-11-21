@@ -31,12 +31,14 @@
 typedef struct {
     const uint8_t * buf;
     uint32_t size_bits;
+    uint32_t alloc_bytes; /* bytes actually allocated at buf, padding included */
     uint32_t bit_pos;
 } bitreader_t;
 
-static void br_init(bitreader_t * b, const uint8_t * buf, uint32_t size_bytes) {
+static void br_init(bitreader_t * b, const uint8_t * buf, uint32_t size_bytes, uint32_t alloc_bytes) {
     b->buf = buf;
     b->size_bits = size_bytes * 8;
+    b->alloc_bytes = alloc_bytes;
     b->bit_pos = 0;
 }
 
@@ -44,14 +46,21 @@ static uint32_t br_bits_left(const bitreader_t * b) {
     return b->bit_pos >= b->size_bits ? 0 : b->size_bits - b->bit_pos;
 }
 
-/* Caller-guaranteed: buf has at least 4 bytes of readable padding past
- * size_bits/8 (wma_open_file allocates frame_buf with slack for this). */
+/* Reads past size_bits see the zeroed slack after the data (wma_open_file
+ * allocates frame_buf with it). Only a read that would leave the allocation
+ * returns zeros instead. */
 static uint32_t br_get_bits(bitreader_t * b, int n) {
     uint32_t result = 0;
     int remaining = n;
     while (remaining > 0) {
         int take = remaining > 24 ? 24 : remaining;
         uint32_t byte_idx = b->bit_pos >> 3;
+        if (byte_idx >= b->alloc_bytes || b->alloc_bytes - byte_idx < 4) {
+            result <<= take;
+            b->bit_pos += (uint32_t) take;
+            remaining -= take;
+            continue;
+        }
         uint32_t bit_off = b->bit_pos & 7;
         uint32_t v = ((uint32_t) b->buf[byte_idx] << 24) | ((uint32_t) b->buf[byte_idx + 1] << 16) |
                      ((uint32_t) b->buf[byte_idx + 2] << 8) | (uint32_t) b->buf[byte_idx + 3];
@@ -550,6 +559,7 @@ static void wma_window(wma_decoder_t * s, float * out) {
 
 static int wma_decode_block(wma_decoder_t * s) {
     int channels = (int) s->channels;
+    if (channels < 1 || channels > MAX_CHANNELS) return -1; /* wma_open_file already enforces this */
     int bsize, total_gain, coef_nb_bits;
     int nb_coefs[MAX_CHANNELS];
 
@@ -797,7 +807,7 @@ static int wma_decode_frame(wma_decoder_t * s, int16_t * pcm_out) {
 static int wma_decode_superframe(wma_decoder_t * s, const uint8_t * buf, uint32_t buf_size, int16_t * pcm_out,
                                   int * out_nb_frames) {
     *out_nb_frames = 0;
-    br_init(&s->gb, buf, buf_size);
+    br_init(&s->gb, buf, buf_size, s->frame_buf_capacity);
 
     int nb_frames;
     if (s->use_bit_reservoir) {
@@ -837,7 +847,7 @@ static int wma_decode_superframe(wma_decoder_t * s, const uint8_t * buf, uint32_
             memset(q, 0, 8); /* read-ahead safety padding for br_get_bits */
 
             bitreader_t stitched;
-            br_init(&stitched, s->reservoir, stitched_bytes);
+            br_init(&stitched, s->reservoir, stitched_bytes, s->reservoir_capacity + 16);
             stitched.size_bits = s->reservoir_len * 8 + (uint32_t) bit_offset;
             if (s->last_bitoffset > 0) br_skip_bits(&stitched, s->last_bitoffset);
 
@@ -851,7 +861,8 @@ static int wma_decode_superframe(wma_decoder_t * s, const uint8_t * buf, uint32_
 
         int pos = bit_offset + 4 + 4 + s->byte_offset_bits + 3;
         if ((uint32_t) pos >= s->reservoir_capacity * 8 || (uint32_t) pos > buf_size * 8) return -1;
-        br_init(&s->gb, buf + (pos >> 3), buf_size - (uint32_t) (pos >> 3));
+        br_init(&s->gb, buf + (pos >> 3), buf_size - (uint32_t) (pos >> 3),
+                s->frame_buf_capacity - (uint32_t) (pos >> 3));
         int align = pos & 7;
         if (align > 0) br_skip_bits(&s->gb, align);
 
@@ -900,7 +911,8 @@ wma_decoder_t * wma_open_file(const char * path) {
     s->block_align = asf_demux_get_block_align(demux);
     s->version = (codec_id == 0x0160) ? 1 : 2;
 
-    if (s->channels < 1 || s->channels > MAX_CHANNELS || s->sample_rate == 0 || s->block_align == 0) {
+    if (s->channels < 1 || s->channels > MAX_CHANNELS || s->sample_rate == 0 || s->sample_rate > 50000 ||
+        s->block_align == 0) {
         wma_close(s);
         return NULL;
     }

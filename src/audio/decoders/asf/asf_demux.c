@@ -70,6 +70,8 @@ struct asf_demux {
     uint32_t partial_filled;
     uint32_t partial_object_size;
     bool partial_active;
+    bool slice_active;    /* a finished multi-superframe object in partial is being handed out */
+    uint32_t slice_pos;
 };
 
 static bool guid_eq(const uint8_t * a, const asf_guid_t b) {
@@ -142,7 +144,7 @@ static bool read_packet_header(asf_demux_t * d) {
 
     int rsize = 8; /* fixed baseline: packet_flags(1) + packet_property(1) + timestamp(4) + duration(2) */
     int c = read_u8(d->f);
-    if (feof(d->f)) return false;
+    if (feof(d->f) || ferror(d->f)) return false;
 
     int flags_byte;
     if (c & 0x80) {
@@ -189,6 +191,23 @@ static bool read_packet_header(asf_demux_t * d) {
 
     d->data_packets_read++;
     return true;
+}
+
+/* An object holding several whole superframes is handed out one block_align
+ * slice per call, as FFmpeg does. Anything else larger than the caller's
+ * buffer can never be returned. */
+#define ASF_MAX_SLICED_OBJECT_BYTES (1024u * 1024)
+
+static bool object_sliceable(const asf_demux_t * d, uint32_t object_size, uint32_t out_buf_size) {
+    return d->block_align && d->block_align <= out_buf_size && object_size % d->block_align == 0 &&
+           object_size <= ASF_MAX_SLICED_OBJECT_BYTES;
+}
+
+static void emit_slice(asf_demux_t * d, uint8_t * out_buf, uint32_t * out_size) {
+    memcpy(out_buf, d->partial + d->slice_pos, d->block_align);
+    *out_size = d->block_align;
+    d->slice_pos += d->block_align;
+    if (d->slice_pos >= d->partial_object_size) d->slice_active = false;
 }
 
 /* Reads one payload segment from the packet currently being parsed. If it
@@ -259,6 +278,12 @@ static bool read_next_segment(asf_demux_t * d, uint8_t * out_buf, uint32_t out_b
     }
 
     if (frag_offset == 0) {
+        if (media_object_size > out_buf_size && !object_sliceable(d, media_object_size, out_buf_size)) {
+            /* Can never be returned to the caller; don't buffer it. */
+            fseek(d->f, (long) frag_size, SEEK_CUR);
+            d->partial_active = false;
+            return true;
+        }
         if (media_object_size > d->partial_capacity) {
             free(d->partial);
             d->partial = malloc(media_object_size);
@@ -269,7 +294,8 @@ static bool read_next_segment(asf_demux_t * d, uint8_t * out_buf, uint32_t out_b
         d->partial_active = d->partial != NULL;
     }
 
-    if (!d->partial_active || frag_offset != d->partial_filled || frag_offset + frag_size > d->partial_capacity) {
+    if (!d->partial_active || frag_offset != d->partial_filled ||
+        frag_size > d->partial_capacity - frag_offset) {
         /* Out-of-order/unexpected fragment -- discard defensively rather
          * than risk writing past the buffer or reassembling garbage. */
         fseek(d->f, (long) frag_size, SEEK_CUR);
@@ -281,14 +307,16 @@ static bool read_next_segment(asf_demux_t * d, uint8_t * out_buf, uint32_t out_b
     d->partial_filled += frag_size;
 
     if (d->partial_filled >= d->partial_object_size) {
+        d->partial_active = false;
+        *got_frame = true;
         if (d->partial_object_size > out_buf_size) {
-            d->partial_active = false;
-            return false;
+            d->slice_pos = 0;
+            d->slice_active = true;
+            emit_slice(d, out_buf, out_size);
+            return true;
         }
         memcpy(out_buf, d->partial, d->partial_object_size);
         *out_size = d->partial_object_size;
-        *got_frame = true;
-        d->partial_active = false;
     }
 
     return true;
@@ -321,6 +349,7 @@ asf_demux_t * asf_demux_open(const char * path) {
         asf_object_header_t sub;
         if (!read_object_header(f, &sub)) break;
         long next = sub.data_start + (long) (sub.size - 24);
+        if (next <= pos) break;
 
         if (guid_eq(sub.guid, GUID_FILE_PROPERTIES)) {
             fseek(f, sub.data_start + 32, SEEK_SET);
@@ -406,11 +435,16 @@ void asf_demux_seek_to_packet(asf_demux_t * d, uint64_t packet_index) {
     d->data_packets_read = packet_index;
     d->packet_segments_remaining = 0;
     d->partial_active = false;
+    d->slice_active = false;
     d->partial_filled = 0;
     clearerr(d->f);
 }
 
 bool asf_demux_read_frame(asf_demux_t * d, uint8_t * buf, uint32_t buf_size, uint32_t * out_size) {
+    if (d->slice_active) {
+        emit_slice(d, buf, out_size);
+        return true;
+    }
     for (;;) {
         if (d->packet_segments_remaining <= 0) {
             if (!read_packet_header(d)) return false;
@@ -419,7 +453,7 @@ bool asf_demux_read_frame(asf_demux_t * d, uint8_t * buf, uint32_t buf_size, uin
         bool got_frame = false;
         if (!read_next_segment(d, buf, buf_size, out_size, &got_frame)) return false;
         if (got_frame) return true;
-        if (feof(d->f)) return false;
+        if (feof(d->f) || ferror(d->f)) return false;
     }
 }
 
