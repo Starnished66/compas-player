@@ -81,7 +81,8 @@ lv_widget_processor_t * lv_xml_widget_get_processor(const char * name)
 lv_widget_processor_t * lv_xml_widget_get_extended_widget_processor(const char * extends)
 {
     lv_widget_processor_t * proc = NULL;
-    while(extends) {
+    /*A cyclic or absurdly deep `extends` chain must not loop forever*/
+    for(int hops = 0; extends && hops < 32; hops++) {
         proc = lv_xml_widget_get_processor(extends);
         if(proc) break;
 

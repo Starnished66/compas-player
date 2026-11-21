@@ -85,7 +85,7 @@ void lv_xml_spangroup_span_apply(lv_xml_parser_state_t * state, const char ** at
         if(lv_streq("text", name)) lv_spangroup_set_span_text(spangroup, span, value);
         else if(lv_streq("style", name)) {
             lv_xml_style_t * style_dsc = lv_xml_get_style_by_name(&state->scope, value);
-            lv_spangroup_set_span_style(spangroup, span, &style_dsc->style);
+            if(style_dsc) lv_spangroup_set_span_style(spangroup, span, &style_dsc->style);
         }
         else if(lv_streq("bind_text", name)) {
             lv_subject_t * subject = lv_xml_get_subject(&state->scope, value);

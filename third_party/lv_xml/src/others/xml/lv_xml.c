@@ -750,7 +750,7 @@ static void resolve_params(lv_xml_component_scope_t * item_scope, lv_xml_compone
                 }
                 else if(lv_streq(type, "style")) {
                     lv_xml_style_t * s = lv_xml_get_style_by_name(parent_scope, ext_value);
-                    ext_value = s->long_name;
+                    ext_value = s ? s->long_name : NULL;
                 }
             }
             else {

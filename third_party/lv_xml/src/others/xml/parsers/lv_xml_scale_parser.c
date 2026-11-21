@@ -95,15 +95,15 @@ void lv_xml_scale_section_apply(lv_xml_parser_state_t * state, const char ** att
         else if(lv_streq("max_value", name)) lv_scale_set_section_max_value(scale, section, lv_xml_atoi(value));
         else if(lv_streq("style_main", name)) {
             lv_xml_style_t * style_dsc = lv_xml_get_style_by_name(&state->scope, value);
-            lv_scale_set_section_style_main(scale, section, &style_dsc->style);
+            if(style_dsc) lv_scale_set_section_style_main(scale, section, &style_dsc->style);
         }
         else if(lv_streq("style_indicator", name)) {
             lv_xml_style_t * style_dsc = lv_xml_get_style_by_name(&state->scope, value);
-            lv_scale_set_section_style_indicator(scale, section, &style_dsc->style);
+            if(style_dsc) lv_scale_set_section_style_indicator(scale, section, &style_dsc->style);
         }
         else if(lv_streq("style_items", name)) {
             lv_xml_style_t * style_dsc = lv_xml_get_style_by_name(&state->scope, value);
-            lv_scale_set_section_style_items(scale, section, &style_dsc->style);
+            if(style_dsc) lv_scale_set_section_style_items(scale, section, &style_dsc->style);
         }
         else if(lv_streq("bind_min_value", name)) {
             lv_subject_t * subject = lv_xml_get_subject(&state->scope, value);
