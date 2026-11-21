@@ -341,28 +341,28 @@ static void parse_flac_picture_block(const uint8_t * data, size_t size, track_me
     if (out->picture_data != NULL) return; /* keep the first picture found, same as FLAC/MP3/M4A */
 
     size_t pos = 0;
-    if (pos + 4 > size) return;
+    if (size - pos < 4) return;
     pos += 4; /* picture type -- not discriminated on, matching FLAC/MP3/M4A's "first picture wins" */
 
-    if (pos + 4 > size) return;
+    if (size - pos < 4) return;
     uint32_t mime_len = read_be32(data + pos, false);
     pos += 4;
-    if (pos + mime_len > size) return;
+    if (mime_len > size - pos) return;
     pos += mime_len;
 
-    if (pos + 4 > size) return;
+    if (size - pos < 4) return;
     uint32_t desc_len = read_be32(data + pos, false);
     pos += 4;
-    if (pos + desc_len > size) return;
+    if (desc_len > size - pos) return;
     pos += desc_len;
 
-    if (pos + 16 > size) return; /* width, height, depth, color-count -- 4 bytes each */
+    if (size - pos < 16) return; /* width, height, depth, color-count -- 4 bytes each */
     pos += 16;
 
-    if (pos + 4 > size) return;
+    if (size - pos < 4) return;
     uint32_t pic_data_len = read_be32(data + pos, false);
     pos += 4;
-    if (pic_data_len == 0 || pos + pic_data_len > size) return;
+    if (pic_data_len == 0 || pic_data_len > size - pos) return;
 
     store_picture_bytes(out, data + pos, pic_data_len);
 }
