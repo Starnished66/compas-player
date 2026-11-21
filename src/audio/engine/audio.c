@@ -18,6 +18,7 @@
 #include "../decoders/caf/caf_decoder.h"
 #include "../effects/peq.h"
 #include "../timing/audio_tempo.h"
+#include "../../core/process/worker_thread.h"
 #include "../../network/http/stream/http_stream.h"
 #include "../../network/http/stream/http_stream_file.h"
 #include "../../library/remote/remote_track.h"
@@ -629,7 +630,7 @@ bool audio_prepare_ab_switch(const char * path) {
     ab_switch_requested = true;
     ab_switch_worker_active = true;
     pthread_t worker;
-    int rc = pthread_create(&worker, NULL, ab_switch_prepare_worker, job);
+    int rc = worker_thread_create(&worker, 256u * 1024u, ab_switch_prepare_worker, job);
     if (rc != 0) {
         ab_switch_worker_active = false;
         ab_switch_clear_locked();
