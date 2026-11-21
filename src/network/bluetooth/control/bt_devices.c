@@ -225,7 +225,9 @@ static bool bt_control_device_known(const char * mac) {
            strstr(out, "not available") == NULL;
 }
 
-/* Runs discovery restricted to the classic BR/EDR bearer using `scan.transport bredr`.
+/* Runs discovery restricted to the classic BR/EDR bearer with `scan bredr`. (`scan.transport bredr`
+ * then `scan on` is not restricted: `scan on` resets the transport, so the controller spends the
+ * first 5 s on an LE scan and classic accessories show up after the scan window has closed.)
  * Dual-mode devices paired via classic BR/EDR reliably support A2DP/AVRCP audio.
  * With `until_mac`, polls for that device and stops early once BlueZ knows it.
  * The scan runs in this bluetoothctl client, so it must stay alive meanwhile. */
@@ -236,7 +238,7 @@ static void run_bredr_scan_until(int seconds, const char * until_mac, bool * fou
     char * argv[] = { (char *) "bluetoothctl", NULL };
     if (!subprocess_popen_stdin(argv, &pid, &write_fd)) return;
 
-    const char * start_cmds = "scan.transport bredr\nscan on\n";
+    const char * start_cmds = "scan bredr\n";
     ssize_t ignored = write(write_fd, start_cmds, strlen(start_cmds));
     (void) ignored;
 
