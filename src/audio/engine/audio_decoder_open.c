@@ -627,22 +627,16 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
     }
 
     /* Compressed DSD must use the same DoP/fallback pipeline as DSF/DFF.
-     * Ordinary PCM WavPack falls through to its existing decoder below. */
-    if (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 || strcasecmp(ext, ".iso") == 0 ||
-        strcasecmp(ext, ".wv") == 0) {
+     * Ordinary PCM WavPack fails the DSD open and falls through to its own decoder below. */
+    bool is_wv = strcasecmp(ext, ".wv") == 0;
+    if (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 || strcasecmp(ext, ".iso") == 0 || is_wv) {
         dec->type = DECODER_DSD;
-        bool is_wv = strcasecmp(ext, ".wv") == 0; /* WavPack opens by name, unclaimed */
-        if (is_wv) {
-            dec->as.dsd = dsd_open_file(path);
-        } else {
-            FILE * f = open_reader_file(dec, path);
-            dec->as.dsd = dsd_open_stream(f, dec->reader ? ra_size(dec->reader) : 0, path);
-        }
+        FILE * f = open_reader_file(dec, path);
+        dec->as.dsd = dsd_open_stream(f, dec->reader ? ra_size(dec->reader) : 0, path);
         if (dec->reader && !dec->as.dsd) drop_reader(dec);
         if (!dec->as.dsd) {
             if (!is_wv) return false;
         } else {
-            if (dec->reader && !dsd_reads_stream(dec->as.dsd)) drop_reader(dec);
             dec->channels = dsd_get_channels(dec->as.dsd);
             dec->sample_rate = dsd_get_pcm_sample_rate(dec->as.dsd); /* decimated PCM rate, not the raw DSD rate */
             dec->source_sample_rate = dsd_get_source_sample_rate(dec->as.dsd);
@@ -684,8 +678,12 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
 
     if (strcasecmp(ext, ".wv") == 0) {
         dec->type = DECODER_WAVPACK;
-        dec->as.wavpack = wavpack_open_file(path);
-        if (!dec->as.wavpack) return false;
+        FILE * f = open_reader_file(dec, path);
+        dec->as.wavpack = wavpack_open_stream(f, dec->reader ? ra_size(dec->reader) : 0, path);
+        if (!dec->as.wavpack) {
+            if (dec->reader) drop_reader(dec);
+            return false;
+        }
         dec->channels = wavpack_get_channels(dec->as.wavpack);
         dec->sample_rate = wavpack_get_sample_rate(dec->as.wavpack);
         dec->source_sample_rate = dec->sample_rate;

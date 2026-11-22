@@ -1,6 +1,7 @@
 #include "dsd_decoder.h"
 #include "dsd_filter.h"
 #include "../../readers/sacd/sacd_reader.h"
+#include "../wavpack/wavpack_decoder.h"
 #include "../../engine/audio_helpers.h"
 
 #include <math.h>
@@ -33,6 +34,7 @@ typedef enum {
 struct dsd_decoder {
     FILE * f;
     WavpackContext * wavpack;
+    wavpack_stream_t * wavpack_stream;
     sacd_reader_t * sacd;
     dsd_container_t container;
 
@@ -123,13 +125,14 @@ static void free_decoder(dsd_decoder_t * dec) {
     free(dec->dsf_block_buffer);
     free(dec->wavpack_buffer);
     sacd_reader_close(dec->sacd);
-    if (dec->wavpack) WavpackCloseFile(dec->wavpack);
+    if (dec->wavpack) wavpack_close_stream_context(dec->wavpack, dec->wavpack_stream);
     free(dec);
 }
 
-static dsd_decoder_t * open_wavpack(const char * path) {
+static dsd_decoder_t * open_wavpack(FILE * f, int64_t file_size, const char * path) {
     char error[128] = {0};
-    WavpackContext * wpc = WavpackOpenFileInput(path, error, OPEN_WVC | OPEN_DSD_NATIVE, 0);
+    wavpack_stream_t * stream;
+    WavpackContext * wpc = wavpack_open_stream_context(f, file_size, path, OPEN_WVC | OPEN_DSD_NATIVE, error, &stream);
     if (!wpc) return NULL;
     int channels = WavpackGetNumChannels(wpc);
     uint32_t rate = WavpackGetNativeSampleRate(wpc);
@@ -137,16 +140,17 @@ static dsd_decoder_t * open_wavpack(const char * path) {
     if (!(WavpackGetQualifyMode(wpc) & QMODE_DSD_AUDIO) || channels < 1 ||
         channels > DSD_MAX_CHANNELS || !rate || byte_frames < 0 ||
         (uint64_t) byte_frames > UINT64_MAX / 8u) {
-        WavpackCloseFile(wpc);
+        wavpack_close_stream_context(wpc, stream);
         return NULL;
     }
     dsd_decoder_t * dec = calloc(1, sizeof(*dec));
     if (!dec) {
-        WavpackCloseFile(wpc);
+        wavpack_close_stream_context(wpc, stream);
         return NULL;
     }
     dec->container = DSD_CONTAINER_WAVPACK;
     dec->wavpack = wpc;
+    dec->wavpack_stream = stream;
     dec->channels = (unsigned int) channels;
     dec->dsd_sample_rate = rate;
     dec->wavpack_buffer = malloc((size_t) WAVPACK_DSD_BUFFER_FRAMES * dec->channels * sizeof(*dec->wavpack_buffer));
@@ -425,8 +429,7 @@ dsd_decoder_t * dsd_open_stream(FILE * f, int64_t file_size, const char * path) 
     } else if (memcmp(magic, "FRM8", 4) == 0) {
         dec = open_dff(f, file_size);
     } else if (memcmp(magic, "wvpk", 4) == 0) {
-        fclose(f);
-        return open_wavpack(path);
+        return open_wavpack(f, file_size, path);
     } else {
         dec = open_sacd(f, file_size);
     }
@@ -436,17 +439,6 @@ dsd_decoder_t * dsd_open_stream(FILE * f, int64_t file_size, const char * path) 
         return NULL;
     }
     return dec;
-}
-
-dsd_decoder_t * dsd_open_file(const char * path) {
-    FILE * f = fopen(path, "rb");
-    struct stat st;
-    if (!f) return NULL;
-    return dsd_open_stream(f, fstat(fileno(f), &st) == 0 ? (int64_t) st.st_size : 0, path);
-}
-
-bool dsd_reads_stream(const dsd_decoder_t * dec) {
-    return dec && dec->container != DSD_CONTAINER_WAVPACK;
 }
 
 unsigned int dsd_get_source_channels(const dsd_decoder_t * dec) {

@@ -20,13 +20,10 @@
 
 typedef struct dsd_decoder dsd_decoder_t;
 
-dsd_decoder_t * dsd_open_file(const char * path);
-/* The same over a FILE the decoder owns from here on (dsd_close and a failed
+/* Opens over a FILE the decoder owns from here on (dsd_close and a failed
  * open both fclose it), with the file's length: fileno() may not work on f.
- * path is only for DSD in WavPack, which opens by name. */
+ * path is only for DSD in WavPack, to find its correction file. */
 dsd_decoder_t * dsd_open_stream(FILE * f, int64_t file_size, const char * path);
-/* False for DSD in WavPack, which does not read through the FILE it was given. */
-bool dsd_reads_stream(const dsd_decoder_t * dec);
 
 unsigned int dsd_get_channels(const dsd_decoder_t * dec);
 /* Channels the DST decompressor runs on, 0 for uncompressed DSD. */

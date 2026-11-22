@@ -248,7 +248,10 @@ void decoder_claim_readahead(decoder_t * dec) {
         case DECODER_FLAC: if (dec->as.flac) frames = dec->as.flac->totalPCMFrameCount; break;
         case DECODER_WAV: if (dec->as.wav) frames = dec->as.wav->totalPCMFrameCount; break;
         case DECODER_AIFF: if (dec->as.aiff) frames = aiff_get_total_pcm_frame_count(dec->as.aiff); break;
+        case DECODER_WAVPACK: if (dec->as.wavpack) frames = wavpack_get_total_pcm_frame_count(dec->as.wavpack); break;
         case DECODER_DSD:
+            /* For DSD in WavPack this is the uncompressed rate, so it only
+             * ever oversizes the window, within the caps. */
             if (dec->as.dsd)
                 ra_claim(dec->reader, (uint64_t) dsd_get_source_channels(dec->as.dsd) *
                                       dsd_get_source_sample_rate(dec->as.dsd) / 8);

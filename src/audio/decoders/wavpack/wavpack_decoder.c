@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <wavpack.h>
 
@@ -13,6 +14,7 @@
 
 struct wavpack_decoder {
     WavpackContext *context;
+    wavpack_stream_t *stream;
     unsigned int channels;
     unsigned int sample_rate;
     unsigned int bits;
@@ -46,10 +48,92 @@ static int16_t sample_to_s16(int32_t sample, unsigned int bits, bool is_float) {
     return (int16_t)sample;
 }
 
-wavpack_decoder_t *wavpack_open_file(const char *path) {
-    if (!path) return NULL;
+/* One FILE plus its length, the id libwavpack hands back to each callback. */
+typedef struct {
+    FILE *f;
+    int64_t size;
+} wv_file_t;
+
+struct wavpack_stream {
+    wv_file_t main;
+    wv_file_t corr;
+};
+
+static int32_t wv_read(void *id, void *data, int32_t count) {
+    return (int32_t)fread(data, 1, (size_t)count, ((wv_file_t *)id)->f);
+}
+static int64_t wv_tell(void *id) { return ftello(((wv_file_t *)id)->f); }
+static int wv_seek_abs(void *id, int64_t pos) { return fseeko(((wv_file_t *)id)->f, (off_t)pos, SEEK_SET); }
+static int wv_seek_rel(void *id, int64_t delta, int mode) {
+    return fseeko(((wv_file_t *)id)->f, (off_t)delta, mode);
+}
+static int wv_push_back(void *id, int c) { return ungetc(c, ((wv_file_t *)id)->f); }
+static int64_t wv_length(void *id) { return ((wv_file_t *)id)->size; }
+static int wv_can_seek(void *id) { (void)id; return 1; }
+
+/* No write, truncate or close: the stream owns the FILEs and closes them itself. */
+static WavpackStreamReader64 wv_reader = {
+    wv_read, NULL, wv_tell, wv_seek_abs, wv_seek_rel, wv_push_back, wv_length, wv_can_seek, NULL, NULL
+};
+
+/* Correction files are small and rare, so they skip the read-ahead. */
+static void open_correction(wavpack_stream_t *s, const char *path) {
+    size_t len = strlen(path);
+    char *name = malloc(len + 2);
+    if (!name) return;
+    memcpy(name, path, len);
+    name[len] = 'c';
+    name[len + 1] = '\0';
+    s->corr.f = fopen(name, "rb");
+    free(name);
+    struct stat st;
+    if (s->corr.f && fstat(fileno(s->corr.f), &st) == 0) s->corr.size = (int64_t)st.st_size;
+}
+
+static void free_stream(wavpack_stream_t *s) {
+    if (!s) return;
+    if (s->main.f) fclose(s->main.f);
+    if (s->corr.f) fclose(s->corr.f);
+    free(s);
+}
+
+WavpackContext *wavpack_open_stream_context(FILE *f, int64_t size, const char *path, int flags,
+                                            char *error, wavpack_stream_t **out) {
+    *out = NULL;
+    if (!f) return NULL;
+    wavpack_stream_t *s = calloc(1, sizeof(*s));
+    if (!s) {
+        fclose(f);
+        return NULL;
+    }
+    s->main.f = f;
+    s->main.size = size < 0 ? 0 : size;
+    if ((flags & OPEN_WVC) && path) open_correction(s, path);
+    WavpackContext *ctx = WavpackOpenFileInputEx64(&wv_reader, &s->main, s->corr.f ? &s->corr : NULL,
+                                                   error, flags, 0);
+    if (!ctx) {
+        free_stream(s);
+        return NULL;
+    }
+    *out = s;
+    return ctx;
+}
+
+void wavpack_close_stream_context(WavpackContext *ctx, wavpack_stream_t *stream) {
+    if (ctx) WavpackCloseFile(ctx);
+    free_stream(stream);
+}
+
+static void close_open_failure(WavpackContext *context, wavpack_stream_t *stream, wavpack_decoder_t *dec) {
+    wavpack_close_stream_context(context, stream);
+    if (dec) free(dec->scratch);
+    free(dec);
+}
+
+wavpack_decoder_t *wavpack_open_stream(FILE *f, int64_t size, const char *path) {
     char error[128] = {0};
-    WavpackContext *context = WavpackOpenFileInput(path, error, WAVPACK_OPEN_FLAGS, 0);
+    wavpack_stream_t *stream;
+    WavpackContext *context = wavpack_open_stream_context(f, size, path, WAVPACK_OPEN_FLAGS, error, &stream);
     if (!context) return NULL;
 
     int channels = WavpackGetNumChannels(context);
@@ -58,27 +142,22 @@ wavpack_decoder_t *wavpack_open_file(const char *path) {
     bool is_float = (WavpackGetMode(context) & MODE_FLOAT) != 0;
     int64_t frames = WavpackGetNumSamples64(context);
     if (channels < 1 || channels > 8 || sample_rate == 0 || bits < 1 || bits > 32 || frames < 0) {
-        WavpackCloseFile(context);
+        close_open_failure(context, stream, NULL);
         return NULL;
     }
 
     wavpack_decoder_t *dec = calloc(1, sizeof(*dec));
     if (!dec) {
-        WavpackCloseFile(context);
+        close_open_failure(context, stream, NULL);
         return NULL;
     }
     size_t samples = (size_t)WAVPACK_READ_CHUNK * (size_t)channels;
-    if (samples > SIZE_MAX / sizeof(*dec->scratch)) {
-        WavpackCloseFile(context);
-        free(dec);
-        return NULL;
-    }
     dec->scratch = malloc(samples * sizeof(*dec->scratch));
     if (!dec->scratch) {
-        WavpackCloseFile(context);
-        free(dec);
+        close_open_failure(context, stream, dec);
         return NULL;
     }
+    dec->stream = stream;
     dec->context = context;
     dec->channels = (unsigned int)channels;
     dec->sample_rate = sample_rate;
@@ -169,7 +248,7 @@ bool wavpack_seek_to_pcm_frame(wavpack_decoder_t *dec, uint64_t frame) {
 
 void wavpack_close(wavpack_decoder_t *dec) {
     if (!dec) return;
-    if (dec->context) WavpackCloseFile(dec->context);
+    wavpack_close_stream_context(dec->context, dec->stream);
     free(dec->scratch);
     free(dec);
 }
