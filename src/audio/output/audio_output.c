@@ -482,6 +482,19 @@ static usb_dsd_output_t * open_usb_passthrough(unsigned card, unsigned device, u
     return direct;
 }
 
+static struct pcm * open_local_pcm(struct pcm_config * config) {
+    struct pcm * pcm = pcm_open(ALSA_CARD, ALSA_DEVICE, PCM_OUT, config);
+    if ((!pcm || !pcm_is_ready(pcm)) && config->period_size == 16384) {
+        if (pcm) pcm_close(pcm);
+        /* Other boards may reject the larger buffer verified on the R1. */
+        config->period_size = 8192;
+        config->start_threshold = config->period_size * config->period_count;
+        config->stop_threshold = config->period_size * config->period_count;
+        pcm = pcm_open(ALSA_CARD, ALSA_DEVICE, PCM_OUT, config);
+    }
+    return pcm;
+}
+
 static bool open_device(unsigned int channels, unsigned int sample_rate, bool low_latency, bool want_s24,
                         bool dop, output_target_t target, const char * usb_device, int usb_mode) {
     if (target == OUTPUT_TARGET_USB) {
@@ -564,14 +577,16 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
              * every standard rate 44.1kHz-384kHz and both S16_LE/S24_LE on a
              * real R1 -- period_count 2 and 3 failed hw_params (EINVAL) in
              * every single case; only 4 ever worked. Only period_size is
-             * scaled here, using values that same probe already confirmed
-             * negotiate successfully at every rate. */
+             * scaled here. Above 192kHz, 16384 x 4 was verified on the R1;
+             * other boards fall back to 8192 if the larger buffer fails. */
             if (sample_rate <= 48000) {
                 config.period_size = 2048;  /* ~186ms @ 44.1kHz, ~171ms @ 48kHz */
             } else if (sample_rate <= 96000) {
                 config.period_size = 4096;  /* ~171ms @ 88.2/96kHz */
+            } else if (sample_rate <= 192000) {
+                config.period_size = 8192;  /* ~186ms @ 176.4kHz, ~171ms @ 192kHz */
             } else {
-                config.period_size = 8192;  /* ~171ms @ 176.4/192kHz, ~85ms @ 352.8/384kHz (best available -- period_size 16384 was not part of the validated sweep) */
+                config.period_size = 16384; /* ~186ms @ 352.8kHz, ~171ms @ 384kHz */
             }
             config.period_count = 4;
         }
@@ -590,7 +605,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
             return false;
         }
 #endif
-        alsa_pcm = pcm_open(ALSA_CARD, ALSA_DEVICE, PCM_OUT, &config);
+        alsa_pcm = open_local_pcm(&config);
         if (!alsa_pcm || !pcm_is_ready(alsa_pcm)) {
             DBG_LOG("audio_output: pcm_open failed (format=%d): %s\n", (int) config.format,
                     alsa_pcm ? pcm_get_error(alsa_pcm) : "unknown");
@@ -619,7 +634,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
             pthread_mutex_lock(&state_mutex);
             active_format = config.format;
             pthread_mutex_unlock(&state_mutex);
-            alsa_pcm = pcm_open(ALSA_CARD, ALSA_DEVICE, PCM_OUT, &config);
+            alsa_pcm = open_local_pcm(&config);
             if (!alsa_pcm || !pcm_is_ready(alsa_pcm)) {
                 DBG_LOG("audio_output: S16_LE fallback also failed: %s\n",
                         alsa_pcm ? pcm_get_error(alsa_pcm) : "unknown");
