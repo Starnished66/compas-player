@@ -46,6 +46,7 @@
 
 #include "audio_helpers.h"
 #include "../../core/system/logging/debug_log.h"
+#include "../../core/system/logging/db_log.h"
 #include "../../core/persistence/storage_paths.h"
 
 #ifdef HOST_BUILD
@@ -2689,27 +2690,32 @@ static void session_play_track(playback_session_t * s) {
     }
 }
 
+#ifndef SCHED_RESET_ON_FORK
+#define SCHED_RESET_ON_FORK 0x40000000 /* glibc hides it without _GNU_SOURCE */
+#endif
+
+/* SCHED_FIFO 45, below the kernel's IRQ threads (50). Under memory pressure
+ * the kernel woke a nice -15 thread too late for the ALSA buffer: on the R1
+ * the 32/384 WAV stall test went from 11-18 underruns to 0. A busy loop here
+ * cannot starve normal threads completely: the kernel keeps 5% of each second
+ * for them (sched_rt_runtime_us). Locks it shares with the UI are no worse
+ * than at nice -15, since waiting for a lock was never helped by priority.
+ * Threads and processes it starts begin at normal priority (RESET_ON_FORK);
+ * HTTP connects drop real-time themselves (http_stream.c open_response).
+ * When real-time is refused (unprivileged host build) nice -15 stays, if
+ * allowed. */
+static void raise_audio_thread_priority(void) {
+    (void) nice(-15);
+    struct sched_param param = { .sched_priority = 45 };
+    int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO | SCHED_RESET_ON_FORK, &param);
+    if (rc != 0) DB_LOG("audio", "real-time priority refused (%s), staying at nice -15", strerror(rc));
+}
+
 static void * audio_thread_func(void * arg) {
     (void) arg;
     set_worker_thread_name("audio");
     install_thread_crash_altstack(); /* see its own comment (main.c) */
-    /* A modest priority boost, not full SCHED_FIFO: real-time scheduling
-     * would risk priority inversion against audio_mutex (also taken by the
-     * UI thread for format/volume reads), which could make things worse
-     * under contention rather than better. nice(-15) makes this thread win
-     * CFS scheduling contests against normal-priority UI/decode work (about
-     * 97% of the core against one nice-0 task, where -5 gave about 75%, not
-     * enough for 24/192 with MSEB under load). It sleeps whenever the ALSA
-     * buffer is full, so it only takes the core while it is behind
-     * (library scans/MP3 indexing already deliberately lower their own
-     * priority the same way, see mp3_index_worker's nice(10) in audio_mp3_index.c) without
-     * that inversion risk. Best-effort: fails silently without CAP_SYS_NICE
-     * (e.g. an unprivileged host dev build), leaving the thread at its
-     * inherited default priority. Matters most at high sample rates, where
-     * the ALSA buffer covers less wall-clock time and a UI-caused scheduling
-     * delay is more likely to outlast it -- see open_device()'s own comment
-     * on why period_size is now rate-scaled for the same reason. */
-    (void) nice(-15);
+    raise_audio_thread_priority();
 
     playback_session_t session = {
         .tempo_rate = 1.0,

@@ -15,6 +15,7 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -281,6 +282,9 @@ static bool spawn_aplay(const char * device, unsigned int channels, unsigned int
         DBG_LOG("audio_output: failed to spawn aplay for '%s' output\n", device);
         return false;
     }
+    /* It feeds the device, so it runs where the audio thread ran before it
+     * went real-time; the thread's children start at nice 0 (RESET_ON_FORK). */
+    (void) setpriority(PRIO_PROCESS, (id_t) *out_pid, -15);
     int flags = fcntl(*out_fd, F_GETFL, 0);
     if (flags < 0 || fcntl(*out_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
         subprocess_terminate(*out_pid);

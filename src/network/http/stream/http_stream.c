@@ -324,13 +324,22 @@ fail:
     return false;
 }
 
-/* Every connect and TLS handshake goes through here. The audio thread runs at
- * nice -15 and opens streams and seek reconnects itself; at that priority a
- * handshake would starve the UI, so it runs at normal priority and the
- * caller's priority is restored afterwards. Callers at 0 or above are untouched. */
+/* Every connect and TLS handshake goes through here. The audio thread runs
+ * real-time (nice -15 as its fallback) and opens streams and seek reconnects
+ * itself; at that priority a handshake would starve the UI, so it runs at
+ * normal priority and the caller's priority is restored afterwards. Callers
+ * at 0 or above are untouched. */
 static bool open_response(const char * url, bool verify_tls, int redirects_left,
                           bool range, uint64_t offset, const char * if_range, bool request_icy,
                           http_cancel_token_t * cancel, uint64_t deadline_ms, response_t * r) {
+    int policy;
+    struct sched_param rt_param;
+    bool left_rt = pthread_getschedparam(pthread_self(), &policy, &rt_param) == 0 &&
+                   (policy & ~SCHED_RESET_ON_FORK) != SCHED_OTHER;
+    if (left_rt) {
+        struct sched_param normal = { .sched_priority = 0 };
+        left_rt = pthread_setschedparam(pthread_self(), SCHED_OTHER, &normal) == 0;
+    }
     errno = 0;
     int caller_nice = getpriority(PRIO_PROCESS, 0);
     bool lowered = errno == 0 && caller_nice < 0;
@@ -338,6 +347,7 @@ static bool open_response(const char * url, bool verify_tls, int redirects_left,
     bool ok = open_response_raw(url, verify_tls, redirects_left, range, offset, if_range,
                                 request_icy, cancel, deadline_ms, r);
     if (lowered) worker_raise_priority(caller_nice);
+    if (left_rt) (void) pthread_setschedparam(pthread_self(), policy, &rt_param);
     return ok;
 }
 
