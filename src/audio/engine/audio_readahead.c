@@ -5,6 +5,10 @@
  * the lock and publishes by moving w_end. The audio thread copies out under
  * the lock (short memcpy, never I/O). Everything else about the claimed
  * reader is the FILE the reader was opened with, used as the fallback. */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#define _FILE_OFFSET_BITS 64
 #include "audio_readahead.h"
 
 #include "../../core/system/logging/db_log.h"
@@ -18,6 +22,7 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
 #ifdef __linux__
@@ -34,11 +39,14 @@
 
 enum {
     RA_FIRST_BLOCK = 16 * 1024,   /* first read after a reset costs one small read, as a seek does today */
-    RA_BLOCK = 32 * 1024,
-    RA_MIN_FETCH = 16 * 1024,     /* do not wake for less free space than this */
+    RA_BLOCK = 32 * 1024,         /* smallest fetch block, and the one for an unknown rate */
+    RA_MAX_BLOCK = 1024 * 1024,
     RA_STACK = 64 * 1024,
     RA_IDLE_FREE_MS = 5000,       /* unclaimed this long: give the window back */
     RA_FETCHER_NICE = -15,        /* the audio thread's level; set absolutely */
+    RA_IOPRIO_CLASS_SHIFT = 13,
+    RA_IOPRIO_CLASS_BE = 2,
+    RA_IOPRIO_WHO_PROCESS = 1,
 };
 
 struct ra_reader {
@@ -48,6 +56,7 @@ struct ra_reader {
     int64_t file_pos;   /* where the FILE is, -1 when unknown */
     bool claim_done;    /* ra_claim() was decided for this reader, once */
     bool windowed;      /* it may own the window */
+    bool err;           /* the last read stopped on a read error, not on the end of the file */
 };
 
 static struct {
@@ -62,6 +71,8 @@ static struct {
     bool in_pread;          /* the fetcher is inside pread on g.fd */
     int64_t size;
     size_t want_cap;
+    int64_t want_block;     /* fetch block for the claimed rate */
+    int64_t block;          /* the window's fetch block */
     bool ready;             /* window set up for the current owner */
     uint8_t * buf;
     size_t cap;
@@ -97,7 +108,7 @@ static ra_job_t job_locked(void) {
     int64_t space = floor_locked(pos) + (int64_t) g.cap - g.w_end;
     int64_t rem = limit_locked() - g.w_end;
     if (rem <= 0) return JOB_NONE;
-    return space >= RA_MIN_FETCH || space >= rem ? JOB_FETCH : JOB_NONE;
+    return space >= g.block || space >= rem ? JOB_FETCH : JOB_NONE;
 }
 
 static void kick_locked(void) {
@@ -107,7 +118,18 @@ static void kick_locked(void) {
 static size_t class_for(uint64_t bytes_per_second) {
     uint64_t want = bytes_per_second * 2;
     if (bytes_per_second == 0) return 1024 * 1024;
-    return want <= 512 * 1024 ? 512 * 1024 : want <= 1024 * 1024 ? 1024 * 1024 : 2048 * 1024;
+    /* 4 MiB only for DSD128 and up or very high-rate PCM: 24/192 stereo stays at 2 MiB. */
+    return want <= 512 * 1024 ? 512 * 1024 : want <= 1024 * 1024 ? 1024 * 1024
+         : want <= 2560 * 1024 ? 2048 * 1024 : 4096 * 1024;
+}
+
+/* One pread is about a quarter second of content, in 32 KiB steps: the I/O
+ * scheduler shares the card per request, so a bigger request gets a bigger
+ * share against other readers' large readahead. */
+static int64_t block_for(uint64_t bytes_per_second) {
+    if (bytes_per_second == 0) return RA_BLOCK;
+    uint64_t block = (bytes_per_second / 4 + RA_BLOCK - 1) / RA_BLOCK * RA_BLOCK;
+    return block < RA_BLOCK ? RA_BLOCK : block > RA_MAX_BLOCK ? RA_MAX_BLOCK : (int64_t) block;
 }
 
 /* --- fetcher --- */
@@ -142,6 +164,7 @@ static void resize_buffer_locked(void) {
 static void prepare_window_locked(void) {
     while (g.owner && g.cap != g.want_cap) resize_buffer_locked();
     if (!g.owner) return;
+    g.block = g.want_block;
     g.w_start = g.w_end = g.owner->pos;
     g.fail_end = -1;
     g.fresh = true;
@@ -201,7 +224,7 @@ static void fetch_once_locked(ra_job_t job) {
     int64_t space = g.w_start + (int64_t) g.cap - off;
     int64_t rem = limit_locked() - off;
     size_t idx = (size_t) (off % (int64_t) g.cap);
-    int64_t n = g.fresh ? RA_FIRST_BLOCK : RA_BLOCK;
+    int64_t n = g.fresh ? RA_FIRST_BLOCK : g.block;
     if (n > space) n = space;
     if (n > rem) n = rem;
     if (n > (int64_t) (g.cap - idx)) n = (int64_t) (g.cap - idx);
@@ -236,6 +259,13 @@ static void * fetcher_main(void * unused) {
     (void) prctl(PR_SET_NAME, "readahead", 0, 0, 0);
 #endif
     (void) setpriority(PRIO_PROCESS, 0, RA_FETCHER_NICE);
+#ifdef SYS_ioprio_set
+    /* Highest best-effort I/O level (0): CFQ favours it over normal readers and
+     * writers. Not the real-time class, which would also put the audio thread's
+     * own direct reads (crossfade into an uncached track, A/B) behind it; on the
+     * R1 best-effort 0 measured better under contention anyway. Best effort. */
+    (void) syscall(SYS_ioprio_set, RA_IOPRIO_WHO_PROCESS, 0, (RA_IOPRIO_CLASS_BE << RA_IOPRIO_CLASS_SHIFT) | 0);
+#endif
     pthread_mutex_lock(&g.lock);
     for (;;) {
         int stale = retire_fd_locked();
@@ -327,6 +357,7 @@ void ra_claim(ra_reader_t * r, uint64_t bytes_per_second) {
     g.ready = false;
     g.size = r->size;
     g.want_cap = class_for(bytes_per_second);
+    g.want_block = block_for(bytes_per_second);
     r->windowed = true;
     pthread_cond_signal(&g.cond);
     pthread_mutex_unlock(&g.lock);
@@ -365,12 +396,14 @@ static size_t direct_read(ra_reader_t * r, uint8_t * dst, size_t bytes) {
         r->file_pos = r->pos;
     }
     size_t got = fread(dst, 1, bytes, r->file);
+    if (got < bytes && ferror(r->file)) { r->err = true; clearerr(r->file); }
     r->file_pos = got == bytes ? r->pos + (int64_t) got : -1;
     set_pos(r, r->pos + (int64_t) got);
     return got;
 }
 
 size_t ra_read(ra_reader_t * r, void * buffer, size_t bytes) {
+    r->err = false;
     size_t got = r->windowed ? window_copy(r, buffer, bytes) : 0;
     if (got < bytes) got += direct_read(r, (uint8_t *) buffer + got, bytes - got);
     return got;
@@ -385,11 +418,35 @@ int ra_seek(ra_reader_t * r, int64_t offset, int whence) {
         default: errno = EINVAL; return -1;
     }
     if (__builtin_add_overflow(base, offset, &target) || target < 0) { errno = EINVAL; return -1; }
+    if (target == r->pos) return 0; /* an ftello: the FILE stays where it is */
     r->file_pos = -1;
     set_pos(r, target);
     return 0;
 }
 
-#ifdef RA_TEST_HOOK
 int64_t ra_tell(const ra_reader_t * r) { return r->pos; }
-#endif
+
+int ra_error(const ra_reader_t * r) { return r->err; }
+
+/* --- stdio view --- */
+
+/* Read: 0 only at the end of the file, -1 on a read error, so ferror and feof
+ * on the FILE say what they would on a plain one. */
+static ssize_t cookie_read(void * cookie, char * buffer, size_t bytes) {
+    ra_reader_t * r = cookie;
+    size_t got = ra_read(r, buffer, bytes);
+    return got == 0 && bytes > 0 && ra_error(r) ? -1 : (ssize_t) got;
+}
+
+static int cookie_seek(void * cookie, off_t * offset, int whence) {
+    ra_reader_t * r = cookie;
+    if (ra_seek(r, *offset, whence) != 0) return -1;
+    *offset = (off_t) ra_tell(r);
+    return 0;
+}
+
+/* The reader outlives the FILE: the owner closes the reader after fclose. */
+FILE * ra_as_file(ra_reader_t * r) {
+    cookie_io_functions_t io = { .read = cookie_read, .seek = cookie_seek };
+    return fopencookie(r, "rb", io);
+}

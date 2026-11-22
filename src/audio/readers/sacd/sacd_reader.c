@@ -9,7 +9,6 @@
 #include "../../../library/sacd/sacd_iso.h"
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
 #define SECTOR_BYTES 2048u
 #define FRAME_BYTES DST_MAX_FRAME_BYTES
@@ -189,9 +188,9 @@ void sacd_reader_close(sacd_reader_t *r) {
 unsigned sacd_reader_channels(const sacd_reader_t *r) { return r ? r->channels : 0; }
 bool sacd_reader_is_dst(const sacd_reader_t *r) { return r && r->dst; }
 
-sacd_reader_t *sacd_reader_open(FILE *f, uint64_t *samples) {
+sacd_reader_t *sacd_reader_open(FILE *f, uint64_t file_size, uint64_t *samples) {
     sacd_area_t area;
-    if (!sacd_read_area(f, &area)) return NULL;
+    if (!sacd_read_area(f, file_size, &area)) return NULL;
     sacd_reader_t *r = calloc(1, sizeof(*r));
     if (!r) return NULL;
     r->f = f;
@@ -238,14 +237,12 @@ static bool dff_load_index(FILE *f, uint64_t start, uint64_t end, uint64_t index
     return true;
 }
 
-sacd_reader_t *sacd_reader_open_dff(FILE *f, uint64_t start, uint64_t size,
+sacd_reader_t *sacd_reader_open_dff(FILE *f, uint64_t file_size, uint64_t start, uint64_t size,
                                     unsigned channels, uint64_t index_start, uint64_t index_size,
                                     uint64_t *samples) {
-    struct stat st;
     if (!f || !samples || channels < 2 || channels > DST_MAX_CHANNELS ||
-        fstat(fileno(f), &st) != 0 || st.st_size < 0 ||
-        start > (uint64_t)st.st_size || size > (uint64_t)st.st_size - start ||
-        index_start > (uint64_t)st.st_size || index_size > (uint64_t)st.st_size - index_start)
+        start > file_size || size > file_size - start ||
+        index_start > file_size || index_size > file_size - index_start)
         return NULL;
     uint64_t end = start + size, offset = start;
     uint32_t frame_count = 0;

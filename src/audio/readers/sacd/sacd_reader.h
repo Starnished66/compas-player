@@ -6,8 +6,8 @@
 
 typedef struct sacd_reader sacd_reader_t;
 /* Borrows f; returns DSD sample count per channel. */
-sacd_reader_t *sacd_reader_open(FILE *f, uint64_t *samples);
-sacd_reader_t *sacd_reader_open_dff(FILE *f, uint64_t start, uint64_t size,
+sacd_reader_t *sacd_reader_open(FILE *f, uint64_t file_size, uint64_t *samples);
+sacd_reader_t *sacd_reader_open_dff(FILE *f, uint64_t file_size, uint64_t start, uint64_t size,
                                     unsigned channels, uint64_t index_start, uint64_t index_size,
                                     uint64_t *samples);
 unsigned sacd_reader_channels(const sacd_reader_t *reader);

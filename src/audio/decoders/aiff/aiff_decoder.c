@@ -44,9 +44,7 @@ static double read_ieee80_extended(const uint8_t bytes[10]) {
     return sign * value;
 }
 
-aiff_decoder_t * aiff_open_file(const char * path) {
-    if (!path) return NULL;
-    FILE * f = fopen(path, "rb");
+aiff_decoder_t * aiff_open_stream(FILE * f) {
     if (!f) return NULL;
 
     uint8_t header[12];

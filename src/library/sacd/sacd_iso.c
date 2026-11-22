@@ -127,15 +127,13 @@ static uint32_t select_area(FILE *file, uint64_t file_size, const uint8_t *maste
     return 0;
 }
 
-bool sacd_read_area(FILE *file, sacd_area_t *out) {
+bool sacd_read_area(FILE *file, uint64_t file_size, sacd_area_t *out) {
     if (!file || !out) return false;
     memset(out, 0, sizeof(*out));
-    struct stat st;
-    if (fstat(fileno(file), &st) != 0 || st.st_size < 0) return false;
     uint8_t master[SACD_SECTOR_SIZE], area[SACD_SECTOR_SIZE];
-    if (!read_sector(file, (uint64_t)st.st_size, SACD_MASTER_SECTOR, master) ||
+    if (!read_sector(file, file_size, SACD_MASTER_SECTOR, master) ||
         memcmp(master, "SACDMTOC", 8) != 0 || master[8] > 1 || master[9] > 20 ||
-        !select_area(file, (uint64_t)st.st_size, master, out, area)) {
+        !select_area(file, file_size, master, out, area)) {
         memset(out, 0, sizeof(*out));
         return false;
     }

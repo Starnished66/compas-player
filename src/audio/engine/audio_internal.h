@@ -107,9 +107,9 @@ typedef struct {
      * promotes the next track (cur_dec = nxt_dec). */
     struct net_mp3_reader * net_mp3;
 
-    /* Local FLAC callback stream. dr_flac has no relaxed file convenience
-     * wrapper, so keep the reader alive for the decoder lifetime. The audio
-     * thread claims it for read-ahead while this decoder is the current one. */
+    /* The local file of a FLAC, WAV, AIFF or DSD decoder, kept for the decoder
+     * lifetime. The audio thread claims it for read-ahead while this decoder
+     * is the current one. */
     ra_reader_t * reader;
 
     /* CUE tracks expose a bounded, track-relative timeline over the source

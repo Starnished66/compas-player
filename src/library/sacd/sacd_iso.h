@@ -36,8 +36,10 @@ typedef struct {
     char artist[128];
 } sacd_toc_t;
 
-/* Prefers the stereo area, then selects a supported multichannel area. */
-bool sacd_read_area(FILE *file, sacd_area_t *out);
+/* Prefers the stereo area, then selects a supported multichannel area.
+ * file_size is the file's length, which a FILE that is not a plain file
+ * cannot report through fileno. */
+bool sacd_read_area(FILE *file, uint64_t file_size, sacd_area_t *out);
 /* Reads the selected SACD area TOC and per-track metadata. Does not close FILE. */
 bool sacd_read_toc(FILE *file, sacd_toc_t *out);
 

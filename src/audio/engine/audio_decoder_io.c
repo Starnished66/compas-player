@@ -241,10 +241,21 @@ bool decoder_supports_sample_accurate_loop(const decoder_t * dec) {
 
 void decoder_claim_readahead(decoder_t * dec) {
     if (!dec->reader || ra_is_claimed(dec->reader)) return;
-    /* The file's own frame count: a CUE track's total_frames is only its part. */
-    uint64_t frames = dec->as.flac ? dec->as.flac->totalPCMFrameCount : 0;
-    uint64_t rate = frames ? (uint64_t) ra_size(dec->reader) * dec->sample_rate / frames : 0;
-    ra_claim(dec->reader, rate);
+    /* The file's own frame count and rate: a CUE track's total_frames is only
+     * its part. DSD is the raw bit rate: an ISO holds more than the one area. */
+    uint64_t frames = 0, sample_rate = dec->sample_rate;
+    switch (dec->type) {
+        case DECODER_FLAC: if (dec->as.flac) frames = dec->as.flac->totalPCMFrameCount; break;
+        case DECODER_WAV: if (dec->as.wav) frames = dec->as.wav->totalPCMFrameCount; break;
+        case DECODER_AIFF: if (dec->as.aiff) frames = aiff_get_total_pcm_frame_count(dec->as.aiff); break;
+        case DECODER_DSD:
+            if (dec->as.dsd)
+                ra_claim(dec->reader, (uint64_t) dsd_get_source_channels(dec->as.dsd) *
+                                      dsd_get_source_sample_rate(dec->as.dsd) / 8);
+            return;
+        default: break;
+    }
+    ra_claim(dec->reader, frames ? (uint64_t) ra_size(dec->reader) * sample_rate / frames : 0);
 }
 
 /* Every branch nulls the union member it just freed, making this safe to
@@ -264,7 +275,6 @@ void decoder_close(decoder_t * dec) {
     switch (dec->type) {
         case DECODER_FLAC:
             if (dec->as.flac) { drflac_close(dec->as.flac); dec->as.flac = NULL; }
-            if (dec->reader) { ra_close(dec->reader); dec->reader = NULL; }
             if (dec->net_stream) { http_stream_close(dec->net_stream); dec->net_stream = NULL; }
             break;
         case DECODER_MP3:
@@ -318,6 +328,8 @@ void decoder_close(decoder_t * dec) {
             if (dec->as.vorbis) { vorbis_close(dec->as.vorbis); dec->as.vorbis = NULL; }
             break;
     }
+    /* After the decoder: its FILE view sits on the reader. */
+    if (dec->reader) { ra_close(dec->reader); dec->reader = NULL; }
 }
 
 /* Closes and reopens a local decoder at last_confirmed_frame.

@@ -1,6 +1,7 @@
 #ifndef AUDIO_READAHEAD_H
 #define AUDIO_READAHEAD_H
 
+#include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -24,6 +25,15 @@ size_t ra_read(ra_reader_t * reader, void * buffer, size_t bytes);
 /* 0 on success, -1 on failure with the position unchanged. */
 int ra_seek(ra_reader_t * reader, int64_t offset, int whence);
 int64_t ra_size(const ra_reader_t * reader);
+int64_t ra_tell(const ra_reader_t * reader);
+/* Whether the last ra_read stopped short on a read error rather than the end
+ * of the file. */
+int ra_error(const ra_reader_t * reader);
+
+/* A buffered stdio view of the reader for decoders written against FILE.
+ * Seeks are 64-bit, fileno() does not work on it (use ra_size). fclose it
+ * before ra_close; fclose does not close the reader. NULL on failure. */
+FILE * ra_as_file(ra_reader_t * reader);
 
 /* Makes this the one reader the fetcher serves, sized for bytes_per_second
  * of content. Posts a request and returns; harmless to repeat. */
@@ -32,7 +42,6 @@ int ra_is_claimed(const ra_reader_t * reader);
 
 #ifdef RA_TEST_HOOK
 extern uint64_t ra_test_window_bytes;
-int64_t ra_tell(const ra_reader_t * reader);
 /* Replaces pread in the fetcher. */
 extern ssize_t ra_test_pread(int fd, void * buf, size_t count, off_t offset);
 /* Replaces malloc for the window buffer. */

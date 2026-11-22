@@ -214,6 +214,37 @@ static size_t flac_file_read_cb(void * user_data, void * buffer_out, size_t byte
     return ra_read((ra_reader_t *) user_data, buffer_out, bytes_to_read);
 }
 
+static size_t wav_read_cb(void * user_data, void * buffer_out, size_t bytes_to_read) {
+    return ra_read((ra_reader_t *) user_data, buffer_out, bytes_to_read);
+}
+
+static drwav_bool32 wav_seek_cb(void * user_data, int offset, drwav_seek_origin origin) {
+    int whence = origin == DRWAV_SEEK_SET ? SEEK_SET
+               : origin == DRWAV_SEEK_END ? SEEK_END : SEEK_CUR;
+    return ra_seek((ra_reader_t *) user_data, offset, whence) == 0 ? DRWAV_TRUE : DRWAV_FALSE;
+}
+
+static drwav_bool32 wav_tell_cb(void * user_data, drwav_int64 * cursor) {
+    *cursor = ra_tell((ra_reader_t *) user_data);
+    return DRWAV_TRUE;
+}
+
+/* Opens path as a reader that the engine owns (decoder_close closes it after
+ * the decoder) and returns a stdio view for decoders written against FILE; the
+ * decoder closes that. NULL on failure with no reader left. */
+static FILE * open_reader_file(decoder_t * dec, const char * path) {
+    dec->reader = ra_open(path);
+    if (!dec->reader) return NULL;
+    FILE * f = ra_as_file(dec->reader);
+    if (!f) { ra_close(dec->reader); dec->reader = NULL; }
+    return f;
+}
+
+static void drop_reader(decoder_t * dec) {
+    ra_close(dec->reader);
+    dec->reader = NULL;
+}
+
 /* Remote current-open policy needs a generation/path snapshot; definitions
  * live with the rest of playback state in audio.c. */
 
@@ -564,9 +595,11 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
         strcasecmp(ext, ".w64") == 0) {
         dec->type = DECODER_WAV;
         dec->as.wav = malloc(sizeof(drwav));
-        if (!dec->as.wav || !drwav_init_file(dec->as.wav, path, NULL)) {
+        dec->reader = dec->as.wav ? ra_open(path) : NULL;
+        if (!dec->reader || !drwav_init(dec->as.wav, wav_read_cb, wav_seek_cb, wav_tell_cb, dec->reader, NULL)) {
             free(dec->as.wav);
             dec->as.wav = NULL;
+            if (dec->reader) drop_reader(dec);
             return false;
         }
         dec->channels = dec->as.wav->channels;
@@ -580,8 +613,11 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
     if (strcasecmp(ext, ".aiff") == 0 || strcasecmp(ext, ".aif") == 0 ||
         strcasecmp(ext, ".aifc") == 0) {
         dec->type = DECODER_AIFF;
-        dec->as.aiff = aiff_open_file(path);
-        if (!dec->as.aiff) return false;
+        dec->as.aiff = aiff_open_stream(open_reader_file(dec, path));
+        if (!dec->as.aiff) {
+            if (dec->reader) drop_reader(dec);
+            return false;
+        }
         dec->channels = aiff_get_channels(dec->as.aiff);
         dec->sample_rate = aiff_get_sample_rate(dec->as.aiff);
         dec->source_sample_rate = dec->sample_rate;
@@ -595,10 +631,18 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
     if (strcasecmp(ext, ".dsf") == 0 || strcasecmp(ext, ".dff") == 0 || strcasecmp(ext, ".iso") == 0 ||
         strcasecmp(ext, ".wv") == 0) {
         dec->type = DECODER_DSD;
-        dec->as.dsd = dsd_open_file(path);
-        if (!dec->as.dsd) {
-            if (strcasecmp(ext, ".wv") != 0) return false;
+        bool is_wv = strcasecmp(ext, ".wv") == 0; /* WavPack opens by name, unclaimed */
+        if (is_wv) {
+            dec->as.dsd = dsd_open_file(path);
         } else {
+            FILE * f = open_reader_file(dec, path);
+            dec->as.dsd = dsd_open_stream(f, dec->reader ? ra_size(dec->reader) : 0, path);
+        }
+        if (dec->reader && !dec->as.dsd) drop_reader(dec);
+        if (!dec->as.dsd) {
+            if (!is_wv) return false;
+        } else {
+            if (dec->reader && !dsd_reads_stream(dec->as.dsd)) drop_reader(dec);
             dec->channels = dsd_get_channels(dec->as.dsd);
             dec->sample_rate = dsd_get_pcm_sample_rate(dec->as.dsd); /* decimated PCM rate, not the raw DSD rate */
             dec->source_sample_rate = dsd_get_source_sample_rate(dec->as.dsd);

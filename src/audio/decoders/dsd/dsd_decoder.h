@@ -2,6 +2,7 @@
 #define DSD_DECODER_H
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 
 /* DSF (Sony DSD Stream File), DFF (Philips DSDIFF), native DSD WavPack,
@@ -20,11 +21,19 @@
 typedef struct dsd_decoder dsd_decoder_t;
 
 dsd_decoder_t * dsd_open_file(const char * path);
+/* The same over a FILE the decoder owns from here on (dsd_close and a failed
+ * open both fclose it), with the file's length: fileno() may not work on f.
+ * path is only for DSD in WavPack, which opens by name. */
+dsd_decoder_t * dsd_open_stream(FILE * f, int64_t file_size, const char * path);
+/* False for DSD in WavPack, which does not read through the FILE it was given. */
+bool dsd_reads_stream(const dsd_decoder_t * dec);
 
 unsigned int dsd_get_channels(const dsd_decoder_t * dec);
 /* Channels the DST decompressor runs on, 0 for uncompressed DSD. */
 unsigned int dsd_get_dst_channels(const dsd_decoder_t * dec);
 unsigned int dsd_get_source_sample_rate(const dsd_decoder_t * dec);
+/* Channels stored in the file, whatever the output downmix. */
+unsigned int dsd_get_source_channels(const dsd_decoder_t * dec);
 unsigned int dsd_get_pcm_sample_rate(const dsd_decoder_t * dec);
 uint64_t dsd_get_total_pcm_frame_count(const dsd_decoder_t * dec);
 

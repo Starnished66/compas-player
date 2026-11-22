@@ -2,6 +2,7 @@
 #define AIFF_DECODER_H
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 
 /* Minimal AIFF/AIFF-C reader (big-endian PCM container). No dr_libs
@@ -15,7 +16,9 @@
 
 typedef struct aiff_decoder aiff_decoder_t;
 
-aiff_decoder_t * aiff_open_file(const char * path);
+/* Reads the file from f, which the decoder owns from here on: aiff_close and a
+ * failed open both fclose it. */
+aiff_decoder_t * aiff_open_stream(FILE * f);
 
 unsigned int aiff_get_channels(const aiff_decoder_t * dec);
 unsigned int aiff_get_sample_rate(const aiff_decoder_t * dec);

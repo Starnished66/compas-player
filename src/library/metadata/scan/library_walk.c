@@ -36,7 +36,9 @@ static bool is_sacd_iso_path(const char * path) {
     FILE *file = fopen(path, "rb");
     if (!file) return false;
     sacd_area_t area;
-    bool ok = sacd_read_area(file, &area);
+    struct stat st;
+    bool ok = fstat(fileno(file), &st) == 0 && st.st_size >= 0 &&
+              sacd_read_area(file, (uint64_t) st.st_size, &area);
     fclose(file);
     return ok;
 }

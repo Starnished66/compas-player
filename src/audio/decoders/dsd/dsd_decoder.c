@@ -113,10 +113,9 @@ static bool finish_setup(dsd_decoder_t * dec, uint64_t total_dsd_samples_per_cha
 /* Bytes present in the file from `start`, so a declared chunk longer than
  * the file (a truncated copy) gives its real length at open and every
  * cached duration is right from the first frame. */
-static uint64_t bytes_present_from(FILE * f, off_t start) {
-    struct stat st;
-    if (start < 0 || fstat(fileno(f), &st) != 0 || st.st_size <= start) return 0;
-    return (uint64_t) (st.st_size - start);
+static uint64_t bytes_present_from(int64_t file_size, off_t start) {
+    if (start < 0 || file_size <= start) return 0;
+    return (uint64_t) (file_size - start);
 }
 
 static void free_decoder(dsd_decoder_t * dec) {
@@ -163,7 +162,7 @@ static dsd_decoder_t * open_wavpack(const char * path) {
     return dec;
 }
 
-static dsd_decoder_t * open_dsf(FILE * f) {
+static dsd_decoder_t * open_dsf(FILE * f, int64_t file_size) {
     /* "DSD " chunk: magic(4) + chunkSize u64LE(8, =28) + totalFileSize u64LE(8) + metadataPointer u64LE(8).
      * The caller only peeked at the magic and rewound, so it's still unread here. */
     uint8_t dsd_chunk[28];
@@ -200,7 +199,7 @@ static dsd_decoder_t * open_dsf(FILE * f) {
      * is whole multi-channel blocks; a short last block holds rows for every
      * channel only past the other channels' full segments. */
     uint64_t payload = data_chunk_size - 12, stride = (uint64_t) channels * block_size;
-    uint64_t present = bytes_present_from(f, ftello(f));
+    uint64_t present = bytes_present_from(file_size, ftello(f));
     if (payload > present) payload = present;
     uint64_t tail = payload % stride, last_channel = (uint64_t) (channels - 1) * block_size;
     uint64_t tail_rows = tail > last_channel ? tail - last_channel : 0;
@@ -278,7 +277,7 @@ static void setup_downmix(dsd_decoder_t *dec, float mix[2][DSD_MAX_CHANNELS]) {
             dec->downmix[out][ch] = mix[out][ch] / 2.41421356f;
 }
 
-static dsd_decoder_t * open_dff(FILE * f) {
+static dsd_decoder_t * open_dff(FILE * f, int64_t file_size) {
     /* "FRM8" master chunk: magic(4) + size u64BE(8) + formType(4, "DSD ").
      * The caller only peeked at the magic and rewound, so it's still unread here. */
     char frm8_id[5];
@@ -286,7 +285,7 @@ static dsd_decoder_t * open_dff(FILE * f) {
     if (!dff_read_chunk_header(f, frm8_id, &frm8_size)) return NULL;
     if (strcmp(frm8_id, "FRM8") != 0 || frm8_size < 4 || frm8_size > (uint64_t) INT64_MAX - 12) return NULL;
     off_t frm8_end = 12 + (off_t) frm8_size;
-    uint64_t available = bytes_present_from(f, 0);
+    uint64_t available = bytes_present_from(file_size, 0);
     if ((uint64_t)frm8_end > available) frm8_end = (off_t)available;
 
     uint8_t form_type[4];
@@ -372,12 +371,12 @@ static dsd_decoder_t * open_dff(FILE * f) {
     dec->dsd_sample_rate = sample_rate;
     dec->data_start_offset = data_start_offset;
 
-    uint64_t present = bytes_present_from(f, data_start_offset);
+    uint64_t present = bytes_present_from(file_size, data_start_offset);
     if (data_size > present) data_size = present;
     uint64_t total_samples_per_channel = (data_size / channels) * 8;
     setup_downmix(dec, mix);
     if (compressed && sample_rate == 2822400)
-        dec->sacd = sacd_reader_open_dff(f, (uint64_t)data_start_offset, data_size, channels, index_start, index_size, &total_samples_per_channel);
+        dec->sacd = sacd_reader_open_dff(f, (uint64_t) file_size, (uint64_t)data_start_offset, data_size, channels, index_start, index_size, &total_samples_per_channel);
     if ((compressed && !dec->sacd) || !finish_setup(dec, total_samples_per_channel) ||
         (!dec->sacd && fseeko(f, dec->data_start_offset, SEEK_SET) != 0)) {
         free_decoder(dec);
@@ -386,14 +385,14 @@ static dsd_decoder_t * open_dff(FILE * f) {
     return dec;
 }
 
-static dsd_decoder_t * open_sacd(FILE *f) {
+static dsd_decoder_t * open_sacd(FILE *f, int64_t file_size) {
     dsd_decoder_t *dec = calloc(1, sizeof(*dec));
     if (!dec) return NULL;
     uint64_t samples;
     dec->f = f;
     dec->container = DSD_CONTAINER_SACD;
     dec->dsd_sample_rate = 2822400;
-    dec->sacd = sacd_reader_open(f, &samples);
+    dec->sacd = sacd_reader_open(f, (uint64_t) file_size, &samples);
     if (dec->sacd) dec->channels = sacd_reader_channels(dec->sacd);
     if (dec->channels > 2) {
         float mix[2][DSD_MAX_CHANNELS] = {{0}};
@@ -410,9 +409,9 @@ static dsd_decoder_t * open_sacd(FILE *f) {
     return dec;
 }
 
-dsd_decoder_t * dsd_open_file(const char * path) {
-    FILE * f = fopen(path, "rb");
+dsd_decoder_t * dsd_open_stream(FILE * f, int64_t file_size, const char * path) {
     if (!f) return NULL;
+    if (file_size < 0) file_size = 0;
 
     uint8_t magic[4];
     if (fread(magic, 1, sizeof(magic), f) != sizeof(magic) || fseeko(f, 0, SEEK_SET) != 0) {
@@ -422,14 +421,14 @@ dsd_decoder_t * dsd_open_file(const char * path) {
 
     dsd_decoder_t * dec = NULL;
     if (memcmp(magic, "DSD ", 4) == 0) {
-        dec = open_dsf(f);
+        dec = open_dsf(f, file_size);
     } else if (memcmp(magic, "FRM8", 4) == 0) {
-        dec = open_dff(f);
+        dec = open_dff(f, file_size);
     } else if (memcmp(magic, "wvpk", 4) == 0) {
         fclose(f);
         return open_wavpack(path);
     } else {
-        dec = open_sacd(f);
+        dec = open_sacd(f, file_size);
     }
 
     if (!dec) {
@@ -437,6 +436,21 @@ dsd_decoder_t * dsd_open_file(const char * path) {
         return NULL;
     }
     return dec;
+}
+
+dsd_decoder_t * dsd_open_file(const char * path) {
+    FILE * f = fopen(path, "rb");
+    struct stat st;
+    if (!f) return NULL;
+    return dsd_open_stream(f, fstat(fileno(f), &st) == 0 ? (int64_t) st.st_size : 0, path);
+}
+
+bool dsd_reads_stream(const dsd_decoder_t * dec) {
+    return dec && dec->container != DSD_CONTAINER_WAVPACK;
+}
+
+unsigned int dsd_get_source_channels(const dsd_decoder_t * dec) {
+    return dec->channels;
 }
 
 unsigned int dsd_get_channels(const dsd_decoder_t * dec) {
