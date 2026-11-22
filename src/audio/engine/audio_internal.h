@@ -21,6 +21,7 @@
 #include "../decoders/caf/caf_decoder.h"
 #include "../../network/http/stream/http_stream.h"
 #include "decoder_result.h"
+#include "audio_readahead.h"
 #include "audio_helpers.h"
 #ifdef HOST_BUILD
 #include <SDL2/SDL.h>
@@ -107,8 +108,9 @@ typedef struct {
     struct net_mp3_reader * net_mp3;
 
     /* Local FLAC callback stream. dr_flac has no relaxed file convenience
-     * wrapper, so keep the FILE alive for the decoder lifetime. */
-    FILE * flac_file;
+     * wrapper, so keep the reader alive for the decoder lifetime. The audio
+     * thread claims it for read-ahead while this decoder is the current one. */
+    ra_reader_t * reader;
 
     /* CUE tracks expose a bounded, track-relative timeline over the source
      * decoder. The underlying codec always stays positioned in source frames. */
@@ -133,6 +135,9 @@ bool decoder_open_for_generation(decoder_t * dec, const char * path, uint64_t ge
 bool decoder_open_next(decoder_t * dec, const char * path, uint64_t generation);
 
 /* --- audio_decoder_io.c --- */
+/* Gives the current decoder's reader to the read-ahead fetcher, once. */
+void decoder_claim_readahead(decoder_t * dec);
+
 /* Every local (non-stream) MP3 is a candidate for a seek-point index
  * (see request_mp3_seek_index_locked()'s own `desired < 2` bailout for the
  * self-consistent floor: a file too short to place at least 2 points at

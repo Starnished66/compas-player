@@ -239,6 +239,14 @@ bool decoder_supports_sample_accurate_loop(const decoder_t * dec) {
            dec->type == DECODER_AIFF || dec->type == DECODER_CAF || dec->type == DECODER_ALAC;
 }
 
+void decoder_claim_readahead(decoder_t * dec) {
+    if (!dec->reader || ra_is_claimed(dec->reader)) return;
+    /* The file's own frame count: a CUE track's total_frames is only its part. */
+    uint64_t frames = dec->as.flac ? dec->as.flac->totalPCMFrameCount : 0;
+    uint64_t rate = frames ? (uint64_t) ra_size(dec->reader) * dec->sample_rate / frames : 0;
+    ra_claim(dec->reader, rate);
+}
+
 /* Every branch nulls the union member it just freed, making this safe to
  * call more than once in a row on the same decoder_t without an
  * intervening decoder_open() (whose own memset() would otherwise be the
@@ -256,7 +264,7 @@ void decoder_close(decoder_t * dec) {
     switch (dec->type) {
         case DECODER_FLAC:
             if (dec->as.flac) { drflac_close(dec->as.flac); dec->as.flac = NULL; }
-            if (dec->flac_file) { fclose(dec->flac_file); dec->flac_file = NULL; }
+            if (dec->reader) { ra_close(dec->reader); dec->reader = NULL; }
             if (dec->net_stream) { http_stream_close(dec->net_stream); dec->net_stream = NULL; }
             break;
         case DECODER_MP3:

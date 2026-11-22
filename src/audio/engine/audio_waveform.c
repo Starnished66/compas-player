@@ -188,12 +188,8 @@ bool audio_extract_waveform_progress(const char * path, uint8_t * bins, size_t c
     if (!scratch) return false;
     if (!decoder_open(&dec, path)) goto done;
     opened = true;
-    if (dec.type == DECODER_FLAC && dec.flac_file) {
-        struct stat opened_file_stat;
-        if (fstat(fileno(dec.flac_file), &opened_file_stat) == 0 &&
-            opened_file_stat.st_size > 0)
-            local_flac_file_size = (uint64_t)opened_file_stat.st_size;
-    }
+    if (dec.type == DECODER_FLAC && dec.reader && ra_size(dec.reader) > 0)
+        local_flac_file_size = (uint64_t) ra_size(dec.reader);
 
     if ((cancel && cancel(user)) || dec.type == DECODER_DSD || dec.type == DECODER_APE ||
         dec.total_frames == 0 || dec.sample_rate == 0 || dec.sample_rate > 192000 ||

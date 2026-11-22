@@ -2602,6 +2602,7 @@ static pb_step_t plain_chunk_s16(playback_session_t * s, const chunk_cmd_t * c) 
 /* The playback loop of one started track: one iteration per chunk. */
 static void session_play_track(playback_session_t * s) {
     for (;;) {
+        decoder_claim_readahead(&s->cur_dec); /* a flag test once claimed */
         tempo_sync_generation(s);
         ab_switch_housekeeping(s);
         chunk_cmd_t c;
@@ -2765,6 +2766,7 @@ void audio_init(void) {
 
     if (!thread_started) {
         thread_started = true;
+        ra_start();
         /* HE-AAC v2 playback is ~85 KiB, and a crossfade keeps two decoders. */
         enum { AUDIO_THREAD_STACK_SIZE = 512 * 1024 };
         pthread_attr_t attr;

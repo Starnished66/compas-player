@@ -211,7 +211,7 @@ static bool bind_network_mp3_seek_table(decoder_t * dec) {
  * damaged metadata and lets dr_flac skip malformed frames in otherwise
  * playable files, as desktop decoders do. */
 static size_t flac_file_read_cb(void * user_data, void * buffer_out, size_t bytes_to_read) {
-    return fread(buffer_out, 1, bytes_to_read, (FILE *) user_data);
+    return ra_read((ra_reader_t *) user_data, buffer_out, bytes_to_read);
 }
 
 /* Remote current-open policy needs a generation/path snapshot; definitions
@@ -220,7 +220,7 @@ static size_t flac_file_read_cb(void * user_data, void * buffer_out, size_t byte
 static drflac_bool32 flac_file_seek_cb(void * user_data, int offset, drflac_seek_origin origin) {
     int whence = origin == DRFLAC_SEEK_SET ? SEEK_SET
                : origin == DRFLAC_SEEK_END ? SEEK_END : SEEK_CUR;
-    return fseek((FILE *) user_data, (long) offset, whence) == 0 ? DRFLAC_TRUE : DRFLAC_FALSE;
+    return ra_seek((ra_reader_t *) user_data, offset, whence) == 0 ? DRFLAC_TRUE : DRFLAC_FALSE;
 }
 
 /* .alac is used for both MP4 and CAF files; sniff the container signature. */
@@ -527,14 +527,14 @@ static bool decoder_open_internal(decoder_t * dec, const char * path,
 
     if (strcasecmp(ext, ".flac") == 0) {
         dec->type = DECODER_FLAC;
-        dec->flac_file = fopen(path, "rb");
-        if (!dec->flac_file) return false;
+        dec->reader = ra_open(path);
+        if (!dec->reader) return false;
         dec->as.flac = drflac_open_relaxed(flac_file_read_cb, flac_file_seek_cb,
                                            NULL, drflac_container_native,
-                                           dec->flac_file, NULL);
+                                           dec->reader, NULL);
         if (!dec->as.flac) {
-            fclose(dec->flac_file);
-            dec->flac_file = NULL;
+            ra_close(dec->reader);
+            dec->reader = NULL;
             return false;
         }
         dec->channels = dec->as.flac->channels;
