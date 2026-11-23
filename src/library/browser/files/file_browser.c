@@ -2,6 +2,8 @@
 #include "file_browser.h"
 #include "../../../core/files/file_visibility.h"
 #include "../../../core/storage/storage_roots.h"
+#include "../../../core/storage/sd_fsck_run.h"
+#include "../paths/library_paths.h" /* MUSIC_ROOT_DIR */
 #include "../../../ui/text/i18n/i18n.h"
 #include "../../../ui/assets/assets.h"
 #include "../../../ui/widgets/builders/screen_builders.h" /* STATUS_BAR_CLEARANCE / TITLE_ROW_HEIGHT / LIST_ROW_* */
@@ -100,6 +102,7 @@ struct file_browser {
 
     /* The full directory stays in current_index; entries is the visible page. */
     file_browser_index_t * current_index;
+    bool listing_released; /* storage left: no scan until the next listing request */
     dir_entry_t entries[FILE_BROWSER_PAGE_SIZE];
     int entry_count; /* -1 when the folder could not be read */
     int page_start;
@@ -304,7 +307,19 @@ static int index_make_entry(int directory_fd, const char *name, unsigned char ty
     return 1;
 }
 
-static int index_temp_fd(int directory_fd) {
+/* A temp file of at most this many rows (about 0.14 MB) goes to RAM-backed
+ * /tmp; a larger one stays in the listed folder so a huge folder cannot
+ * exhaust memory. Folders up to this many entries sort entirely in RAM: a
+ * finished index takes about 0.29 MB and the build peaks at about 0.43 MB.
+ * Card handles are closed by file_browser_release_storage() on removal. */
+#define INDEX_RAM_MAX_ROWS 512
+
+static int index_temp_fd(int directory_fd, size_t rows, bool ram) {
+    if (ram && rows <= INDEX_RAM_MAX_ROWS) {
+        char tmp[] = "/tmp/.compas_files_XXXXXX";
+        int fd = mkstemp(tmp);
+        if (fd >= 0) { unlink(tmp); return fd; }
+    }
     char name[64];
     for (unsigned attempt = 0; attempt < 100; attempt++) {
         snprintf(name, sizeof(name), ".compas_files_%ld_%u", (long)getpid(), attempt);
@@ -313,6 +328,11 @@ static int index_temp_fd(int directory_fd) {
         if (errno != EEXIST) return -1;
     }
     return -1;
+}
+
+static size_t index_fd_rows(int fd) {
+    struct stat st;
+    return fstat(fd, &st) == 0 ? (size_t)st.st_size / sizeof(dir_entry_t) : SIZE_MAX;
 }
 
 static int index_read_record(int fd, dir_entry_t *row) {
@@ -338,9 +358,9 @@ static bool index_write_full(int fd, const void *data, size_t size) {
     return true;
 }
 
-static int index_write_run(int directory_fd, dir_entry_t *rows, size_t count, file_browser_sort_mode_t mode) {
+static int index_write_run(int directory_fd, dir_entry_t *rows, size_t count, file_browser_sort_mode_t mode, bool ram) {
     qsort(rows, count, sizeof(*rows), sort_comparator(mode));
-    int fd = index_temp_fd(directory_fd);
+    int fd = index_temp_fd(directory_fd, count, ram);
     if (fd < 0 || !index_write_full(fd, rows, count * sizeof(*rows))) {
         if (fd >= 0) close(fd);
         return -1;
@@ -348,8 +368,8 @@ static int index_write_run(int directory_fd, dir_entry_t *rows, size_t count, fi
     lseek(fd, 0, SEEK_SET); return fd;
 }
 
-static int index_merge_runs(int left, int right, int directory_fd, atomic_bool *cancel, file_browser_sort_mode_t mode) {
-    int out = index_temp_fd(directory_fd);
+static int index_merge_runs(int left, int right, int directory_fd, atomic_bool *cancel, file_browser_sort_mode_t mode, bool ram) {
+    int out = index_temp_fd(directory_fd, index_fd_rows(left) + index_fd_rows(right), ram);
     if (out < 0) { close(left); close(right); return -1; }
     dir_entry_t a, b;
     int na = index_read_record(left, &a), nb = index_read_record(right, &b);
@@ -366,11 +386,11 @@ static int index_merge_runs(int left, int right, int directory_fd, atomic_bool *
     close(left); close(right); lseek(out, 0, SEEK_SET); return out;
 }
 
-static bool index_push_run(int levels[32], int fd, int dfd, atomic_bool *cancel, file_browser_sort_mode_t mode) {
+static bool index_push_run(int levels[32], int fd, int dfd, atomic_bool *cancel, file_browser_sort_mode_t mode, bool ram) {
     for (unsigned level = 0; level < 32; level++) {
         if (levels[level] < 0) { levels[level] = fd; return true; }
         int prior = levels[level]; levels[level] = -1;
-        fd = index_merge_runs(prior, fd, dfd, cancel, mode);
+        fd = index_merge_runs(prior, fd, dfd, cancel, mode, ram);
         if (fd < 0) return false;
     }
     close(fd); return false;
@@ -430,9 +450,9 @@ static bool index_open_memory(const char *directory, DIR *dir, int dfd,
     return true;
 }
 
-static bool file_browser_index_open_ex(const char *directory, file_browser_index_t **out,
-                                       unsigned *out_count, unsigned flags,
-                                       atomic_bool *cancel, file_browser_sort_mode_t mode, bool reverse) {
+static bool index_build(const char *directory, file_browser_index_t **out,
+                        unsigned *out_count, unsigned flags,
+                        atomic_bool *cancel, file_browser_sort_mode_t mode, bool reverse, bool ram) {
     if (!directory || !out) return false;
     *out = NULL; if (out_count) *out_count = 0;
     DIR *dir = opendir(directory); if (!dir) return false;
@@ -443,7 +463,7 @@ static bool file_browser_index_open_ex(const char *directory, file_browser_index
 #endif
     memset(levels, -1, sizeof(levels));
     errno = 0;
-    int probe = index_temp_fd(dfd);
+    int probe = index_temp_fd(dfd, SIZE_MAX, false);
     if (probe < 0 && (errno == EROFS || errno == EACCES || errno == EPERM)) {
         return index_open_memory(directory, dir, dfd, out, out_count, flags, cancel, mode, reverse);
     }
@@ -461,20 +481,20 @@ static bool file_browser_index_open_ex(const char *directory, file_browser_index
         if (entry_status < 0) goto fail;
         if (entry_status == 0) continue;
         if (++row_count == INDEX_RUN_SIZE) {
-            int fd = index_write_run(dfd, rows, row_count, mode);
-            if (fd < 0 || !index_push_run(levels, fd, dfd, cancel, mode)) goto fail;
+            int fd = index_write_run(dfd, rows, row_count, mode, ram);
+            if (fd < 0 || !index_push_run(levels, fd, dfd, cancel, mode, ram)) goto fail;
             total += (unsigned)row_count; row_count = 0;
         }
     }
     if (row_count) {
-        int fd = index_write_run(dfd, rows, row_count, mode);
-        if (fd < 0 || !index_push_run(levels, fd, dfd, cancel, mode)) goto fail;
+        int fd = index_write_run(dfd, rows, row_count, mode, ram);
+        if (fd < 0 || !index_push_run(levels, fd, dfd, cancel, mode, ram)) goto fail;
         total += (unsigned)row_count;
     }
     closedir(dir);
-    int final = -1; for (unsigned level = 0; level < 32; level++) if (levels[level] >= 0) { int prior = levels[level]; levels[level] = -1; if (final < 0) final = prior; else { final = index_merge_runs(prior, final, dfd, cancel, mode); if (final < 0) goto fail_closed; } }
+    int final = -1; for (unsigned level = 0; level < 32; level++) if (levels[level] >= 0) { int prior = levels[level]; levels[level] = -1; if (final < 0) final = prior; else { final = index_merge_runs(prior, final, dfd, cancel, mode, ram); if (final < 0) goto fail_closed; } }
     file_browser_index_t *idx = calloc(1, sizeof(*idx)); if (!idx) { if (final >= 0) close(final); goto fail_closed; }
-    idx->fd = final >= 0 ? final : index_temp_fd(dfd); idx->count = total; idx->playable_fd = index_temp_fd(dfd); idx->directory_fd = dup(dfd); idx->playable_count = 0;
+    idx->fd = final >= 0 ? final : index_temp_fd(dfd, total, ram); idx->count = total; idx->playable_fd = index_temp_fd(dfd, total, ram); idx->directory_fd = dup(dfd); idx->playable_count = 0;
     if (idx->fd < 0 || idx->playable_fd < 0 || idx->directory_fd < 0) { file_browser_index_close(idx); goto fail_closed; }
     idx->reverse = reverse; idx->sort_mode = mode;
     dir_entry_t row;
@@ -504,6 +524,22 @@ fail:
     closedir(dir);
 fail_closed:
     close(dfd); for (unsigned i = 0; i < 32; i++) if (levels[i] >= 0) close(levels[i]); return false;
+}
+
+/* Temp files go to RAM first; a full /tmp (ENOSPC) retries with every temp
+ * file on the listed folder. */
+static bool file_browser_index_open_ex(const char *directory, file_browser_index_t **out,
+                                       unsigned *out_count, unsigned flags,
+                                       atomic_bool *cancel, file_browser_sort_mode_t mode, bool reverse) {
+    /* The repair unmounts the card: no index may pin it meanwhile. */
+    if (directory && out && file_op_path_on_card(directory) && sd_repair_in_progress()) {
+        *out = NULL; if (out_count) *out_count = 0;
+        errno = EBUSY;
+        return false;
+    }
+    if (index_build(directory, out, out_count, flags, cancel, mode, reverse, true)) return true;
+    if (errno != ENOSPC || index_cancelled(cancel)) return false;
+    return index_build(directory, out, out_count, flags, cancel, mode, reverse, false);
 }
 
 bool file_browser_index_open(const char *directory, file_browser_index_t **out, unsigned *out_count) {
@@ -821,7 +857,8 @@ static void index_poll_cb(lv_timer_t *timer) {
             fb->entry_count = -1;
             rebuild_list(fb);
         }
-        else if (!running && !atomic_load(&fb->index_worker_error) && !fb->current_index && fb->entry_count == 0) {
+        else if (!running && !fb->listing_released && !atomic_load(&fb->index_worker_error) &&
+                 !fb->current_index && fb->entry_count == 0) {
             pthread_mutex_lock(&index_worker_mu);
             if (!index_worker_launch_locked(fb, fb->index_request_generation)) {
                 atomic_store(&fb->index_worker_error, true);
@@ -830,7 +867,7 @@ static void index_poll_cb(lv_timer_t *timer) {
             pthread_mutex_unlock(&index_worker_mu);
         }
         /* Nothing left to wait for: sleep until scan_current_dir() asks again. */
-        if (!running && (fb->current_index || fb->roots_view ||
+        if (!running && (fb->current_index || fb->roots_view || fb->listing_released ||
                          fb->index_error_rendered_generation == fb->index_request_generation))
             lv_timer_pause(timer);
         return;
@@ -872,16 +909,23 @@ static void fill_storage_entries(file_browser_t * fb) {
     }
 }
 
+/* The repair unmounts the card: no listing may hold a directory fd on it. */
+static bool listing_blocked_by_repair(const file_browser_t * fb) {
+    return !fb->roots_view && sd_repair_in_progress() && file_op_path_in_root(fb->current_dir, fb->home_dir);
+}
+
 static void scan_current_dir(file_browser_t * fb) {
     page_jump_hide(fb);
     free_entries(fb);
+    bool blocked = listing_blocked_by_repair(fb);
     pthread_mutex_lock(&index_worker_mu);
+    fb->listing_released = blocked; /* the relist after the repair clears it */
     unsigned generation = ++fb->index_request_generation;
     atomic_store(&fb->index_worker_error, false);
     atomic_store(&fb->index_worker_oversized, false);
     atomic_store(&fb->index_worker_cancel, true);
     if (fb->index_worker_result) { file_browser_index_close(fb->index_worker_result); fb->index_worker_result = NULL; }
-    if (!fb->roots_view && !atomic_load(&fb->index_worker_running) && !index_worker_launch_locked(fb, generation)) {
+    if (!fb->roots_view && !blocked && !atomic_load(&fb->index_worker_running) && !index_worker_launch_locked(fb, generation)) {
         atomic_store(&fb->index_worker_error, true);
         fb->index_error_generation = generation;
     }
@@ -987,6 +1031,7 @@ static void refresh_browser_order(void) {
         fb->position_overflow = 0;
         fb->restore_pending = false;
         fb->restore_scroll_y = 0;
+        if (fb->listing_released) continue; /* storage left: do not list it again */
         scan_current_dir(fb);
         rebuild_list(fb);
     }
@@ -1619,7 +1664,7 @@ static void rebuild_list(file_browser_t * fb) {
     if (fb->entry_count == 0) {
         /* No index yet: the worker is still reading the folder, so don't
          * claim it is empty (issue #190). index_poll_cb rebuilds on arrival. */
-        if (!fb->current_index)
+        if (!fb->current_index && !fb->listing_released)
             build_list_message(fb->list, TR("Loading..."), NULL);
         else if (fb->list_flags & LIST_ALL_FILES)
             build_list_message(fb->list, TR("This folder is empty"), NULL);
@@ -1740,6 +1785,29 @@ void file_browser_reset_to_root(void) {
     for (file_browser_t * fb = browsers; fb; fb = fb->next) reset_to_home(fb);
 }
 
+/* The card is gone or about to be unmounted: close every listing handle on it
+ * (also for browsers whose screen is not showing) and list nothing until the
+ * next reset or navigation, so no new handle is opened on the dying mount. */
+void file_browser_release_storage(void) {
+    for (file_browser_t * fb = browsers; fb; fb = fb->next) {
+        if (storage_list_wanted(fb)) { reset_to_home(fb); continue; }
+        set_root_dir(fb, fb->home_dir, "SD");
+        fb->page_start = 0;
+        fb->position_depth = fb->position_overflow = 0;
+        fb->restore_pending = false;
+        page_jump_hide(fb);
+        free_entries(fb);
+        pthread_mutex_lock(&index_worker_mu);
+        fb->listing_released = true;
+        ++fb->index_request_generation;
+        atomic_store(&fb->index_worker_cancel, true);
+        if (fb->index_worker_result) { file_browser_index_close(fb->index_worker_result); fb->index_worker_result = NULL; }
+        pthread_mutex_unlock(&index_worker_mu);
+        rebuild_list(fb);
+        if (fb->index_poll_timer) lv_timer_resume(fb->index_poll_timer);
+    }
+}
+
 void file_browser_storage_changed(void) {
     storage_root_t roots[STORAGE_ROOTS_MAX];
     size_t count = storage_roots_list(roots, STORAGE_ROOTS_MAX);
@@ -1757,6 +1825,7 @@ bool file_browser_at_storage_list(const file_browser_t * fb) {
 }
 
 void file_browser_refresh(file_browser_t * fb) {
+    if (fb->listing_released) return; /* storage left: only a reset or navigation lists again */
     int page_start = fb->page_start;
     int32_t scroll_y = lv_obj_get_scroll_y(fb->list);
     scan_current_dir(fb);

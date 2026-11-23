@@ -1,3 +1,4 @@
+#include "../../../library/browser/files/file_ops.h"
 #include "plugin_archive_bindings.h"
 #include "../../lua/plugin_lua_runtime.h"
 #include "../../storage/plugin_reserved_dirs.h"
@@ -304,6 +305,7 @@ int l_plugin_zip_image_async(lua_State * L) {
         return luaL_error(L, "plugin.zip_image_async: path too long");
     if (!path_has_bin_extension(dest_path))
         return luaL_error(L, "plugin.zip_image_async: dest_path must end in .bin");
+    if (file_op_card_missing(dest_path)) return plugin_lua_push_error(L, "no SD card");
     return plugin_image_thumbnail_start(L, zip_path, entry, dest_path, (int) max_w, (int) max_h, 6, false, false, false);
 }
 
@@ -318,6 +320,7 @@ int l_plugin_image_thumbnail_async(lua_State * L) {
     if (strlen(source_path) >= sizeof(plugin_zip_image.zip_path) || strlen(dest_path) >= sizeof(plugin_zip_image.dest_path) - 8)
         return luaL_error(L, "plugin.image_thumbnail_async: path too long");
     if (!path_has_bin_extension(dest_path)) return luaL_error(L, "plugin.image_thumbnail_async: dest_path must end in .bin");
+    if (file_op_card_missing(dest_path)) return plugin_lua_push_error(L, "no SD card");
     return plugin_image_thumbnail_start(L, source_path, NULL, dest_path, (int) max_w, (int) max_h, 5, true, false, false);
 }
 
@@ -330,6 +333,7 @@ int l_plugin_image_wallpaper_async(lua_State * L) {
         return luaL_error(L, "plugin.image_wallpaper_async: path too long");
     if (!path_has_bin_extension(dest_path))
         return luaL_error(L, "plugin.image_wallpaper_async: dest_path must end in .bin");
+    if (file_op_card_missing(dest_path)) return plugin_lua_push_error(L, "no SD card");
     lv_display_t * display = lv_display_get_default();
     int width = display ? lv_display_get_horizontal_resolution(display) : BOARD_SCREEN_WIDTH;
     int height = display ? lv_display_get_vertical_resolution(display) : BOARD_SCREEN_HEIGHT;
@@ -349,6 +353,7 @@ int l_plugin_image_startup_async(lua_State * L) {
         return luaL_error(L, "plugin.image_startup_async: path too long");
     if (!path_has_bin_extension(dest_path))
         return luaL_error(L, "plugin.image_startup_async: dest_path must end in .bin");
+    if (file_op_card_missing(dest_path)) return plugin_lua_push_error(L, "no SD card");
     return plugin_image_thumbnail_start(L, source_path, NULL, dest_path,
                                         BOARD_SCREEN_WIDTH, BOARD_SCREEN_HEIGHT,
                                         3, true, true, false);

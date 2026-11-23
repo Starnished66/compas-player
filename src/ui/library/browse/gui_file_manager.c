@@ -81,8 +81,13 @@ static bool valid_name(const char * name) {
     return name[0] && !strchr(name, '/') && strcmp(name, ".") != 0 && strcmp(name, "..") != 0;
 }
 
-/* A PC with the card mounted over USB storage must be the only writer. */
-static bool storage_writable(void) {
+/* A PC with the card mounted over USB storage must be the only writer, and
+ * nothing may be written to the bare mount point while the card is out. */
+static bool storage_writable(const char * path) {
+    if (file_op_card_missing(path)) {
+        show_error_toast(TR("No SD card"));
+        return false;
+    }
     if (!usb_mode_control_storage_write_blocked()) return true;
     show_error_toast(TR("Disconnect USB storage from the computer before changing files."));
     return false;
@@ -197,7 +202,7 @@ static void show_progress(void) {
 }
 
 static bool start_operation(file_op_kind_t kind, char * const * paths, int count, const char * dest_dir) {
-    if (!storage_writable()) return false;
+    if (!storage_writable(dest_dir ? dest_dir : paths[0])) return false;
     if (!file_op_start(kind, paths, count, dest_dir)) {
         show_error_toast(TR("Another file operation is still running"));
         return false;
@@ -282,7 +287,7 @@ static void rename_done_cb(const char * text, void * user_data) {
         if (text[0]) show_error_toast(TR("That name cannot be used"));
         return;
     }
-    if (strcmp(text, name_of(rename_path)) == 0 || !storage_writable()) return;
+    if (strcmp(text, name_of(rename_path)) == 0 || !storage_writable(rename_path)) return;
     char target[PATH_MAX];
     int n = snprintf(target, sizeof(target), "%.*s/%s", (int) (name_of(rename_path) - rename_path - 1),
                      rename_path, text);
@@ -319,7 +324,7 @@ static void new_folder_done_cb(const char * text, void * user_data) {
         if (text[0]) show_error_toast(TR("That name cannot be used"));
         return;
     }
-    if (!storage_writable()) return;
+    if (!storage_writable(file_browser_current_dir(browser))) return;
     char path[PATH_MAX];
     int n = snprintf(path, sizeof(path), "%s/%s", file_browser_current_dir(browser), text);
     if (n <= 0 || (size_t) n >= sizeof(path)) show_error_toast(TR("That name cannot be used"));

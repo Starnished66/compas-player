@@ -72,6 +72,10 @@ file_browser_t * file_browser_create(lv_obj_t * parent, const char * root_dir,
  * (SD card removed/reinserted) rather than in response to user navigation. */
 void file_browser_reset_to_root(void);
 
+/* Closes every handle the browsers hold on the SD card without listing it
+ * again. Call when the card is removed or about to be unmounted. */
+void file_browser_release_storage(void);
+
 /* A USB drive was mounted or removed. Browsers with storage_roots show the
  * list of storages, or fall back to the SD card when the drive they were in
  * is gone. */

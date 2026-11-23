@@ -2,6 +2,8 @@
 #include "file_browser.h" /* file_browser_is_playable_name() */
 #include "../../artwork/support/library_endian.h" /* library_is_m3u_file() */
 #include "../../../hardware/usb/usb_mode_control.h"
+#include "../../metadata/scan/library_scan_storage.h"
+#include "../paths/library_paths.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -366,6 +368,16 @@ bool file_op_is_player_folder(const char * path, const char * sd_root) {
     for (size_t i = 0; i < sizeof(folders) / sizeof(folders[0]); i++)
         if (strcasecmp(name, folders[i]) == 0) return true;
     return false;
+}
+
+bool file_op_path_on_card(const char * path) {
+    size_t root_len = strlen(MUSIC_ROOT_DIR);
+    return path && strncmp(path, MUSIC_ROOT_DIR, root_len) == 0 &&
+           (path[root_len] == '/' || path[root_len] == '\0');
+}
+
+bool file_op_card_missing(const char * path) {
+    return file_op_path_on_card(path) && !sd_card_root_is_mounted();
 }
 
 bool file_op_path_in_root(const char * path, const char * root) {

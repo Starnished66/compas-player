@@ -51,4 +51,11 @@ bool file_op_is_player_folder(const char * path, const char * sd_root);
  * relative (the simulator's "./music"). */
 bool file_op_path_in_root(const char * path, const char * root);
 
+/* True when path is the SD card root or below it (plain prefix test). */
+bool file_op_path_on_card(const char * path);
+
+/* True when path is on the SD card but no card is mounted: a write would
+ * land on the bare mount point and vanish under the card. */
+bool file_op_card_missing(const char * path);
+
 #endif /* FILE_OPS_H */

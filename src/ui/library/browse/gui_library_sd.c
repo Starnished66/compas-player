@@ -226,7 +226,7 @@ static void clear_removed_sd_library(void) {
     gui_player_handle_sd_unmount();
     metadata_db_close();
     refresh_library_screens_after_reload(true);
-    file_browser_reset_to_root();
+    file_browser_release_storage();
 }
 
 static void show_sd_repair_note(void) {

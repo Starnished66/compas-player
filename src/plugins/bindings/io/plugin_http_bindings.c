@@ -1,3 +1,4 @@
+#include "../../../library/browser/files/file_ops.h"
 #include "plugin_http_bindings.h"
 
 #include "../../../core/process/worker_thread.h"
@@ -472,6 +473,8 @@ int l_plugin_download_file_async(lua_State * L) {
         return luaL_error(L, "plugin.download_file_async: path is reserved for plugin.storage/plugin.secrets");
     if (plugin_path_in_program_dirs(dest_path))
         return luaL_error(L, "plugin.download_file_async: the program folders (.apps, .apps-data, .emulators) are reserved");
+
+    if (file_op_card_missing(dest_path)) return plugin_lua_push_error(L, "no SD card");
 
     int slot = find_free_slot();
     if (slot < 0) {
