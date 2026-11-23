@@ -113,7 +113,7 @@ static bool plugin_async_download(plugin_async_http_t *req) {
     if (plugin_storage_path_is_reserved(req->dest_path) || plugin_path_in_program_dirs(req->dest_path))
         return false;
     download_request_t request = {.url = req->url, .dest_path = req->dest_path,
-        .max_bytes = UINT64_C(2) << 30, .verify_tls = req->verify_tls,
+        .max_bytes = UINT64_C(2) << 30, .verify_tls = req->verify_tls, .max_redirects = 5,
         .connect_timeout_ms = 10000U, .read_timeout_ms = 30000U};
     download_result_t result;
     download_error_t error = download_to_file(&request, &req->cancel, plugin_async_download_progress, req, &result);
