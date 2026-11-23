@@ -346,6 +346,16 @@ static bool plugin_has_layout_xml(const plugin_store_plugin_t * plugin) {
     return false;
 }
 
+/* A plugin that installs its own assets (.plugin-assets/) is a feature that
+ * also ships a layout, such as Audiobooks' Reading Room: it belongs with the
+ * plugins, not with the downloadable player layouts. */
+static bool plugin_installs_assets(const plugin_store_plugin_t * plugin) {
+    for (int f = 0; f < plugin->file_count; f++) {
+        if (strncmp(plugin->files[f].dest, ".plugin-assets/", 15) == 0) return true;
+    }
+    return false;
+}
+
 /* Mixed XML / theme precedence: If a plugin package delivers both .theme
  * files and layout XML (e.g. Themes.lua or bundles), it is classified as
  * a theme_pack first and excluded from player_layout. HiByStockPlayer and
@@ -353,7 +363,7 @@ static bool plugin_has_layout_xml(const plugin_store_plugin_t * plugin) {
  */
 void ps_plugin_kind(const plugin_store_plugin_t * plugin, bool * layout, bool * theme) {
     *theme = plugin_contains_theme_pack(plugin);
-    *layout = !*theme && plugin_has_layout_xml(plugin);
+    *layout = !*theme && plugin_has_layout_xml(plugin) && !plugin_installs_assets(plugin);
 }
 
 /* Only layout and theme packs with a catalog preview get one. */

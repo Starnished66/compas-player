@@ -94,6 +94,14 @@ fail:
     return NULL;
 }
 
+/* Whether the plugin keeps its own assets in .plugin-assets/<stem>. */
+static bool plugin_has_asset_dir(const char * stem) {
+    char path[600];
+    struct stat st;
+    int n = snprintf(path, sizeof(path), "%s/.plugin-assets/%s", MUSIC_ROOT_DIR, stem);
+    return n > 0 && n < (int) sizeof(path) && lstat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 /* Fills `e` for `filename`, cross-referencing plugin_instances[] for its
  * loaded state and (when loaded) its real display name. */
 static void fill_available_entry(plugin_available_entry_t * e, const char * filename) {
@@ -122,7 +130,9 @@ static void fill_available_entry(plugin_available_entry_t * e, const char * file
 
     /* Layout-only bundles are still represented by their Lua loader file.
      * Detect their companion directory from disk so disabled and over-limit
-     * plugins are classified without executing their scripts. */
+     * plugins are classified without executing their scripts. A plugin with
+     * its own .plugin-assets/<name> folder is a feature that also ships a
+     * layout (Audiobooks, Podcasts) and stays in the list. */
     size_t filename_len = strlen(filename);
     if (filename_len > 4 && strcasecmp(filename + filename_len - 4, ".lua") == 0) {
         char stem[256];
@@ -137,7 +147,8 @@ static void fill_available_entry(plugin_available_entry_t * e, const char * file
             struct stat st;
             if (ln > 0 && ln < (int) sizeof(layout_dir) &&
                 lstat(bundle, &st) == 0 && S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) &&
-                lstat(layout_dir, &st) == 0 && S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode)) {
+                lstat(layout_dir, &st) == 0 && S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode) &&
+                !plugin_has_asset_dir(stem)) {
                 DIR * layouts = opendir(layout_dir);
                 if (layouts) {
                     struct dirent * ent;
