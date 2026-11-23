@@ -79,6 +79,23 @@ static int volume_db_to_hw_raw(double db) {
 }
 #endif
 
+/* The codec driver's write file: "REG VAL" in hex, kept in its register set.
+ * Low gain sets the headphone output control to the low-impedance value the
+ * mainline cs43130 driver uses for loads <= 50 ohm (0x10); high gain keeps
+ * HiBy's 0x30. Bit 0 stays as HiBy's register set has it. Class-H control is
+ * left at HiBy's value: on the R1 the mainline 0x1C added a hiss at track
+ * starts, and 0x1E was no better. */
+void audio_set_headphone_level(bool low) {
+#if defined(BOARD_R1) && !defined(HOST_BUILD)
+    FILE * f = fopen("/sys/bus/i2c/devices/3-0030/write_reg_val", "w");
+    if (!f) return;
+    fputs(low ? "080000 11" : "080000 31", f);
+    fclose(f);
+#else
+    (void) low;
+#endif
+}
+
 /* Plugin-supplied alternative to volume_db_to_hw_raw()/calibrated_taper_db()
  * allowing plugins to define custom UI-volume to hardware-register mappings.
  *

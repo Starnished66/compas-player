@@ -364,6 +364,12 @@ void audio_set_max_volume_percent(int percent);
  * for why that separation, not just deferring the write, is required). */
 void audio_set_custom_hw_volume_curve(const uint8_t * curve);
 
+/* R1 only, a no-op elsewhere: the headphone amplifier's output stage. Low gain
+ * uses the CS43131's low-impedance setting (less hiss in sensitive IEMs, lower
+ * maximum level); high gain the full one HiBy's register set uses. The codec
+ * driver keeps the values for every later stream until reboot. */
+void audio_set_headphone_level(bool low);
+
 /* Mutates a SEPARATE staging copy of the curve state (curve non-NULL:
  * staged active with that table; NULL: staged inactive/native) -- not the
  * live state audio_apply_volume() reads, and issues no hardware write.

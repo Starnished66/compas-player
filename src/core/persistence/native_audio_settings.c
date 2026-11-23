@@ -162,6 +162,7 @@ int native_audio_gain_mode(void) { return current_settings.native_gain_mode; }
 void native_audio_set_gain_mode(int high) {
     current_settings.native_gain_mode = !!high;
     audio_set_custom_hw_volume_curve(gain_curves[!!high]);
+    audio_set_headphone_level(!high);
     settings_save_async(&current_settings);
 }
 
@@ -425,6 +426,8 @@ void native_audio_init(void) {
     if (card) move_mseb_presets();
     resolve_eq_owner();
     native_audio_restore();
-    int gain = native_audio_gain_mode();
-    if (gain == 0 || gain == 1) audio_stage_custom_hw_volume_curve(true, gain_curves[gain]);
+    /* Gain Mode is Low or High; never chosen (-1) plays as Low, as it shows. */
+    bool high = native_audio_gain_mode() == 1;
+    audio_stage_custom_hw_volume_curve(true, gain_curves[high]);
+    audio_set_headphone_level(!high);
 }
