@@ -68,6 +68,9 @@ static int read_int_attr(const char * device_name, const char * attr) {
 /* max_brightness is a fixed device property; cache its first valid value. */
 static int brightness_fd = -1;
 static int last_written_raw = -1;
+/* The percent behind last_written_raw when lit. The PWM has fewer steps
+ * than 0-100, so reading the raw value back can land one percent low. */
+static int last_written_percent = -1;
 static pthread_mutex_t backlight_io_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int get_max_brightness(const char * device_name) {
@@ -109,7 +112,9 @@ int backlight_get_percent(void) {
 
     int max = get_max_brightness(device_name);
     int cur = read_int_attr(device_name, "brightness");
-    int result = (max > 0 && cur >= 0) ? raw_to_logical(cur, max) : -1;
+    int result = -1;
+    if (cur >= 0 && cur == last_written_raw && last_written_percent >= 0) result = last_written_percent;
+    else if (max > 0 && cur >= 0) result = raw_to_logical(cur, max);
     pthread_mutex_unlock(&backlight_io_mutex);
     return result;
 }
@@ -124,7 +129,7 @@ static bool backlight_write_percent(int percent, bool lit) {
     if (max <= 0) { written = true; goto done; }
     int value = lit ? logical_to_raw(percent, max) : 0;
 
-    if (value == last_written_raw) { written = true; goto done; }
+    if (value == last_written_raw) { written = true; goto remember; }
 
     if (brightness_fd < 0) {
         char path[256];
@@ -149,6 +154,8 @@ static bool backlight_write_percent(int percent, bool lit) {
     last_written_raw = value;
     written = true;
 
+remember:
+    last_written_percent = lit ? percent : -1;
 done:
     pthread_mutex_unlock(&backlight_io_mutex);
     return written;
