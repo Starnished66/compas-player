@@ -304,6 +304,7 @@ const i18n_entry_t i18n_entries_it[] = {
     {"Could not restart into the boot selector", (const char * const[]){"Impossibile riavviare nel selettore di avvio"}, 1},
     {"Could not safely archive the SD player update.", (const char * const[]){"Impossibile archiviare in modo sicuro l’aggiornamento del lettore da SD."}, 1},
     {"Could not save Bluetooth codec", (const char * const[]){"Impossibile salvare il codec Bluetooth"}, 1},
+    {"Could not save changes", (const char * const[]){"Impossibile salvare le modifiche"}, 1},
     {"Could not save preset. Try again.", (const char * const[]){"Impossibile salvare il preset. Riprova."}, 1},
     {"Could not save range. Try again.", (const char * const[]){"Impossibile salvare l'intervallo. Riprova."}, 1},
     {"Could not save slot. Try again.", (const char * const[]){"Impossibile salvare nello slot. Riprova."}, 1},

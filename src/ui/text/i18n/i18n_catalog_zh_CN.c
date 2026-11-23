@@ -304,6 +304,7 @@ const i18n_entry_t i18n_entries_zh_CN[] = {
     {"Could not restart into the boot selector", (const char * const[]){"无法重启进入启动选择器"}, 1},
     {"Could not safely archive the SD player update.", (const char * const[]){"无法安全归档 SD 卡上的播放器更新。"}, 1},
     {"Could not save Bluetooth codec", (const char * const[]){"无法保存蓝牙编解码器"}, 1},
+    {"Could not save changes", (const char * const[]){"无法保存更改"}, 1},
     {"Could not save preset. Try again.", (const char * const[]){"无法保存预设，请重试。"}, 1},
     {"Could not save range. Try again.", (const char * const[]){"无法保存范围，请重试。"}, 1},
     {"Could not save slot. Try again.", (const char * const[]){"无法保存到槽位，请重试。"}, 1},

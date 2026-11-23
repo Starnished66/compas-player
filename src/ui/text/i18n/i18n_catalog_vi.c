@@ -304,6 +304,7 @@ const i18n_entry_t i18n_entries_vi[] = {
     {"Could not restart into the boot selector", (const char * const[]){"Không thể khởi động lại vào bộ chọn khởi động"}, 1},
     {"Could not safely archive the SD player update.", (const char * const[]){"Không thể lưu trữ an toàn bản cập nhật trình phát từ thẻ SD."}, 1},
     {"Could not save Bluetooth codec", (const char * const[]){"Không thể lưu codec Bluetooth"}, 1},
+    {"Could not save changes", (const char * const[]){"Không thể lưu thay đổi"}, 1},
     {"Could not save preset. Try again.", (const char * const[]){"Không thể lưu cài đặt sẵn. Hãy thử lại."}, 1},
     {"Could not save range. Try again.", (const char * const[]){"Không thể lưu phạm vi. Hãy thử lại."}, 1},
     {"Could not save slot. Try again.", (const char * const[]){"Không thể lưu vào ô nhớ. Hãy thử lại."}, 1},

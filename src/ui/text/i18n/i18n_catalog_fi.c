@@ -304,6 +304,7 @@ const i18n_entry_t i18n_entries_fi[] = {
     {"Could not restart into the boot selector", (const char * const[]){"Uudelleenkäynnistys käynnistysvalitsimeen epäonnistui"}, 1},
     {"Could not safely archive the SD player update.", (const char * const[]){"SD-kortin soittimen päivitystä ei voitu arkistoida turvallisesti."}, 1},
     {"Could not save Bluetooth codec", (const char * const[]){"Bluetooth-koodekin tallennus epäonnistui"}, 1},
+    {"Could not save changes", (const char * const[]){"Muutoksia ei voitu tallentaa"}, 1},
     {"Could not save preset. Try again.", (const char * const[]){"Esiasetusta ei voitu tallentaa. Yritä uudelleen."}, 1},
     {"Could not save range. Try again.", (const char * const[]){"Aluetta ei voitu tallentaa. Yritä uudelleen."}, 1},
     {"Could not save slot. Try again.", (const char * const[]){"Muistipaikkaan tallennus epäonnistui. Yritä uudelleen."}, 1},
