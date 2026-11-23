@@ -349,7 +349,7 @@ static void launch_lyrics_request(const lyrics_load_request_t * request) {
     lyrics_cancel_live = true;
     atomic_store_explicit(&lyrics_load_done_flag, false, memory_order_relaxed);
     lyrics_load_active = true;
-    if (worker_thread_create(&lyrics_load_thread, 192 * 1024, lyrics_load_thread_func, req) != 0) {
+    if (worker_thread_create(&lyrics_load_thread, WORKER_STACK_HTTP, lyrics_load_thread_func, req) != 0) {
         free(req);
         lyrics_load_active = false;
         destroy_lyrics_cancel();

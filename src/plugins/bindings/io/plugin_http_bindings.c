@@ -1,5 +1,6 @@
 #include "plugin_http_bindings.h"
 
+#include "../../../core/process/worker_thread.h"
 #include "../../../network/http/client/http_client.h"
 #include "../../../network/download/download.h"
 #include "../../lua/plugin_lua_runtime.h"
@@ -18,13 +19,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 
 #define PLUGIN_MAX_ASYNC_HTTP 4
+/* musl's 128 KiB default overflowed here (#242): the worker's own request and
+ * response take 56 KiB, http_request_ex 29 KiB, and each followed redirect
+ * another 15 KiB, up to its cap of 10, before TLS. Only touched pages use RAM. */
+#define PLUGIN_ASYNC_HTTP_STACK_SIZE (384u * 1024u)
 #define PLUGIN_ASYNC_HTTP_DEFAULT_MAX (512U * 1024U)
 #define PLUGIN_ASYNC_HTTP_MAX_RESPONSE (2U * 1024U * 1024U)
 #define PLUGIN_ASYNC_HTTP_MAX_REQUEST (1024U * 1024U)
+
+/* Weak: host unit tests include this file without main.c. */
+extern void install_thread_crash_altstack(void) __attribute__((weak));
 
 typedef struct {
     bool active;
@@ -113,6 +124,10 @@ static bool plugin_async_download(plugin_async_http_t *req) {
 }
 
 static void * plugin_async_http_thread_func(void * arg) {
+#ifdef __linux__
+    (void) prctl(PR_SET_NAME, "pluginhttp");
+#endif
+    if (install_thread_crash_altstack) install_thread_crash_altstack(); /* a crash here gets logged */
     plugin_async_http_t * req = (plugin_async_http_t *) arg;
     if (req->is_download) {
         req->ok = plugin_async_download(req);
@@ -404,7 +419,7 @@ static int start_http_request(lua_State *L, int slot, http_options_t *opts) {
     }
 
     plugin_async_http_t *req = prepare_http_slot(L, slot, opts, callback_ref, body_copy, long_header_value);
-    if (pthread_create(&req->thread, NULL, plugin_async_http_thread_func, req) != 0) {
+    if (worker_thread_create(&req->thread, PLUGIN_ASYNC_HTTP_STACK_SIZE, plugin_async_http_thread_func, req) != 0) {
         luaL_unref(L, LUA_REGISTRYINDEX, req->callback_ref);
         free(req->request_body);
         req->request_body = NULL;
@@ -480,7 +495,7 @@ int l_plugin_download_file_async(lua_State * L) {
     snprintf(req->dest_path, sizeof(req->dest_path), "%s", dest_path);
     req->callback_ref = callback_ref;
 
-    if (pthread_create(&req->thread, NULL, plugin_async_http_thread_func, req) != 0) {
+    if (worker_thread_create(&req->thread, PLUGIN_ASYNC_HTTP_STACK_SIZE, plugin_async_http_thread_func, req) != 0) {
         luaL_unref(L, LUA_REGISTRYINDEX, req->callback_ref);
         req->L = NULL;
         req->callback_ref = LUA_NOREF;

@@ -1,4 +1,5 @@
 #include "../../application/gui.h"
+#include "../../../core/process/worker_thread.h"
 #include "../../text/i18n/i18n.h"
 #include "gui_subsonic.h"
 #include "gui_subsonic_internal.h"
@@ -175,7 +176,7 @@ static void start_subsonic_connect(const subsonic_server_t * server) {
 
     subsonic_connect_token = gui_busy_show(TR("Connecting to server..."), "");
 
-    if (pthread_create(&subsonic_connect_thread, NULL, subsonic_connect_thread_func, req) != 0) {
+    if (worker_thread_create(&subsonic_connect_thread, WORKER_STACK_HTTP, subsonic_connect_thread_func, req) != 0) {
         free(req);
         subsonic_connect_active = false;
         http_cancel_token_destroy(&subsonic_connect_cancel);

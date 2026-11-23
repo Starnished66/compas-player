@@ -52,6 +52,11 @@ static inline void worker_raise_priority(int nice_value) {
 #endif
 }
 
+/* Stack for workers that call http_request_ex(). musl's 128 KiB default is too
+ * small: a Subsonic API request keeps 56 KiB on the stack, http_request_ex
+ * 29 KiB, and each of up to 5 redirects another 15 KiB, before TLS (#242). */
+#define WORKER_STACK_HTTP (256u * 1024u)
+
 /* Starts a joinable thread with `stack_bytes` of stack (falls back to the
  * default if the size is refused). Returns the pthread_create result. */
 static inline int worker_thread_create(pthread_t * thread, size_t stack_bytes, void * (*fn)(void *), void * arg) {

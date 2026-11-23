@@ -145,7 +145,7 @@ bool subsonic_refresh_start(const subsonic_refresh_job_t * request) {
     atomic_store_explicit(&finished, false, memory_order_relaxed);
     superseded = false;
     http_cancel_token_init(&cancel_token);
-    if (pthread_create(&worker_thread, NULL, worker_main, job) != 0) {
+    if (worker_thread_create(&worker_thread, WORKER_STACK_HTTP, worker_main, job) != 0) {
         http_cancel_token_destroy(&cancel_token);
         free(job);
         return false;

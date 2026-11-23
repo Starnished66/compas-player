@@ -1,4 +1,5 @@
 #include "../../application/gui.h"
+#include "../../../core/process/worker_thread.h"
 #include "../../text/i18n/i18n.h"
 #include "gui_subsonic.h"
 #include "gui_subsonic_internal.h"
@@ -692,7 +693,7 @@ void gui_subsonic_download_library(subsonic_song_t * songs, int song_count,
     gui_busy_set_cancel(subsonic_library_download_token, subsonic_download_cancel_cb,
                         &subsonic_library_download_cancel);
 
-    if (pthread_create(&subsonic_library_download_thread, NULL, subsonic_library_download_thread_func, req) != 0) {
+    if (worker_thread_create(&subsonic_library_download_thread, WORKER_STACK_HTTP, subsonic_library_download_thread_func, req) != 0) {
         subsonic_library_download_active = false;
         gui_busy_set_cancel(subsonic_library_download_token, NULL, NULL);
         http_cancel_token_destroy(&subsonic_library_download_cancel);

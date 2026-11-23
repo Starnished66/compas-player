@@ -1,4 +1,5 @@
 #include "gui_subsonic_covers.h"
+#include "../../../core/process/worker_thread.h"
 #include "../../assets/gui_image_dsc.h"
 #include "gui_subsonic_artist.h"
 #include "gui_subsonic_cover_flow.h"
@@ -116,7 +117,7 @@ static bool worker_start_locked(void) {
     cover_worker_t * w = calloc(1, sizeof(*w));
     if (!w) return false;
     http_cancel_token_init(&w->cancel);
-    if (pthread_create(&w->thread, NULL, worker_main, w) != 0) {
+    if (worker_thread_create(&w->thread, WORKER_STACK_HTTP, worker_main, w) != 0) {
         http_cancel_token_destroy(&w->cancel);
         free(w);
         return false;

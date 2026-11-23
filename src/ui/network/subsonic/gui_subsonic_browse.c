@@ -1,4 +1,5 @@
 #include "../../application/gui.h"
+#include "../../../core/process/worker_thread.h"
 #include "../../text/i18n/i18n.h"
 #include "gui_subsonic_internal.h"
 #include "gui_subsonic_sections.h"
@@ -282,7 +283,7 @@ void start_subsonic_browse(subsonic_browse_kind_t kind, const char * id, const c
     subsonic_browse_begin(kind);
     subsonic_browse_token = gui_busy_show(TR("Loading from server..."), "");
     gui_busy_set_cancel(subsonic_browse_token, subsonic_browse_cancel_cb, NULL);
-    if (pthread_create(&subsonic_browse_thread, NULL, subsonic_browse_thread_func, req) != 0) {
+    if (worker_thread_create(&subsonic_browse_thread, WORKER_STACK_HTTP, subsonic_browse_thread_func, req) != 0) {
         subsonic_browse_active = false;
         http_cancel_token_destroy(&subsonic_browse_cancel);
         subsonic_browse_free_request(req);
