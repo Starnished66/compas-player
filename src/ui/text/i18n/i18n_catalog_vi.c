@@ -808,7 +808,7 @@ const i18n_entry_t i18n_entries_vi[] = {
     {"Per album", (const char * const[]){"Theo album"}, 1},
     {"Per track", (const char * const[]){"Theo bản nhạc"}, 1},
     {"Personalize", (const char * const[]){"Cá nhân hóa"}, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", (const char * const[]){"Đặt phông chữ .ttf vào thư mục SD /Fonts."}, 1},
+    {"Place .ttf fonts up to 4 MB in SD /Fonts folder.", (const char * const[]){"Đặt phông chữ .ttf tối đa 4 MB vào thư mục SD /Fonts."}, 1},
     {"Place a valid player executable at SD/.compas/compas_player.", (const char * const[]){"Đặt trình phát thực thi hợp lệ tại SD/.compas/compas_player."}, 1},
     {"Play", (const char * const[]){"Phát"}, 1},
     {"Play All", (const char * const[]){"Phát tất cả"}, 1},

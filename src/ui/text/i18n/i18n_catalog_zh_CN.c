@@ -808,7 +808,7 @@ const i18n_entry_t i18n_entries_zh_CN[] = {
     {"Per album", (const char * const[]){"按专辑"}, 1},
     {"Per track", (const char * const[]){"按曲目"}, 1},
     {"Personalize", (const char * const[]){"个性化"}, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", (const char * const[]){"将 .ttf 字体放入 SD 的 /Fonts 文件夹。"}, 1},
+    {"Place .ttf fonts up to 4 MB in SD /Fonts folder.", (const char * const[]){"将不超过 4 MB 的 .ttf 字体放入 SD 的 /Fonts 文件夹。"}, 1},
     {"Place a valid player executable at SD/.compas/compas_player.", (const char * const[]){"请将有效的播放器可执行文件放置到 SD/.compas/compas_player。"}, 1},
     {"Play", (const char * const[]){"播放"}, 1},
     {"Play All", (const char * const[]){"全部播放"}, 1},

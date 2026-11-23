@@ -808,7 +808,7 @@ const i18n_entry_t i18n_entries_de[] = {
     {"Per album", (const char * const[]){"Pro Album"}, 1},
     {"Per track", (const char * const[]){"Pro Titel"}, 1},
     {"Personalize", (const char * const[]){"Personalisieren"}, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", (const char * const[]){"Lege .ttf-Schriftarten im Ordner /Fonts auf der SD-Karte ab."}, 1},
+    {"Place .ttf fonts up to 4 MB in SD /Fonts folder.", (const char * const[]){"Lege .ttf-Schriftarten bis 4 MB im Ordner /Fonts auf der SD-Karte ab."}, 1},
     {"Place a valid player executable at SD/.compas/compas_player.", (const char * const[]){"Lege eine gültige Player-Programmdatei unter SD/.compas/compas_player ab."}, 1},
     {"Play", (const char * const[]){"Abspielen"}, 1},
     {"Play All", (const char * const[]){"Alle abspielen"}, 1},

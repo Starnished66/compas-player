@@ -192,7 +192,7 @@ static lv_obj_t * build_custom_font_screen(void) {
     lv_label_set_long_mode(custom_font_preview_note, LV_LABEL_LONG_WRAP);
 
     lv_obj_t * hint = lv_label_create(preview_card);
-    lv_label_set_text(hint, TR("Place .ttf fonts in SD /Fonts folder."));
+    lv_label_set_text(hint, TR("Place .ttf fonts up to 4 MB in SD /Fonts folder."));
     lv_obj_add_style(hint, &style_theme_text_muted, 0);
     lv_obj_set_style_text_font(hint, gui_theme_font(GUI_FONT_ROLE_SUBTEXT), 0);
     lv_obj_set_width(hint, lv_pct(100));

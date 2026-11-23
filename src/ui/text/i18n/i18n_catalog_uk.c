@@ -808,7 +808,7 @@ const i18n_entry_t i18n_entries_uk[] = {
     {"Per album", (const char * const[]){"Для альбому"}, 1},
     {"Per track", (const char * const[]){"Для композиції"}, 1},
     {"Personalize", (const char * const[]){"Персоналізація"}, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", (const char * const[]){"Розмістіть шрифти .ttf у папці /Fonts на SD-картці."}, 1},
+    {"Place .ttf fonts up to 4 MB in SD /Fonts folder.", (const char * const[]){"Розмістіть шрифти .ttf розміром до 4 МБ у папці /Fonts на SD-картці."}, 1},
     {"Place a valid player executable at SD/.compas/compas_player.", (const char * const[]){"Помістіть дійсний виконуваний файл плеєра в SD/.compas/compas_player."}, 1},
     {"Play", (const char * const[]){"Відтворити"}, 1},
     {"Play All", (const char * const[]){"Відтворити все"}, 1},

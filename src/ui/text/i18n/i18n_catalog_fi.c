@@ -808,7 +808,7 @@ const i18n_entry_t i18n_entries_fi[] = {
     {"Per album", (const char * const[]){"Albumikohtainen"}, 1},
     {"Per track", (const char * const[]){"Kappalekohtainen"}, 1},
     {"Personalize", (const char * const[]){"Mukauta"}, 1},
-    {"Place .ttf fonts in SD /Fonts folder.", (const char * const[]){"Aseta .ttf-fontit SD-kortin /Fonts-kansioon."}, 1},
+    {"Place .ttf fonts up to 4 MB in SD /Fonts folder.", (const char * const[]){"Aseta enintään 4 Mt:n .ttf-fontit SD-kortin /Fonts-kansioon."}, 1},
     {"Place a valid player executable at SD/.compas/compas_player.", (const char * const[]){"Aseta kelvollinen soittimen suoritettava tiedosto polkuun SD/.compas/compas_player."}, 1},
     {"Play", (const char * const[]){"Toista"}, 1},
     {"Play All", (const char * const[]){"Toista kaikki"}, 1},
