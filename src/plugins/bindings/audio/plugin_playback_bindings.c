@@ -1,5 +1,4 @@
 /* plugin.* bindings for playback control, remote tracks, equalizer, volume, now playing and play modes. */
-#include "../../../library/browser/files/file_ops.h"
 #include "../../../ui/application/gui.h"
 #include "../../../ui/player/screen/gui_lyrics.h"
 #include "../../../ui/player/layout/player_layouts.h"
@@ -52,7 +51,7 @@ static int l_plugin_eq_apply_profile(lua_State * L) {
 
 static int l_plugin_eq_save_profile(lua_State * L) {
     const char * path = plugin_lua_check_external_path(L, 1, "plugin.eq_save_profile");
-    if (plugin_path_in_program_dirs(path) || file_op_card_missing(path)) {
+    if (plugin_path_in_program_dirs(path)) {
         lua_pushboolean(L, 0);
         return 1;
     }

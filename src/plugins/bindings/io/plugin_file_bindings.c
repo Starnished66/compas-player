@@ -153,7 +153,6 @@ static int plugin_file_op_start(lua_State * L, file_op_kind_t kind, const char *
         if (list) lua_pop(L, 1);
     }
     if (usb_mode_control_storage_write_blocked()) return plugin_lua_push_error(L, "USB storage is connected");
-    if (file_op_card_missing(paths[0])) return plugin_lua_push_error(L, "no SD card");
     if (plugin_file_op.active || !file_op_start(kind, paths, (int) count, dest_dir))
         return plugin_lua_push_error(L, "another file operation is running");
 
@@ -371,7 +370,6 @@ static int l_plugin_mkdir(lua_State * L) {
     const char * path = plugin_lua_check_external_path(L, 1, "plugin.mkdir");
     if (plugin_path_in_program_dirs(path))
         return plugin_lua_push_error(L, "the program folders (.apps, .apps-data, .emulators) are reserved");
-    if (file_op_card_missing(path)) return plugin_lua_push_error(L, "no SD card");
     size_t len = strlen(path);
     if (len == 0 || len >= PATH_MAX) {
         return plugin_lua_push_error(L, "invalid path");
