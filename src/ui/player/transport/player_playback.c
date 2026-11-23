@@ -172,10 +172,11 @@ static void play_track_at_from_internal(int index, double start_seconds, bool pu
     arm_next_track_for_audio(index);
 
     set_play_button_state(true);
-    /* Manual next/previous and a deferred startup resume can already be on
-     * the player screen.  Do not stack a duplicate copy of the same screen
-     * just because playback is being (re)started there. */
-    if (push_nav && !stay_on_screen_once && lv_screen_active() != gui_player_get_screen()) nav_push(gui_player_get_screen());
+    /* Manual next/previous and a deferred startup resume can run while the
+     * player or lock screen is already active. Do not stack Player over itself
+     * or over the lock screen. */
+    if (push_nav && !stay_on_screen_once && !gui_lock_screen_is_showing() &&
+        lv_screen_active() != gui_player_get_screen()) nav_push(gui_player_get_screen());
     stay_on_screen_once = false;
 
     /* A remote track's stream_url can expire or be single-use -- resuming

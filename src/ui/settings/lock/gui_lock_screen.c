@@ -635,6 +635,15 @@ static void stop_timers(void) {
     }
 }
 
+/* Restart timers if another screen covered the lock screen and popped back
+ * without going through gui_lock_screen_show(). */
+static void lock_screen_loaded_cb(lv_event_t * event) {
+    (void)event;
+    update_lock_swipe_hint();
+    update_clock_display();
+    if (backlight_screen_is_on()) start_timers();
+}
+
 static void lock_screen_unloaded_cb(lv_event_t * event) {
     (void)event;
     stop_timers();
@@ -654,6 +663,7 @@ static void build_lock_screen_if_needed(void) {
     lv_obj_set_style_border_width(lock_screen, 0, 0);
     lv_obj_add_style(lock_screen, &style_theme_screen_bg, 0);
     lv_obj_remove_flag(lock_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(lock_screen, lock_screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_event_cb(lock_screen, lock_screen_unloaded_cb, LV_EVENT_SCREEN_UNLOADED, NULL);
 
     lock_backdrop = lv_image_create(lock_screen);
