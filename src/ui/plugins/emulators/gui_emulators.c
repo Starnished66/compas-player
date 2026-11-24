@@ -2,9 +2,11 @@
 #include "../../../core/system/runtime/board_config.h"
 
 #include "../../../audio/engine/audio.h"
+#include "../../../audio/output/audio_output.h"
 #include "../../../core/device/emulator_registry.h"
 #include "../../../network/store/catalog/emulator_store.h"
 #include "gui_emulator_store.h"
+#include "emulator_audio_env.h"
 #include "../../shell/gui_navigation.h"
 #include "../../network/gui_network.h"
 #include "../../shell/gui_notifications.h"
@@ -14,7 +16,9 @@
 #include "../../widgets/builders/screen_builders.h"
 #include "../../../core/persistence/settings.h"
 #include "../../../core/process/subprocess.h"
+#include "../../../hardware/usb/usb_audio_output.h"
 #include "../../../hardware/usb/usb_mode_control.h"
+#include "../../../network/bluetooth/control/bluetooth_control.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -91,23 +95,54 @@ static void show_message_or_list(lv_obj_t * list, lv_obj_t * message, bool show_
 }
 
 #ifndef HOST_BUILD
-/* The player's environment plus the two variables of the emulator contract.
- * Free with free(); the strings are static. */
-static char ** emulator_environment(void) {
+/* The player's audio route at launch time, from state that is already known:
+ * the launch must not wait on bluealsactl. Wired, a USB DAC that is gone, or
+ * Bluetooth whose negotiated rate is unknown (0 after a disconnect) leave it empty. */
+static size_t current_audio_env(emulator_audio_env_t * audio) {
+    audio_output_info_t info;
+    audio_output_get_info(&info);
+    char usb_device[32] = "";
+    emulator_audio_route_t route = { .route = info.requested_route };
+    if (route.route == AUDIO_OUTPUT_ROUTE_USB && usb_audio_output_is_connected(usb_device, sizeof(usb_device))) {
+        route.device = usb_device;
+        route.gain = audio_get_usb_gain();
+    } else if (route.route == AUDIO_OUTPUT_ROUTE_BLUETOOTH) {
+        route.device = bt_control_get_playback_pcm();
+        route.rate = bt_connected_rate_cached;
+    }
+    return emulator_audio_env_build(&route, audio);
+}
+
+static bool is_player_variable(const char * entry, const char * name, size_t name_len) {
+    return strncmp(entry, name, name_len) == 0 && entry[name_len] == '=';
+}
+
+static bool replaced_by_player(const char * entry) {
+    static const char * const names[] = {
+        "COMPAS_BOARD", "COMPAS_EMULATOR_PROTOCOL",
+        "COMPAS_AUDIO_OUTPUT", "COMPAS_AUDIO_DEVICE", "COMPAS_AUDIO_GAIN", "COMPAS_AUDIO_RATE",
+    };
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+        if (is_player_variable(entry, names[i], strlen(names[i]))) return true;
+    return false;
+}
+
+/* The player's environment plus the emulator contract variables. Free with
+ * free(); the strings are static or live in audio, which must outlive the
+ * spawn. */
+static char ** emulator_environment(const emulator_audio_env_t * audio, size_t audio_count) {
     static char board[] = "COMPAS_BOARD=" EMULATOR_BOARD;
     static char protocol[] = "COMPAS_EMULATOR_PROTOCOL=1";
     size_t n = 0;
     while (environ && environ[n]) n++;
-    char ** env = malloc((n + 3) * sizeof(*env));
+    char ** env = malloc((n + 3 + audio_count) * sizeof(*env));
     if (!env) return NULL;
     size_t used = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (strncmp(environ[i], "COMPAS_BOARD=", 13) == 0 ||
-            strncmp(environ[i], "COMPAS_EMULATOR_PROTOCOL=", 25) == 0) continue;
-        env[used++] = environ[i];
-    }
+    for (size_t i = 0; i < n; i++)
+        if (!replaced_by_player(environ[i])) env[used++] = environ[i];
     env[used++] = board;
     env[used++] = protocol;
+    for (size_t i = 0; i < audio_count; i++) env[used++] = (char *) audio->var[i];
     env[used] = NULL;
     return env;
 }
@@ -120,7 +155,8 @@ static int run_emulator_process(const emulator_manifest_t * emulator, const char
     snprintf(dir, sizeof(dir), "%s/%s", EMULATOR_ROOT, emulator->id);
     snprintf(exec, sizeof(exec), "%s/%s", dir, emulator->exec);
     char * const argv[] = { exec, (char *) rom, NULL };
-    char ** envp = emulator_environment();
+    emulator_audio_env_t audio;
+    char ** envp = emulator_environment(&audio, current_audio_env(&audio));
     posix_spawn_file_actions_t fa;
     pid_t pid = -1;
     int log_fd = open(EMULATOR_LOG, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);

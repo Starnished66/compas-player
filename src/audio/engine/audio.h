@@ -324,6 +324,9 @@ bool audio_try_set_external_volume(float new_volume, unsigned int expected_gener
  * A later synchronous audio_set_volume() always supersedes queued work. */
 void audio_request_volume(float volume);
 float audio_get_volume(void);
+/* Linear PCM gain the player applies for USB output at the current volume
+ * (volume cap included, 0 when muted). Target builds only. */
+float audio_get_usb_gain(void);
 
 /* Clamp a requested integer percentage to the active application cap. */
 int audio_clamp_volume_percent(int percent);

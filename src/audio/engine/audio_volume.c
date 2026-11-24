@@ -144,13 +144,26 @@ static float audio_clamp_volume_locked(float new_volume) {
     return new_volume > cap ? cap : new_volume;
 }
 
+#ifndef HOST_BUILD
+static float usb_digital_gain(float vol) {
+    return (vol <= 0.0f) ? 0.0f : (float) pow(10.0, calibrated_taper_db((double) vol) / 20.0);
+}
+
+float audio_get_usb_gain(void) {
+    pthread_mutex_lock(&audio_mutex);
+    float gain = usb_digital_gain(volume);
+    pthread_mutex_unlock(&audio_mutex);
+    return gain;
+}
+#endif
+
 static void audio_apply_volume_locked(float new_volume) {
     volume = new_volume;
     volume_gain = (new_volume <= 0.0f) ? 0.0f : 1.0f;
 #ifndef HOST_BUILD
     request_hw_volume(new_volume);
     if (audio_output_is_usb_active()) {
-        volume_gain = (new_volume <= 0.0f) ? 0.0f : (float) pow(10.0, calibrated_taper_db((double) new_volume) / 20.0);
+        volume_gain = usb_digital_gain(new_volume);
     }
 #endif
 }
