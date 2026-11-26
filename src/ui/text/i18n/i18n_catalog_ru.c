@@ -1343,7 +1343,7 @@ const i18n_entry_t i18n_entries_ru[] = {
     {"Update music database?", (const char * const[]){"Обновить музыкальную базу данных?"}, 1},
     {"Update saved. Install from firmware update > install from SD card.", (const char * const[]){"Обновление сохранено. Установите его через Обновление прошивки > Установить с SD-карты."}, 1},
     {"Update the entire CompásOS. Flashing firmware contains bootloader, player, kernel and drivers.", (const char * const[]){"Обновляет всю CompásOS. Прошивка содержит загрузчик, плеер, ядро и драйверы."}, 1},
-    {"Update the library to apply it. You can keep listening while it updates. This may take a while.", (const char * const[]){"Обновите библиотеку, чтобы применить её. Во время обновления можно продолжать слушать. Это может занять некоторое время."}, 1},
+    {"Update the library to apply it. You can keep listening while it updates. This may take a while.", (const char * const[]){"Обновите библиотеку, чтобы применить изменения. Во время обновления можно продолжать слушать музыку. Это может занять некоторое время."}, 1},
     {"Update the player only, retaining current drivers, kernel and bootloader.", (const char * const[]){"Обновляет только плеер, сохраняя текущие драйверы, ядро и загрузчик."}, 1},
     {"Update these plugins individually", (const char * const[]){"Обновите эти плагины по отдельности"}, 1},
     {"Update using this file?\n%s\n\nDevice will reboot into recovery mode.", (const char * const[]){"Обновить с помощью этого файла?\n%s\n\nУстройство перезагрузится в режим восстановления."}, 1},
