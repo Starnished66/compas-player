@@ -4,10 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define ZIP_MAX_UNCOMPRESSED_BYTES (256u * 1024u)
-#define ZIP_MAX_COMPRESSED_BYTES   (256u * 1024u)
-#define ZIP_MAX_CD_BYTES           (256u * 1024u)
-#define ZIP_MAX_ENTRIES            2048u
+/* Sized for EPUBs of a few thousand chapters (#249): the OPF and NCX of a
+ * 2400-chapter book are under 400 KB, and 2 MiB of directory is about 20000 names. */
+#define ZIP_MAX_UNCOMPRESSED_BYTES (1024u * 1024u)
+#define ZIP_MAX_COMPRESSED_BYTES   (1024u * 1024u)
+#define ZIP_MAX_CD_BYTES           (2u * 1024u * 1024u)
+#define ZIP_MAX_ENTRIES            32768u
 
 typedef enum {
     ZIP_OK = 0,

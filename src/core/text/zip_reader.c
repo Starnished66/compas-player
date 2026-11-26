@@ -223,7 +223,7 @@ static zip_status open_and_read_cd(const char * path, zip_archive * arch) {
     uint64_t cd_off = (uint64_t) cd_offset;
     uint64_t cd_sz = (uint64_t) cd_size;
     if (total_entries > ZIP_MAX_ENTRIES || cd_sz > (uint64_t) ZIP_MAX_CD_BYTES) {
-        return close_with_status(arch, ZIP_ERR_CORRUPT);
+        return close_with_status(arch, ZIP_ERR_TOO_LARGE);
     }
     if (cd_off > arch->file_size || cd_sz > arch->file_size - cd_off) {
         return close_with_status(arch, ZIP_ERR_CORRUPT);
