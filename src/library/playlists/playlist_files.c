@@ -1,5 +1,6 @@
 #include "playlist_files.h"
 #include "../browser/paths/path_cache.h"
+#include "../browser/paths/library_paths.h"
 #include "../artwork/support/library_endian.h"
 
 #include <dirent.h>
@@ -930,6 +931,22 @@ bool playlist_files_delete(const char * m3u_path) {
     return ok;
 }
 
+static bool fits(int n, size_t size) { return n >= 0 && (size_t) n < size; }
+
+/* out = MUSIC_ROOT_DIR + "/" + rest (leading slashes of rest dropped). False if it does not fit. */
+static bool join_music_root(char * out, size_t out_size, const char * rest) {
+    while (*rest == '/') rest++;
+    return fits(snprintf(out, out_size, "%s/%s", MUSIC_ROOT_DIR, rest), out_size);
+}
+
+/* Keeps out when it exists; otherwise takes line under the music root if that exists. */
+static bool fall_back_to_music_root(char * out, size_t out_size, const char * line) {
+    struct stat st;
+    char alt[PATH_MAX];
+    if (stat(out, &st) == 0 || !join_music_root(alt, sizeof(alt), line) || stat(alt, &st) != 0) return true;
+    return fits(snprintf(out, out_size, "%s", alt), out_size);
+}
+
 void playlist_files_resolve_path(const char * m3u_path, const char * line, char * out_full_path, size_t out_size) {
     if (!out_full_path || out_size == 0) return;
     out_full_path[0] = '\0';
@@ -939,20 +956,28 @@ void playlist_files_resolve_path(const char * m3u_path, const char * line, char 
     strcpy(normalized, line);
     for (char *p = normalized; *p; p++) if (*p == '\\') *p = '/';
     line = normalized;
-    if (line[0] == '/') {
-        int n = snprintf(out_full_path, out_size, "%s", line);
-        if (n < 0 || (size_t) n >= out_size) {
-            out_full_path[0] = '\0';
-            return;
-        }
-        normalize_path(out_full_path, out_size);
-        return;
-    }
 
-    char dir_path[PATH_MAX];
-    if (!dir_of(m3u_path, dir_path, sizeof(dir_path))) return;
-    int n = snprintf(out_full_path, out_size, "%s/%s", dir_path, line);
-    if (n < 0 || (size_t) n >= out_size) {
+    bool ok;
+    if (((line[0] >= 'A' && line[0] <= 'Z') || (line[0] >= 'a' && line[0] <= 'z')) &&
+        line[1] == ':' && line[2] == '/') {
+        /* Windows drive path from a PC export: the rest is relative to the music root. */
+        ok = join_music_root(out_full_path, out_size, line + 3);
+    } else if (line[0] == '/') {
+        size_t root_len = strlen(MUSIC_ROOT_DIR);
+        bool under_root = strncmp(line, MUSIC_ROOT_DIR, root_len) == 0 &&
+                          (line[root_len] == '/' || line[root_len] == '\0');
+        ok = fits(snprintf(out_full_path, out_size, "%s", line), out_size);
+        /* Absolute path from another device: try it under the music root. */
+        if (ok && !under_root) ok = fall_back_to_music_root(out_full_path, out_size, line);
+    } else {
+        char dir_path[PATH_MAX];
+        if (!dir_of(m3u_path, dir_path, sizeof(dir_path))) return;
+        ok = fits(snprintf(out_full_path, out_size, "%s/%s", dir_path, line), out_size);
+        bool dotted = line[0] == '.' && (line[1] == '/' || (line[1] == '.' && line[2] == '/'));
+        /* MusicBee style: relative to the music root, not the playlist folder. */
+        if (ok && !dotted) ok = fall_back_to_music_root(out_full_path, out_size, line);
+    }
+    if (!ok) {
         out_full_path[0] = '\0';
         return;
     }
@@ -977,11 +1002,7 @@ playlist_read_status_t playlist_files_read_ex(const char * path, char *** out_pa
         first = false;
         library_trim_eol(entry);
         if (!entry[0] || entry[0] == '#') continue;
-        char full[PATH_MAX], dir[PATH_MAX];
-        if (!dir_of(path, dir, sizeof(dir))) { status = PLAYLIST_READ_INVALID; break; }
-        if (strlen(entry) + (entry[0] == '/' ? 0 : strlen(dir) + 1) >= sizeof(full)) {
-            status = PLAYLIST_READ_INVALID; break;
-        }
+        char full[PATH_MAX];
         playlist_files_resolve_path(path, entry, full, sizeof(full));
         if (!full[0]) { status = PLAYLIST_READ_INVALID; break; }
         if (count == capacity) {

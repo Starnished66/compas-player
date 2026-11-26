@@ -136,10 +136,13 @@ typedef enum {
 } playlist_read_status_t;
 playlist_read_status_t playlist_files_read_ex(const char * path, char *** paths, int * count);
 
-/* Resolves a single M3U line against the directory m3u_path lives in.
- * A line starting with '/' is treated as absolute; otherwise it is resolved
- * relative to m3u_path's directory. Shared by playlist reading/mutation helpers
- * and file_browser.c's file_browser_build_playlist_from_m3u(). */
+/* Resolves a single M3U line to a full path. Lines starting with "./" or "../"
+ * are relative to m3u_path's directory. Other relative lines try that directory
+ * first, then the music root (PC exports such as "Library\\a.flac"). A Windows
+ * drive prefix ("E:\\Music\\a.flac") is dropped and the rest is taken from the
+ * music root. Absolute paths outside the music root fall back to the music root
+ * when they do not exist. Output is empty on overflow. Shared by playlist
+ * reading/mutation helpers and file_browser.c. */
 void playlist_files_resolve_path(const char * m3u_path, const char * line, char * out_full_path, size_t out_size);
 
 #endif /* PLAYLIST_FILES_H */
