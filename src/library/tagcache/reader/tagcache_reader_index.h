@@ -1305,7 +1305,7 @@ bool reader_build_indexes(void) {
 /* Rebuild every derived component into the isolated v9 filename set. The
  * writer publishes the new metadata only after syncing the complete set, so
  * any failure leaves the prior v3-v8 metadata and files usable. */
-bool reader_migrate_indexes(int32_t gen) {
+bool reader_migrate_indexes(int32_t gen, bool join) {
     if (reader_loaded_index_version >= TC_INDEX_MIGRATE_BELOW) return true;
     struct tc_index_meta old_meta;
     char meta_path[640], meta_tmp[680];
@@ -1316,7 +1316,7 @@ bool reader_migrate_indexes(int32_t gen) {
     if (old_fd >= 0) close(old_fd);
     if (!have_old_meta || old_meta.version >= TC_INDEX_MIGRATE_BELOW) return false;
     reader_compact_sort = false;
-    if (!reader_build_indexes()) {
+    if (!reader_join_build(join) || !reader_build_indexes()) {
         reader_close_indexes();
         return false;
     }

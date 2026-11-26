@@ -314,7 +314,7 @@ int reader_create_temp(void);
 void reader_close_indexes(void);
 void reader_reset_cache(void);
 bool reader_build_indexes(void);
-bool reader_migrate_indexes(int32_t gen);
+bool reader_migrate_indexes(int32_t gen, bool join);
 int32_t reader_find_path(const char *path);
 bool reader_order_song(int fd, bool recency, int32_t rank, tagcache_song_t *out);
 bool reader_group_at(int kind, int index, tagcache_group_t *out);

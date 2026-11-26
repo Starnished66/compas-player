@@ -42,6 +42,8 @@ _Atomic bool library_rescan_active = false;
 void (*library_setup_scan_complete)(bool success);
 bool library_rescan_success_pending = false;
 static atomic_bool library_rescan_done_flag = false;
+/* Written by the rescan thread in migration mode, published by the done flag. */
+static bool library_index_migration_ok;
 library_rescan_mode_t library_rescan_mode;
 gui_popup_t refresh_all_metadata_popup;
 gui_popup_t refresh_all_covers_popup;
@@ -74,6 +76,7 @@ typedef enum {
     LIBRARY_PROMPT_NO_DATABASE,
     LIBRARY_PROMPT_LOAD_FAILED,
     LIBRARY_PROMPT_FILES_CHANGED,
+    LIBRARY_PROMPT_INDEX_MIGRATION,
 } library_prompt_reason_t;
 
 typedef enum {
@@ -96,6 +99,7 @@ lv_obj_t * library_update_prompt_title;
 lv_obj_t * library_update_prompt_body;
 lv_obj_t * library_update_prompt_confirm_label;
 
+static void start_library_index_migration(void);
 static void library_update_prompt_confirm_cb(lv_event_t * e);
 static void library_update_prompt_later_cb(lv_event_t * e);
 static void library_update_prompt_backdrop_cb(lv_event_t * e);
@@ -109,7 +113,7 @@ static bool library_prompt_request_is_current(const library_prompt_request_t * r
         return library_cache_load_outcome == METADATA_DB_LOAD_SUCCESS_FRESH;
     if (request->reason == LIBRARY_PROMPT_LOAD_FAILED)
         return library_cache_load_outcome == METADATA_DB_LOAD_FAILED;
-    return false;
+    return request->reason == LIBRARY_PROMPT_INDEX_MIGRATION && metadata_db_update_required(NULL);
 }
 
 static void library_prompt_clear_request(library_prompt_request_t * request) {
@@ -212,6 +216,30 @@ static bool library_prompt_taken_over(void) {
            gui_popup_visible_count() != 1;
 }
 
+/* One row per database format change, oldest first; add a row whenever
+ * TAGCACHE_DATABASE_FORMAT / TC_INDEX_MIGRATE_BELOW is raised. */
+static const struct { int format; const char * reason; } library_format_changes[] = {
+    {9, N_("Compás v1.6.2 changed how artists are grouped.")},
+};
+
+/* The reason of the newest change above the loaded format, then the shared tail. */
+static void library_prompt_set_database_update_body(void) {
+    int loaded = 0;
+    const char * reason = N_("This version of Compás uses a newer library format.");
+    metadata_db_update_required(&loaded);
+    for (size_t i = 0; i < sizeof(library_format_changes) / sizeof(library_format_changes[0]); i++)
+        if (library_format_changes[i].format > loaded) reason = library_format_changes[i].reason;
+    lv_label_set_text_fmt(library_update_prompt_body, "%s %s", TR(reason),
+                          TR("Update the library to apply it. You can keep listening while it updates. "
+                             "This may take a while."));
+}
+
+/* After boot: an older database format asks the user to update it. */
+static void library_prompt_database_update_if_needed(void) {
+    if (metadata_db_update_required(NULL))
+        library_prompt_enqueue(LIBRARY_PROMPT_INDEX_MIGRATION, library_cache_load_card_generation);
+}
+
 static void library_prompt_update_labels(library_prompt_reason_t reason) {
     switch (reason) {
         case LIBRARY_PROMPT_NO_DATABASE:
@@ -228,6 +256,11 @@ static void library_prompt_update_labels(library_prompt_reason_t reason) {
         case LIBRARY_PROMPT_FILES_CHANGED:
             lv_label_set_text(library_update_prompt_title, TR("Update music database?"));
             lv_label_set_text(library_update_prompt_body, TR("Files on the card may have changed."));
+            lv_label_set_text(library_update_prompt_confirm_label, TR("Update"));
+            break;
+        case LIBRARY_PROMPT_INDEX_MIGRATION:
+            lv_label_set_text(library_update_prompt_title, TR("Library update needed"));
+            library_prompt_set_database_update_body();
             lv_label_set_text(library_update_prompt_confirm_label, TR("Update"));
             break;
         case LIBRARY_PROMPT_NONE:
@@ -271,17 +304,23 @@ static void library_update_prompt_confirm_cb(lv_event_t * e) {
         return;
     }
     if (handled.reason == LIBRARY_PROMPT_LOAD_FAILED) start_library_rescan();
+    else if (handled.reason == LIBRARY_PROMPT_INDEX_MIGRATION) start_library_index_migration();
     else start_library_auto_rescan();
+}
+
+/* Later: the Settings hint is about rescanning, so the index prompt skips it. */
+static void library_update_prompt_dismiss(void) {
+    library_update_prompt_close(library_prompt_request.reason != LIBRARY_PROMPT_INDEX_MIGRATION);
 }
 
 static void library_update_prompt_later_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    library_update_prompt_close(true);
+    library_update_prompt_dismiss();
 }
 
 static void library_update_prompt_backdrop_cb(lv_event_t * e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    library_update_prompt_close(true);
+    library_update_prompt_dismiss();
 }
 
 void build_library_update_prompt_popup(void) {
@@ -381,6 +420,7 @@ static void report_library_cache_load(void) {
             break;
         case METADATA_DB_LOAD_SUCCESS_NORMAL:
             if (library_cache_load_announce_loaded) show_info_toast(TR("Library loaded"));
+            library_prompt_database_update_if_needed();
             break;
     }
 }
@@ -413,10 +453,12 @@ static void * library_rescan_thread_func(void * arg) {
      * session snapshot cannot protect this interval from a newly connecting
      * host. The lease atomically unbinds idle Storage and blocks mode changes
      * for the full SD walk/commit. */
+    bool migrate = library_rescan_mode == LIBRARY_RESCAN_MIGRATE_INDEXES;
     if (usb_mode_control_storage_write_begin()) {
-        library_scan_run();
+        if (migrate) library_index_migration_ok = metadata_db_migrate_indexes();
+        else library_scan_run();
         usb_mode_control_storage_write_end();
-    } else {
+    } else if (!migrate) {
         library_scan_record_start_failure();
     }
     DB_LOG("DB", "rescan_thread_end songs=%lld elapsed_ms=%llu rss_kb=%ld",
@@ -452,10 +494,27 @@ static void show_library_rescan_screen(library_rescan_mode_t mode) {
         : mode == LIBRARY_RESCAN_TARGETED ? TR("Refreshing\nmetadata...")
         : TR("Updating\nmusic database...");
     library_rescan_from_music = library_screen_in_navigation(gui_library_get_music_screen());
+    if (mode == LIBRARY_RESCAN_MIGRATE_INDEXES) {
+        library_rescan_token = gui_busy_show(title, TR("Saving music database\nThis can take a while on large libraries"));
+        gui_busy_set_progress(library_rescan_token, 100);
+        return;
+    }
     library_rescan_token = gui_busy_show(title, metadata ? TR("Preparing metadata refresh...")
                                                          : TR("Preparing music library..."));
     gui_busy_set_cancel(library_rescan_token, library_rescan_cancel_cb, NULL);
     gui_busy_set_progress(library_rescan_token, 0);
+}
+
+static bool library_rescan_thread_start(void) {
+    pthread_attr_t attr;
+    pthread_attr_t * attr_ptr = NULL;
+    bool attr_initialized = pthread_attr_init(&attr) == 0;
+    if (attr_initialized) {
+        if (pthread_attr_setstacksize(&attr, LIBRARY_RESCAN_THREAD_STACK_SIZE) == 0) attr_ptr = &attr;
+    }
+    bool created = pthread_create(&library_rescan_thread, attr_ptr, library_rescan_thread_func, NULL) == 0;
+    if (attr_initialized) pthread_attr_destroy(&attr);
+    return created;
 }
 
 static bool start_library_rescan_job(bool allow_rebuild, library_rescan_mode_t mode,
@@ -507,14 +566,7 @@ static bool start_library_rescan_job(bool allow_rebuild, library_rescan_mode_t m
     library_rescan_active = true;
     show_library_rescan_screen(mode);
 
-    pthread_attr_t attr;
-    pthread_attr_t * attr_ptr = NULL;
-    bool attr_initialized = pthread_attr_init(&attr) == 0;
-    if (attr_initialized) {
-        if (pthread_attr_setstacksize(&attr, LIBRARY_RESCAN_THREAD_STACK_SIZE) == 0) attr_ptr = &attr;
-    }
-    bool created = pthread_create(&library_rescan_thread, attr_ptr, library_rescan_thread_func, NULL) == 0;
-    if (attr_initialized) pthread_attr_destroy(&attr);
+    bool created = library_rescan_thread_start();
     if (created) library_cache_load_pending = false;
     if (!created) {
         library_rescan_active = false;
@@ -530,6 +582,42 @@ static bool start_library_rescan_job(bool allow_rebuild, library_rescan_mode_t m
 static void start_library_rescan_with_repair(bool allow_rebuild) {
     (void) start_library_rescan_job(allow_rebuild, LIBRARY_RESCAN_NORMAL, NULL, 0,
                                    LIBRARY_SCAN_SCOPE_NONE, NULL, NULL);
+}
+
+/* Builds the current index set in the background; browsing data stays valid
+ * and playback continues, only the screen is covered meanwhile. */
+static void start_library_index_migration(void) {
+    if (library_rescan_active || library_rescan_success_pending ||
+        gui_network_usb_storage_session_active() || gui_network_usb_storage_switch_pending()) {
+        show_info_toast(TR("Library is busy"));
+        return;
+    }
+    quiesce_thumbnails();
+    library_rescan_mode = LIBRARY_RESCAN_MIGRATE_INDEXES;
+    library_index_migration_ok = false;
+    atomic_store_explicit(&library_rescan_done_flag, false, memory_order_relaxed);
+    library_rescan_active = true;
+    show_library_rescan_screen(library_rescan_mode);
+    if (!library_rescan_thread_start()) {
+        library_rescan_active = false;
+        gui_busy_hide(library_rescan_token);
+        library_rescan_mode = LIBRARY_RESCAN_NORMAL;
+        show_error_toast(TR("Thread launch failed"));
+    }
+}
+
+static void finish_library_index_migration(void) {
+    library_rescan_active = false;
+    pthread_join(library_rescan_thread, NULL);
+    library_rescan_mode = LIBRARY_RESCAN_NORMAL;
+    if (library_index_migration_ok) {
+        /* Artist groups changed: drop artist covers and aliases like a full scan does. */
+        invalidate_library_views_after_publication(LIBRARY_RESCAN_MIGRATE_INDEXES, false);
+        refresh_library_screens_after_reload(false);
+    }
+    gui_busy_hide(library_rescan_token);
+    if (library_index_migration_ok) show_info_toast(TR("Library updated"));
+    else show_error_toast(TR("Library update failed. Check SD card and retry"));
 }
 
 void start_library_rescan(void) {
@@ -900,7 +988,11 @@ void poll_library_rescan(void) {
     }
 
     if (!atomic_load_explicit(&library_rescan_done_flag, memory_order_acquire)) {
-        show_library_rescan_progress();
+        if (library_rescan_mode != LIBRARY_RESCAN_MIGRATE_INDEXES) show_library_rescan_progress();
+        return;
+    }
+    if (library_rescan_mode == LIBRARY_RESCAN_MIGRATE_INDEXES) {
+        finish_library_index_migration();
         return;
     }
 

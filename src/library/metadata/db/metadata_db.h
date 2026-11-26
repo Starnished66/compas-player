@@ -132,6 +132,13 @@ bool metadata_db_put(const char * path, int64_t mtime, int64_t size, const cache
  * the last committed generation remains loadable. */
 bool metadata_db_end_update(void);
 
+/* The loaded database format is older than this player requires: opening never
+ * rewrites it. Writes the loaded format when out_loaded_format is non-NULL.
+ * The migration builds the current set with the query lock released and runs
+ * on the scan thread so it is serialized with scans. False means unchanged. */
+bool metadata_db_update_required(int * out_loaded_format);
+bool metadata_db_migrate_indexes(void);
+
 /* Ends an interrupted scan without committing. Reloads the last committed
  * database so staged upserts from the aborted pass are discarded. */
 void metadata_db_abort_update(void);

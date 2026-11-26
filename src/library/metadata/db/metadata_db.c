@@ -619,6 +619,24 @@ bool metadata_db_end_update(void) {
     return ok;
 }
 
+bool metadata_db_update_required(int * out_loaded_format) {
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready || !tagcache_indexes_need_migration()) return false;
+    if (out_loaded_format) *out_loaded_format = tagcache_index_version();
+    return true;
+}
+
+bool metadata_db_migrate_indexes(void) {
+    METADATA_UPDATE_GUARD;
+    METADATA_DB_GUARD;
+    if (!metadata_db_db_ready || !tagcache_indexes_need_migration()) return false;
+    bool ok = tagcache_migrate_indexes(metadata_query_unlock, metadata_query_lock);
+    display_song_cache_invalidate();
+    /* As after a commit: readiness follows the reload, and paged walks restart. */
+    capture_tagcache_outcome(true);
+    return ok;
+}
+
 void metadata_db_abort_update(void) {
     METADATA_UPDATE_GUARD;
     METADATA_DB_GUARD;

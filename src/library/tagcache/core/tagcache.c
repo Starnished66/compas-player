@@ -15,7 +15,7 @@ bool rebuild_preserve_generations;
 /* Set by tagcache_open_read_only(): loading must not write (no index migration). */
 static bool open_read_only;
 tagcache_load_outcome_t last_load_outcome = TAGCACHE_LOAD_FAILED;
-/* Set when the last open rewrote an older index layout (see tagcache_indexes_migrated()). */
+/* Set when tagcache_migrate_indexes() rewrote an older index layout (see tagcache_indexes_migrated()). */
 static bool indexes_migrated;
 reader_context_t committed_reader;
 reader_context_t scan_reader;
@@ -68,19 +68,6 @@ static bool load_generation(int32_t gen) {
     reader_close_indexes();
     bool ok = reader_open(gen);
     int indexed = ok ? reader_open_indexes(gen) : -1;
-    if (ok && indexed == 1 && reader_loaded_index_version < TC_INDEX_MIGRATE_BELOW && !open_read_only) {
-        uint32_t old_index_version = reader_loaded_index_version;
-        if (reader_migrate_indexes(gen)) {
-            indexes_migrated = true;
-        } else {
-            /* Keep the previously valid persisted generation usable if rebuilding
-             * derived indexes fails (for example, while storage is read-only). */
-            reader_close_indexes();
-            indexed = reader_open_indexes(gen);
-            DB_LOG("DB", "index_migration_failed gen=%d; retaining valid v%u persisted index",
-                   gen, old_index_version);
-        }
-    }
     if (ok && indexed == 0 && reader_requires_indexes) ok = false;
     if (ok && indexed == 0) ok = reader_legacy_init();
     if (!ok || indexed < 0) {
@@ -232,6 +219,39 @@ int32_t tagcache_slot_count(void) { return db_open ? ent_count : 0; }
 
 /* Compas Tools' compas-sdtool uses these two; the player itself does not. */
 bool tagcache_indexes_migrated(void) { return indexes_migrated; }
+
+bool tagcache_indexes_need_migration(void) {
+    return db_open && !open_read_only && disk_ready && !reader_legacy_active && committed_reader.loaded_index_version &&
+           committed_reader.loaded_index_version < TC_INDEX_MIGRATE_BELOW;
+}
+
+/* Opening never rewrites indexes: the older set stays readable. This builds the
+ * current set for the loaded generation in its own reader with the query lock
+ * released, then reloads so readers use it. A failure keeps the older set. */
+bool tagcache_migrate_indexes(void (*unlock)(void), void (*lock)(void)) {
+    if (!tagcache_indexes_need_migration()) return false;
+    int32_t gen = disk_gen;
+    uint32_t old_version = committed_reader.loaded_index_version;
+    /* The fresh build reader has no join marks: keep the loaded library's joining. */
+    bool join = tagcache_album_join_active();
+    reader_context_t *saved = selected_reader;
+    if (unlock) unlock();
+    selected_reader = &build_reader;
+    reader_context_init(&build_reader);
+    bool ok = reader_open(gen) && reader_migrate_indexes(gen, join);
+    reader_close_indexes();
+    reader_close();
+    selected_reader = saved;
+    if (lock) lock();
+    if (!ok) {
+        DB_LOG("DB", "index_migration_failed gen=%d; retaining valid v%u persisted index", gen, old_version);
+        return false;
+    }
+    /* A changed generation was published by a commit that already wrote the current set. */
+    if (!db_open || disk_gen != gen || !reload_from_disk()) return false;
+    indexes_migrated = true;
+    return true;
+}
 bool tagcache_song_at_slot(int32_t slot, tagcache_song_t *out) {
     return slot >= 0 && slot < ent_count && tagcache_song_by_id(slot + 1, out);
 }
