@@ -531,7 +531,7 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
          * the transport negotiated. Opening BlueALSA at the track's own rate
          * makes it recreate the A2DP transport, dropping the accessory. */
         char bt_pcm[64];
-        const char * bt_device = bt_control_prepare_playback_pcm(bt_pcm, sizeof(bt_pcm))
+        const char * bt_device = bt_control_prepare_playback_pcm(sample_rate, bt_pcm, sizeof(bt_pcm))
             ? bt_pcm : bt_control_get_playback_pcm();
         /* A stable wide pipe avoids reopening BlueALSA at mixed-depth track
          * boundaries; narrow writes are widened below before reaching it. */

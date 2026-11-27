@@ -509,7 +509,7 @@ int bt_control_get_available_rates(unsigned int * out, int max_count) {
  *
  * Returns false when the transport cannot be read, leaving the caller to
  * open bt_control_get_playback_pcm() directly as before. */
-bool bt_control_prepare_playback_pcm(char * out, size_t out_size) {
+bool bt_control_prepare_playback_pcm(unsigned int input_rate, char * out, size_t out_size) {
     if (!out || out_size == 0) return false;
 
     char path[256];
@@ -553,8 +553,13 @@ bool bt_control_prepare_playback_pcm(char * out, size_t out_size) {
     fprintf(f, "        rate %u\n", rate);
     fprintf(f, "        channels %u\n", channels);
     fprintf(f, "    }\n");
-    if (atomic_load(&bt_speexrate_enabled) && access(BT_ALSA_RATE_CONVERTER_PLUGIN, F_OK) == 0)
-        fprintf(f, "    rate_converter \"%s\"\n", BT_ALSA_RATE_CONVERTER);
+    /* An omitted converter makes alsa-lib choose speex itself, so linear is
+     * named. Speex above 96 kHz costs a third of the R1's CPU. */
+    const char * converter =
+        (atomic_load(&bt_speexrate_enabled) && input_rate <= BT_ALSA_SPEEX_MAX_INPUT_RATE &&
+         access(BT_ALSA_RATE_CONVERTER_PLUGIN, F_OK) == 0)
+            ? BT_ALSA_RATE_CONVERTER : BT_ALSA_LINEAR_CONVERTER;
+    fprintf(f, "    rate_converter \"%s\"\n", converter);
     fprintf(f, "}\n");
     bool ok = fflush(f) == 0 && fsync(fileno(f)) == 0;
     ok = (fclose(f) == 0) && ok;
@@ -562,6 +567,6 @@ bool bt_control_prepare_playback_pcm(char * out, size_t out_size) {
     if (rename(tmp_path, final_path) != 0) { remove(tmp_path); return false; }
 
     snprintf(out, out_size, "%s", BT_ALSA_PCM_NAME);
-    DBG_LOG("bt_control: BT output pinned to %u Hz %u ch for %s\n", rate, channels, mac);
+    DBG_LOG("bt_control: BT output pinned to %u Hz %u ch for %s (%s)\n", rate, channels, mac, converter);
     return true;
 }

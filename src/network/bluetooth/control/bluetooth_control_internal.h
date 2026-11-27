@@ -79,6 +79,10 @@ typedef enum {
 #define BT_ALSA_RATE_CONVERTER "speexrate"
 #define BT_ALSA_RATE_CONVERTER_PLUGIN \
     "/usr/lib/alsa-lib/libasound_module_rate_" BT_ALSA_RATE_CONVERTER ".so"
+/* Above this track rate speex costs too much CPU on the R1; linear is used. */
+#define BT_ALSA_SPEEX_MAX_INPUT_RATE 96000u
+/* Built into alsa-lib, so there is no plugin file to check. */
+#define BT_ALSA_LINEAR_CONVERTER "linear"
 
 /* Both spellings of Samsung's codec: BlueALSA's name and the display name. */
 static inline bool bt_codec_name_is_ssc(const char * codec) {

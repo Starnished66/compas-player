@@ -249,8 +249,9 @@ const char * bt_control_get_playback_pcm(void);
  * negotiated and reports its name, so playback never asks BlueALSA to change
  * the transport's rate (which recreates it and drops the accessory). False
  * when the transport cannot be read; open bt_control_get_playback_pcm()
- * directly in that case. */
-bool bt_control_prepare_playback_pcm(char * out, size_t out_size);
+ * directly in that case. input_rate is the track rate fed to the PCM; it
+ * picks the rate converter. */
+bool bt_control_prepare_playback_pcm(unsigned int input_rate, char * out, size_t out_size);
 /* Select and seed the source gain mode before opening playback. Worker only. */
 bool bt_control_prepare_source_volume(void);
 

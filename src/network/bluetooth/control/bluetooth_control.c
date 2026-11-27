@@ -167,11 +167,10 @@ bool bt_rate_wants_audio_cd_for_rate(unsigned int rate) {
     return rate == 0 || rate == 44100;
 }
 
-/* Selects the speex resampler for Bluetooth output. On by default: a track
- * whose rate differs from the A2DP transport's is converted either way, and
- * speex measured about a point of CPU more than alsa-lib's built-in linear
- * converter while sounding better. Converting at all is the expensive part,
- * which is why the transport rate matters more than the converter. */
+/* Selects the speex resampler for Bluetooth output. On by default: speex
+ * sounds better, but its cost grows with the track's rate (about 10% of the
+ * R1's CPU from 48 kHz, a third from 192 kHz, against 4% for linear), so
+ * tracks above 96 kHz use linear regardless. */
 void bt_control_set_speexrate_enabled(bool enabled) {
     atomic_store(&bt_speexrate_enabled, enabled);
 }
