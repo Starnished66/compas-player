@@ -559,9 +559,11 @@ static bool open_device(unsigned int channels, unsigned int sample_rate, bool lo
         pthread_mutex_unlock(&state_mutex);
         active_low_latency = low_latency;
         if (low_latency) {
-            /* Low-latency buffer tuning: 1024 frames x 4 periods (~43ms at 96kHz)
-             * to reduce latency for live sources like AirPlay. */
-            config.period_size = 1024;
+            /* Low-latency buffer tuning for live sources (USB DAC, AirPlay):
+             * 4 periods of 512 frames up to 48 kHz and 1024 above, about
+             * 46 ms at 44.1 kHz and 21 ms at 192 kHz. 512 passed the
+             * hardware sweep. */
+            config.period_size = sample_rate <= 48000 ? 512 : 1024;
             config.period_count = 4;
         } else {
             /* Standard buffer tuning targets a constant ~170-190ms of

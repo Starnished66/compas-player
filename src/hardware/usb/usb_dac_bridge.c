@@ -68,14 +68,21 @@ void usb_dac_bridge_set_debug_log_enabled(bool enabled) {
 #ifndef HOST_BUILD /* the bridge threads that log are target-only */
 static uint64_t monotonic_ns(void);
 
-static void bridge_log(const char * fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
+/* Lines go through a small queue to a logger thread: the SD writes and the
+ * fsync() below can block for hundreds of ms when the card is busy, and the
+ * reader and writer threads that log must keep up with the audio (#244:
+ * logging from the writer under SD load overflowed the ring). A full queue
+ * drops lines and counts them. */
+#define BRIDGE_LOG_QUEUE_LINES 32
+#define BRIDGE_LOG_LINE_BYTES 256
+static pthread_mutex_t bridge_log_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t bridge_log_queue_cond = PTHREAD_COND_INITIALIZER;
+static bool bridge_log_thread_started; /* under bridge_log_queue_mutex */
+static char bridge_log_queue[BRIDGE_LOG_QUEUE_LINES][BRIDGE_LOG_LINE_BYTES];
+static unsigned int bridge_log_queue_head, bridge_log_queue_count, bridge_log_queue_dropped;
 
-    if (!db_log_enabled()) return;
-
+/* Appends one line to the log file. Logger thread only. */
+static void bridge_log_write(const char * line, unsigned int dropped) {
     pthread_mutex_lock(&bridge_log_mutex);
     if (!db_log_enabled()) {
         if (bridge_log_file) {
@@ -86,7 +93,6 @@ static void bridge_log(const char * fmt, ...) {
         pthread_mutex_unlock(&bridge_log_mutex);
         return;
     }
-
     if (!bridge_log_file) {
         if (mkdir(BRIDGE_LOG_DIR, 0755) != 0 && errno != EEXIST) {
             pthread_mutex_unlock(&bridge_log_mutex);
@@ -98,36 +104,79 @@ static void bridge_log(const char * fmt, ...) {
             return;
         }
     }
-
-    uint64_t now_ms = monotonic_ns() / 1000000ULL;
-    fprintf(bridge_log_file, "[usb_dac_bridge] t=%llu ", (unsigned long long) now_ms);
-
-    va_start(ap, fmt);
-    vfprintf(bridge_log_file, fmt, ap);
-    va_end(ap);
+    if (dropped) fprintf(bridge_log_file, "[usb_dac_bridge] %u log lines dropped (queue full)\n", dropped);
+    fputs(line, bridge_log_file);
     fflush(bridge_log_file);
-    /* fflush() only moves data from libc's buffer to the kernel page cache --
-     * not necessarily to physical SD storage. This log exists specifically
-     * to survive a hard power-cycle (the only recovery from a stuck USB mode
-     * switch with no ADB access), so the most recent lines are exactly the
-     * ones that must not be lost to write-back timing; fsync() forces them
-     * out to the device before returning.
-     * Throttled to at most once/second rather than every call: this runs on
-     * the reader thread, which must keep up with incoming USB audio, and
-     * fsync() is a blocking device write -- confirmed on real hardware
-     * (2026-09-10) as a direct cause of periodic audible crackling when
-     * called on every one of this device's routine ~9-15ms EOF/reopen
-     * cycles (hundreds of times/second). Worst-case durability cost: up to
-     * ~1s of the most recent lines lost on a genuine hard power-cut,
-     * accepted given this log's own purpose is post-mortem debugging of a
-     * stuck USB mode, not sub-second forensic precision. */
+    /* fflush() only reaches the page cache. This log exists to survive a hard
+     * power-cycle (the only recovery from a stuck USB mode switch with no
+     * ADB access), so the latest lines are forced out to the card, at most
+     * once a second: up to ~1 s of lines can be lost on a power cut. */
     static uint64_t last_fsync_ms = 0;
+    uint64_t now_ms = monotonic_ns() / 1000000ULL;
     if (now_ms - last_fsync_ms >= 1000) {
         fsync(fileno(bridge_log_file));
         last_fsync_ms = now_ms;
     }
     bridge_log_rotate_if_needed_locked();
     pthread_mutex_unlock(&bridge_log_mutex);
+}
+
+static void * bridge_log_thread_func(void * arg) {
+    (void) arg;
+    (void) prctl(PR_SET_NAME, "usb_dac_log");
+    char line[BRIDGE_LOG_LINE_BYTES];
+    for (;;) {
+        pthread_mutex_lock(&bridge_log_queue_mutex);
+        while (bridge_log_queue_count == 0) pthread_cond_wait(&bridge_log_queue_cond, &bridge_log_queue_mutex);
+        memcpy(line, bridge_log_queue[bridge_log_queue_head], sizeof(line));
+        bridge_log_queue_head = (bridge_log_queue_head + 1) % BRIDGE_LOG_QUEUE_LINES;
+        bridge_log_queue_count--;
+        unsigned int dropped = bridge_log_queue_dropped;
+        bridge_log_queue_dropped = 0;
+        pthread_mutex_unlock(&bridge_log_queue_mutex);
+        bridge_log_write(line, dropped);
+    }
+    return NULL;
+}
+
+/* Called with bridge_log_queue_mutex held; a failed start is retried by the
+ * next line. */
+static void bridge_log_thread_start_locked(void) {
+    pthread_t thread;
+    if (bridge_log_thread_started || pthread_create(&thread, NULL, bridge_log_thread_func, NULL) != 0) return;
+    pthread_detach(thread);
+    bridge_log_thread_started = true;
+}
+
+static void bridge_log(const char * fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+
+    if (!db_log_enabled()) return;
+
+    pthread_mutex_lock(&bridge_log_queue_mutex);
+    bridge_log_thread_start_locked();
+    if (bridge_log_queue_count == BRIDGE_LOG_QUEUE_LINES) {
+        bridge_log_queue_dropped++;
+    } else {
+        unsigned int slot = (bridge_log_queue_head + bridge_log_queue_count) % BRIDGE_LOG_QUEUE_LINES;
+        char * line = bridge_log_queue[slot];
+        int n = snprintf(line, BRIDGE_LOG_LINE_BYTES, "[usb_dac_bridge] t=%llu ",
+                         (unsigned long long) (monotonic_ns() / 1000000ULL));
+        if (n < 0) n = 0;
+        if (n < BRIDGE_LOG_LINE_BYTES) {
+            va_start(ap, fmt);
+            vsnprintf(line + n, BRIDGE_LOG_LINE_BYTES - (size_t) n, fmt, ap);
+            va_end(ap);
+        }
+        size_t len = strlen(line);
+        if (len == BRIDGE_LOG_LINE_BYTES - 1 && line[len - 1] != '\n') line[len - 1] = '\n'; /* truncated */
+        bridge_log_queue_count++;
+        pthread_cond_signal(&bridge_log_queue_cond);
+    }
+    pthread_mutex_unlock(&bridge_log_queue_mutex);
 }
 #define BRIDGE_LOG(...) bridge_log(__VA_ARGS__)
 #endif
@@ -536,6 +585,68 @@ static void reader_finish(int fd, uint8_t * buf) {
     update_bridge_running_state();
 }
 
+/* Backlog control (#244). The reader hands over data as soon as it arrives
+ * and the kernel's own feedback is switched off (dynamic_feedback = 0), so
+ * no buffering is added for it. Instead the writer averages the backlog
+ * (ring plus held bytes) over about a second and turns the distance from
+ * CATCHUP_TARGET_RESERVE_MS into a correction of at most +-500 ppm: sent to
+ * the host through the driver's feedback_ppm when it exists, otherwise
+ * applied by slipping one frame at a time, interpolated over 64 frames so
+ * it does not click. The periodic trim is the safety net: it cuts a large
+ * surplus once (audio queued before the output opened, a stalled writer)
+ * instead of slewing it away over a minute. */
+#define CATCHUP_TARGET_RESERVE_MS 20.0   /* controller target, also at startup and on a rate change */
+#define CATCHUP_PERIODIC_INTERVAL_MS 500.0
+#define CATCHUP_PERIODIC_TARGET_RESERVE_MS 40.0
+#define CATCHUP_FADE_MS 10.0             /* fade-in after a trim, so the skip does not click */
+/* The largest read: a period of the largest container. */
+#define BRIDGE_READ_BYTES ((size_t) BRIDGE_PERIOD_FRAMES * BRIDGE_CHANNELS * sizeof(int32_t))
+
+/* One read: about 10 ms (256 to BRIDGE_PERIOD_FRAMES frames), so the small
+ * backlog targets hold at low rates too. */
+static size_t bridge_read_bytes(unsigned int rate, size_t frame_bytes) {
+    unsigned int frames = rate / 100 / 64 * 64;
+    if (frames < 256) frames = 256;
+    if (frames > BRIDGE_PERIOD_FRAMES) frames = BRIDGE_PERIOD_FRAMES;
+    return (size_t) frames * frame_bytes;
+}
+
+/* Backlog target in bytes, at least two reads so a refill never passes the
+ * trim target. */
+static size_t backlog_target_bytes(unsigned int rate, size_t frame_bytes, double target_ms) {
+    size_t target = (size_t) ((double) rate * target_ms / 1000.0) * frame_bytes;
+    size_t floor = 2 * bridge_read_bytes(rate, frame_bytes);
+    return target < floor ? floor : target;
+}
+
+#define UAC_SA_SYSFS_DIR "/sys/class/uac_sa/uac_sa/"
+#define UAC_SA_DYNAMIC_FEEDBACK_PATH UAC_SA_SYSFS_DIR "dynamic_feedback"
+#define UAC_SA_FEEDBACK_PPM_PATH UAC_SA_SYSFS_DIR "feedback_ppm"
+
+static bool write_sysfs_int(const char * path, int value) {
+    FILE * f = fopen(path, "w");
+    if (!f) return false;
+    bool ok = fprintf(f, "%d", value) > 0;
+    return fclose(f) == 0 && ok;
+}
+
+/* The driver's own feedback follows its buffer fill, which the reader keeps
+ * empty, so it always asks the host to send faster. 0 makes it report the
+ * nominal rate; the writer's controller does the rest. */
+static void disable_driver_feedback(void) {
+    if (!write_sysfs_int(UAC_SA_DYNAMIC_FEEDBACK_PATH, 0))
+        BRIDGE_LOG("usb_dac_bridge: could not set dynamic_feedback to 0\n");
+}
+
+/* Bytes for the next read, sized for the host format published so far. */
+static size_t reader_read_bytes(void) {
+    pthread_mutex_lock(&bridge_mutex);
+    size_t frame_bytes = (size_t) BRIDGE_CHANNELS * (g_host_bits / 8);
+    unsigned int rate = g_host_rate;
+    pthread_mutex_unlock(&bridge_mutex);
+    return frame_bytes ? bridge_read_bytes(rate, frame_bytes) : BRIDGE_READ_BYTES;
+}
+
 static void * bridge_reader_thread_func(void * arg) {
     (void) prctl(PR_SET_NAME, "usb_dac_rd");
     (void) arg;
@@ -552,11 +663,13 @@ static void * bridge_reader_thread_func(void * arg) {
         return NULL;
     }
 
+    disable_driver_feedback();
+
     /* One period of the largest container, plus room for a partial frame
      * carried over: the ring only ever receives whole frames, which the
      * writer's conversion and trims rely on. */
     const size_t max_frame_bytes = (size_t) BRIDGE_CHANNELS * sizeof(int32_t);
-    size_t buf_bytes = (size_t) BRIDGE_PERIOD_FRAMES * max_frame_bytes;
+    size_t buf_bytes = BRIDGE_READ_BYTES;
     uint8_t * buf = malloc(buf_bytes + max_frame_bytes);
     size_t carry = 0;
     if (!buf) {
@@ -581,6 +694,7 @@ static void * bridge_reader_thread_func(void * arg) {
             if (query_host_format(uac_fd)) carry = 0;
             last_query_ns = now_ns;
         }
+        size_t read_bytes = reader_read_bytes();
 
         struct pollfd pfd = { .fd = uac_fd, .events = POLLIN };
         int pr = poll(&pfd, 1, POLL_INTERVAL_MS);
@@ -589,7 +703,7 @@ static void * bridge_reader_thread_func(void * arg) {
         ssize_t n = 0;
         int read_errno = 0;
         if (pr > 0 && (pfd.revents & POLLIN)) {
-            n = read(uac_fd, buf + carry, buf_bytes);
+            n = read(uac_fd, buf + carry, read_bytes);
             read_errno = errno;
         }
 
@@ -687,23 +801,13 @@ static void * bridge_reader_thread_func(void * arg) {
     return NULL;
 }
 
-/* Backlog targets. With the device no longer reopened on every empty read,
- * the reader delivers steadily, so a small cushion is enough. Hosts keep
- * their own clock (measured on an R1, 2026-09-26: Linux and macOS ran
- * ~0.08-0.09% fast), so the periodic check trims the surplus: about 9 ms,
- * faded in, every ~12 s at these targets. */
-#define CATCHUP_TARGET_RESERVE_MS 40.0   /* at startup and on a rate change */
-#define CATCHUP_PERIODIC_INTERVAL_MS 500.0
-#define CATCHUP_PERIODIC_TARGET_RESERVE_MS 60.0
-#define CATCHUP_FADE_MS 10.0             /* fade-in after a trim, so the skip does not click */
-
 /* Discards ring backlog above target_reserve_ms (valid audio, just queued
  * longer than needed) and returns how many frames of fade-in the caller must
  * apply to what it plays next, or 0 when nothing was discarded. Frame size
  * follows the host container; discards stay frame-aligned. */
 static uint64_t writer_catchup_trim(unsigned int rate, size_t frame_bytes, unsigned int format_gen,
                                     double target_reserve_ms, bool verbose) {
-    size_t target_reserve_bytes = (size_t) ((double) rate * target_reserve_ms / 1000.0) * frame_bytes;
+    size_t target_reserve_bytes = backlog_target_bytes(rate, frame_bytes, target_reserve_ms);
     /* Measured and cut under bridge_mutex (then the ring mutex, the same
      * order as publish_host_format()), and only while the ring still holds
      * the format the caller sized frame_bytes for: a trim computed for one
@@ -772,6 +876,180 @@ static void convert_frames(const uint8_t * in, size_t frames, unsigned int bits,
     }
 }
 
+/* Drift controller (see the backlog comment above). Lives in the writer
+ * thread: it needs no locking beyond what the ring occupancy read does. */
+#define DRIFT_WINDOW_NS 1000000000ULL
+#define DRIFT_LOG_NS 10000000000ULL
+/* 1 ppm moves the backlog 0.001 ms per second; these gains settle it with
+ * about 0.7 damping without chasing the measurement noise. */
+#define DRIFT_PPM_PER_MS 20.0           /* proportional: reacts to the backlog */
+#define DRIFT_PPM_PER_MS_SECOND 0.2     /* integral: learns the steady clock difference */
+#define DRIFT_MAX_PPM 500
+#define SLIP_SPAN_FRAMES 64
+#define SLIP_FRAME_MICROS 1000000
+
+typedef struct {
+    bool use_feedback;           /* driver takes the correction via feedback_ppm */
+    int correction_ppm;          /* positive: backlog too large, consume more */
+    double learned_ppm;          /* integral part: the clocks' steady difference */
+    int applied_feedback_ppm;
+    int64_t acc_micro;           /* frames still owed to the slip, in millionths */
+    uint64_t window_start_ns, window_bytes, window_samples;
+    double avg_ms;
+    uint64_t last_log_ns, drops, repeats;
+} drift_ctl_t;
+
+/* A failed write falls back to slipping frames: the host then keeps the
+ * last rate it was given, which the slips correct like any other drift. */
+static void drift_set_feedback(drift_ctl_t * d) {
+    int ppm = -d->correction_ppm;
+    if (!d->use_feedback || ppm == d->applied_feedback_ppm) return;
+    if (write_sysfs_int(UAC_SA_FEEDBACK_PPM_PATH, ppm)) {
+        d->applied_feedback_ppm = ppm;
+    } else {
+        d->use_feedback = false;
+        BRIDGE_LOG("usb_dac_bridge: feedback_ppm write failed, slipping frames instead\n");
+    }
+}
+
+/* Starts a fresh window. A trim keeps the learned clock difference; a
+ * (re)open or a format change starts from nothing. */
+static void drift_reset(drift_ctl_t * d, bool keep_learned) {
+    if (!keep_learned) d->learned_ppm = 0;
+    d->correction_ppm = (int) d->learned_ppm;
+    d->acc_micro = 0;
+    d->window_start_ns = d->window_bytes = d->window_samples = 0;
+    drift_set_feedback(d);
+}
+
+static void drift_open(drift_ctl_t * d) {
+    /* The driver may still hold the last session's rate: the nominal one is
+     * written, not assumed, and feedback is used only if that works. */
+    d->use_feedback = write_sysfs_int(UAC_SA_FEEDBACK_PPM_PATH, 0);
+    d->applied_feedback_ppm = 0;
+    drift_reset(d, false);
+}
+
+static void drift_log(drift_ctl_t * d, uint64_t now_ns) {
+    if (d->last_log_ns == 0) d->last_log_ns = now_ns;
+    if (now_ns - d->last_log_ns < DRIFT_LOG_NS) return;
+    BRIDGE_LOG("usb_dac_bridge: drift: backlog %.1f ms, correction %+d ppm (%s), %llu drops, %llu repeats\n",
+               d->avg_ms, d->correction_ppm, d->use_feedback ? "feedback" : "slip",
+               (unsigned long long) d->drops, (unsigned long long) d->repeats);
+    d->drops = d->repeats = 0;
+    d->last_log_ns = now_ns;
+}
+
+static double drift_clamp(double ppm) {
+    return ppm > DRIFT_MAX_PPM ? DRIFT_MAX_PPM : ppm < -DRIFT_MAX_PPM ? -DRIFT_MAX_PPM : ppm;
+}
+
+/* Called after each write with the backlog (ring plus held bytes). Once per
+ * window (about a second) the average becomes the new correction. */
+static void drift_sample(drift_ctl_t * d, size_t backlog_bytes, size_t frame_bytes, unsigned int rate,
+                         uint64_t now_ns) {
+    if (d->window_start_ns == 0) d->window_start_ns = now_ns;
+    d->window_bytes += backlog_bytes;
+    d->window_samples++;
+    drift_log(d, now_ns);
+    if (now_ns - d->window_start_ns < DRIFT_WINDOW_NS) return;
+    double avg_frames = (double) d->window_bytes / (double) d->window_samples / (double) frame_bytes;
+    d->avg_ms = avg_frames * 1000.0 / (double) rate;
+    double error_ms = d->avg_ms - CATCHUP_TARGET_RESERVE_MS;
+    /* While the correction is at its limit the integral holds, so a large
+     * start-up surplus does not wind it up into an overshoot. */
+    double learned = d->learned_ppm + DRIFT_PPM_PER_MS_SECOND * error_ms;
+    double out = DRIFT_PPM_PER_MS * error_ms + learned;
+    if (out <= DRIFT_MAX_PPM && out >= -DRIFT_MAX_PPM) d->learned_ppm = learned;
+    d->correction_ppm = (int) drift_clamp(DRIFT_PPM_PER_MS * error_ms + d->learned_ppm);
+    d->window_start_ns = now_ns;
+    d->window_bytes = d->window_samples = 0;
+    drift_set_feedback(d);
+}
+
+/* +1: drop a frame, -1: repeat one, 0: none due (always 0 in feedback mode). */
+static int drift_slip_due(const drift_ctl_t * d) {
+    if (d->use_feedback) return 0;
+    if (d->acc_micro >= SLIP_FRAME_MICROS) return 1;
+    if (d->acc_micro <= -SLIP_FRAME_MICROS) return -1;
+    return 0;
+}
+
+static void drift_slipped(drift_ctl_t * d, int dir) {
+    d->acc_micro -= (int64_t) dir * SLIP_FRAME_MICROS;
+    if (dir > 0) d->drops++;
+    else d->repeats++;
+}
+
+static void drift_played(drift_ctl_t * d, size_t frames) {
+    if (!d->use_feedback) d->acc_micro += (int64_t) d->correction_ppm * (int64_t) frames;
+}
+
+static int64_t host_sample(const uint8_t * in, size_t idx, unsigned int bits) {
+    if (bits == 16) {
+        int16_t v;
+        memcpy(&v, in + idx * sizeof(v), sizeof(v));
+        return v;
+    }
+    int32_t v;
+    memcpy(&v, in + idx * sizeof(v), sizeof(v));
+    return v;
+}
+
+static void put_host_sample(uint8_t * out, size_t idx, unsigned int bits, int64_t value) {
+    if (bits == 16) {
+        int16_t v = (int16_t) value;
+        memcpy(out + idx * sizeof(v), &v, sizeof(v));
+    } else {
+        int32_t v = (int32_t) value;
+        memcpy(out + idx * sizeof(v), &v, sizeof(v));
+    }
+}
+
+/* Writes SLIP_SPAN_FRAMES frames to span, interpolated from the first
+ * SLIP_SPAN_FRAMES + dir frames of in: dir +1 drops a frame (65 in), -1
+ * repeats one (63 in). Reads one frame beyond what it consumes (65 frames
+ * must be available). Same container as in; the first frame passes through
+ * and the span ends where the next unconsumed frame continues. */
+static void slip_span(const uint8_t * in, uint8_t * span, unsigned int bits, int dir) {
+    for (size_t k = 0; k < SLIP_SPAN_FRAMES; k++) {
+        size_t pos = k * (size_t) (SLIP_SPAN_FRAMES + dir);
+        size_t i = pos / SLIP_SPAN_FRAMES;
+        int64_t f = (int64_t) (pos % SLIP_SPAN_FRAMES);
+        for (unsigned int c = 0; c < BRIDGE_CHANNELS; c++) {
+            int64_t a = host_sample(in, i * BRIDGE_CHANNELS + c, bits);
+            int64_t b = host_sample(in, (i + 1) * BRIDGE_CHANNELS + c, bits);
+            put_host_sample(span, k * BRIDGE_CHANNELS + c, bits, a + (b - a) * f / SLIP_SPAN_FRAMES);
+        }
+    }
+}
+
+/* Converts up to *frames of in for one write, starting with a slip span when
+ * one is due (and the output plays normally, not in a fade). Returns the
+ * frames to write and sets *used to the input frames they consume. */
+static size_t writer_prepare_frames(const uint8_t * in, size_t frames, unsigned int bits, bool s24,
+                                    int16_t * out16, int32_t * out24,
+                                    uint64_t * fade_remaining, uint64_t fade_total,
+                                    drift_ctl_t * drift, size_t * used) {
+    int dir = (*fade_remaining == 0 && frames > SLIP_SPAN_FRAMES) ? drift_slip_due(drift) : 0;
+    size_t lead_out = 0, lead_in = 0;
+    if (dir != 0) {
+        uint8_t span[SLIP_SPAN_FRAMES * BRIDGE_CHANNELS * sizeof(int32_t)];
+        slip_span(in, span, bits, dir);
+        lead_out = SLIP_SPAN_FRAMES;
+        lead_in = (size_t) ((int) SLIP_SPAN_FRAMES + dir);
+        convert_frames(span, lead_out, bits, s24, out16, out24, fade_remaining, fade_total);
+        drift_slipped(drift, dir);
+    }
+    size_t rest = frames - lead_in;
+    if (lead_out + rest > BRIDGE_PERIOD_FRAMES) rest = BRIDGE_PERIOD_FRAMES - lead_out;
+    size_t frame_bytes = (size_t) BRIDGE_CHANNELS * (bits / 8);
+    convert_frames(in + lead_in * frame_bytes, rest, bits, s24, out16 + lead_out * BRIDGE_CHANNELS,
+                   out24 + lead_out * BRIDGE_CHANNELS, fade_remaining, fade_total);
+    *used = lead_in + rest;
+    return lead_out + rest;
+}
+
 static void writer_finish(uint8_t * in, int16_t * out16, int32_t * out24, bool close_output) {
     free(in);
     free(out16);
@@ -830,6 +1108,8 @@ static void * bridge_writer_thread_func(void * arg) {
     uint64_t fade_remaining = 0, fade_total = 0;
     uint64_t last_periodic_trim_ns = 0;
     uint64_t release_started_ns = 0;
+    drift_ctl_t drift;
+    memset(&drift, 0, sizeof(drift));
 
     while (!stop_requested) {
         pthread_mutex_lock(&bridge_mutex);
@@ -961,6 +1241,7 @@ static void * bridge_writer_thread_func(void * arg) {
             fade_total = fade_remaining = writer_catchup_trim(rate, frame_bytes, format_gen, CATCHUP_TARGET_RESERVE_MS, true);
             if (fade_total == 0) fade_total = fade_remaining = (uint64_t) ((double) rate * CATCHUP_FADE_MS / 1000.0);
             last_periodic_trim_ns = monotonic_ns();
+            drift_open(&drift);
             continue;
         }
 
@@ -976,8 +1257,9 @@ static void * bridge_writer_thread_func(void * arg) {
         size_t frames = have / frame_bytes;
         bool write_ok = true;
         if (frames > 0) {
-            if (frames > BRIDGE_PERIOD_FRAMES) frames = BRIDGE_PERIOD_FRAMES;
-            convert_frames(in, frames, bits, s24, out16, out24, &fade_remaining, fade_total);
+            size_t used_frames;
+            frames = writer_prepare_frames(in, frames, bits, s24, out16, out24, &fade_remaining, fade_total,
+                                           &drift, &used_frames);
             uint64_t written_frames = 0;
             write_ok = s24 ? audio_output_write_s24(out24, frames, BRIDGE_CHANNELS, &written_frames)
                            : audio_output_write(out16, frames, BRIDGE_CHANNELS, &written_frames);
@@ -985,7 +1267,8 @@ static void * bridge_writer_thread_func(void * arg) {
                 BRIDGE_LOG("usb_dac_bridge: audio_output_write failure/partial: ok=%d written=%" PRIu64 "/%zu frames\n",
                            write_ok ? 1 : 0, written_frames, frames);
             }
-            size_t used = frames * frame_bytes;
+            drift_played(&drift, frames);
+            size_t used = used_frames * frame_bytes;
             memmove(in, in + used, have - used);
             have -= used;
         }
@@ -994,6 +1277,7 @@ static void * bridge_writer_thread_func(void * arg) {
          * usb_dac_bridge_stop()'s join timeout. */
         if (write_ok && !stop_requested) {
             uint64_t now_ns = monotonic_ns();
+            drift_sample(&drift, ring_buffer_get_occupancy(&g_rb) + have, frame_bytes, rate, now_ns);
             if (now_ns - last_periodic_trim_ns >= (uint64_t) (CATCHUP_PERIODIC_INTERVAL_MS * 1000000.0)) {
                 uint64_t fade = writer_catchup_trim(rate, frame_bytes, format_gen, CATCHUP_PERIODIC_TARGET_RESERVE_MS, false);
                 if (fade > 0) {
@@ -1001,6 +1285,7 @@ static void * bridge_writer_thread_func(void * arg) {
                      * fade starts right after the discontinuity. */
                     have = 0;
                     fade_total = fade_remaining = fade;
+                    drift_reset(&drift, true);
                 }
                 last_periodic_trim_ns = now_ns;
             }
