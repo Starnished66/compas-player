@@ -38,6 +38,8 @@ static lv_obj_t * settings_topbar_screen;
 static lv_obj_t * settings_topbar_list;
 static lv_obj_t * settings_topbar_clock_position_screen;
 static lv_obj_t * settings_topbar_clock_position_list;
+static lv_obj_t * settings_topbar_player_screen;
+static lv_obj_t * settings_topbar_player_list;
 /* Both orders are saved as keys, so edit a resolved copy and write it back. */
 static ui_item_order_t order_edit;
 static char * ui_order_text(void) {
@@ -313,6 +315,7 @@ static const topbar_visibility_option_t topbar_visibility_options[] = {
 
 static void populate_topbar_settings_screen(void);
 static void populate_topbar_clock_position_screen(void);
+static void topbar_player_row_cb(lv_event_t * e);
 
 static void topbar_set_clicked_row_switch(lv_event_t * e, bool checked) {
     lv_obj_t * row = lv_event_get_target(e);
@@ -343,13 +346,6 @@ static void topbar_battery_percentage_toggle_cb(lv_event_t * e) {
     settings_save_async(&current_settings);
     gui_shell_apply_topbar_settings();
     topbar_set_clicked_row_switch(e, current_settings.show_battery_percent);
-}
-
-static void topbar_hide_player_topbar_toggle_cb(lv_event_t * e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    bool hide = !current_settings.hide_player_topbar;
-    gui_settings_set_hide_player_topbar(hide);
-    topbar_set_clicked_row_switch(e, hide);
 }
 
 typedef struct {
@@ -405,6 +401,63 @@ static void topbar_clock_position_row_cb(lv_event_t * e) {
     if (settings_topbar_clock_position_screen) nav_push(settings_topbar_clock_position_screen);
 }
 
+typedef struct {
+    bool hide_topbar;
+    bool hide_back_button;
+    const char * label;
+} topbar_player_option_t;
+
+static const topbar_player_option_t topbar_player_options[] = {
+    { false, false, N_("Show") },
+    { true, false, N_("Hide top bar") },
+    { true, true, N_("Hide top bar and back button") },
+};
+
+static bool topbar_player_option_selected(const topbar_player_option_t * o) {
+    return current_settings.hide_player_topbar == o->hide_topbar &&
+           (current_settings.hide_player_topbar ? current_settings.hide_player_back_button : false) ==
+               o->hide_back_button;
+}
+
+static void topbar_player_option_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int index = (int)(intptr_t)lv_event_get_user_data(e);
+    if (index < 0 || (size_t)index >= sizeof(topbar_player_options) / sizeof(topbar_player_options[0])) return;
+    gui_settings_set_player_topbar(topbar_player_options[index].hide_topbar,
+                                   topbar_player_options[index].hide_back_button);
+    gui_pill_option_list_set_selected(settings_topbar_player_list, lv_event_get_current_target(e));
+}
+
+static void populate_topbar_player_screen(void) {
+    if (!settings_topbar_player_list) return;
+    size_t count = sizeof(topbar_player_options) / sizeof(topbar_player_options[0]);
+    if (lv_obj_get_child_count(settings_topbar_player_list) == 0) {
+        for (size_t i = 0; i < count; ++i) {
+            add_pill_option_row(settings_topbar_player_list, TR(topbar_player_options[i].label), false,
+                                topbar_player_option_cb, (void *)(intptr_t)i);
+        }
+    }
+    for (size_t i = 0; i < count; ++i)
+        gui_pill_option_row_set_selected(lv_obj_get_child(settings_topbar_player_list, i),
+                                         topbar_player_option_selected(&topbar_player_options[i]));
+}
+
+static lv_obj_t * build_topbar_player_screen(void) {
+    lv_obj_t * title_label;
+    settings_topbar_player_screen = build_subsonic_list_screen(
+        TR("Player top bar"), &title_label, &settings_topbar_player_list);
+    populate_topbar_player_screen();
+    finalize_screen_navigation(settings_topbar_player_screen);
+    return settings_topbar_player_screen;
+}
+
+static void topbar_player_row_cb(lv_event_t * e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (!settings_topbar_player_screen) settings_topbar_player_screen = build_topbar_player_screen();
+    else populate_topbar_player_screen();
+    if (settings_topbar_player_screen) nav_push(settings_topbar_player_screen);
+}
+
 static void populate_topbar_settings_screen(void) {
     if (!settings_topbar_list) return;
     size_t count = sizeof(topbar_visibility_options) / sizeof(topbar_visibility_options[0]);
@@ -417,8 +470,7 @@ static void populate_topbar_settings_screen(void) {
         }
         add_pill_toggle_row(settings_topbar_list, TR("Battery percentage"), false,
                             topbar_battery_percentage_toggle_cb);
-        add_pill_toggle_row(settings_topbar_list, TR("Hide player/lyrics top bar"), false,
-                            topbar_hide_player_topbar_toggle_cb);
+        add_pill_chevron_row(settings_topbar_list, TR("Player top bar"), topbar_player_row_cb);
         add_pill_chevron_row(settings_topbar_list, TR("Clock position"), topbar_clock_position_row_cb);
     }
     for (size_t i = 0; i < count; ++i)
@@ -426,8 +478,6 @@ static void populate_topbar_settings_screen(void) {
             (current_settings.topbar_hidden_elements & topbar_visibility_options[i].hidden_bit) == 0);
     gui_pill_toggle_row_set_checked(lv_obj_get_child(settings_topbar_list, count),
                                     current_settings.show_battery_percent);
-    gui_pill_toggle_row_set_checked(lv_obj_get_child(settings_topbar_list, count + 1),
-                                    current_settings.hide_player_topbar);
 }
 
 static lv_obj_t * build_topbar_settings_screen(void) {

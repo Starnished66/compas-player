@@ -9,7 +9,7 @@
 void lyrics_switch_event_cb(lv_event_t * e);
 void inline_remote_switch_event_cb(lv_event_t * e);
 void swipe_up_home_switch_event_cb(lv_event_t * e);
-void gui_settings_set_hide_player_topbar(bool hide);
+void gui_settings_set_player_topbar(bool hide_topbar, bool hide_back_button);
 void led_indicator_switch_event_cb(lv_event_t * e);
 void charge_limiter_switch_event_cb(lv_event_t * e);
 void safe_charging_switch_event_cb(lv_event_t * e);

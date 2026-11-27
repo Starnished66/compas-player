@@ -133,6 +133,7 @@ static const pfield_t plain_fields[] = {
     PF("screen_dimming_enabled", PF_BOOL, screen_dimming_enabled),
     PF("screen_dim_delay_seconds", PF_INT, screen_dim_delay_seconds),
     PF("hide_player_topbar", PF_BOOL, hide_player_topbar),
+    PF("hide_player_back_button", PF_BOOL, hide_player_back_button),
     PF("screen_upside_down", PF_BOOL, screen_upside_down),
     PF("led_indicator_enabled", PF_BOOL, led_indicator_enabled),
     PF("db_logging_enabled", PF_BOOL, db_logging_enabled),
@@ -481,6 +482,7 @@ static void set_defaults(player_settings_t * out) {
     out->screen_dimming_enabled = true;
     out->screen_dim_delay_seconds = 10;
     out->hide_player_topbar = true;
+    out->hide_player_back_button = false;
     out->topbar_hidden_elements = 0;
     out->topbar_clock_position = TOPBAR_CLOCK_CENTER;
     out->screen_upside_down = false;

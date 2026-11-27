@@ -789,6 +789,12 @@ static void player_publish_roles(lv_obj_t * scr, player_roles_t * r) {
     volume_slider = r->volume;
 }
 
+/* An invisible back button stays tappable: hit-testing ignores opacity. */
+static void player_apply_dismiss_opa(lv_obj_t * dismiss) {
+    bool hidden = current_settings.hide_player_topbar && current_settings.hide_player_back_button;
+    lv_obj_set_style_opa(dismiss, hidden ? LV_OPA_TRANSP : LV_OPA_COVER, LV_PART_MAIN);
+}
+
 static void player_bind_lyrics_look(lv_obj_t * scr, const player_roles_t * r) {
     /* Lyrics placement and colors, read once. The area's own text color and
      * alignment style the normal lines, `lyrics_active` the current one. The
@@ -1246,6 +1252,7 @@ static bool player_bind_widgets(lv_obj_t * scr) {
     if (r.dismiss) {
         lv_obj_add_flag(r.dismiss, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(r.dismiss, library_btn_event_cb, LV_EVENT_CLICKED, NULL);
+        player_apply_dismiss_opa(r.dismiss);
     }
 
     player_bind_progress(scr, &r);
@@ -1909,6 +1916,7 @@ void gui_player_apply_dismiss_topbar(bool topbar_hidden) {
 
 void gui_player_sync_topbar_visibility(lv_obj_t * screen) {
     if (player_dismiss_btn) {
+        player_apply_dismiss_opa(player_dismiss_btn);
         gui_player_apply_dismiss_topbar(current_settings.hide_player_topbar && screen == player_screen);
         if (player_inline_lyrics_is_open() || player_inline_lyrics_is_animating())
             lv_obj_add_flag(player_dismiss_btn, LV_OBJ_FLAG_HIDDEN);

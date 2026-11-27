@@ -42,8 +42,9 @@ void swipe_up_home_switch_event_cb(lv_event_t * e) {
     settings_save_async(&current_settings);
 }
 
-void gui_settings_set_hide_player_topbar(bool hide) {
-    current_settings.hide_player_topbar = hide;
+void gui_settings_set_player_topbar(bool hide_topbar, bool hide_back_button) {
+    current_settings.hide_player_topbar = hide_topbar;
+    current_settings.hide_player_back_button = hide_back_button;
     settings_save_async(&current_settings);
     sync_player_topbar_visibility(lv_screen_active());
     player_transition_mark_dirty(); /* topbar/back-button target-state visibility just changed -- see the cache's own doc comment */

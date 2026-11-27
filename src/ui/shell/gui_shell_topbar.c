@@ -71,7 +71,7 @@ bool gui_shell_player_topbar_hidden(lv_obj_t * screen) {
 }
 #endif
 void sync_player_topbar_visibility(lv_obj_t * screen) {
-    /* Settings > Display > "Hide Player/Lyrics Top Bar" -- hides the global
+    /* Settings > Personalize > Top bar > Player top bar -- hides the global
      * status bar while the Player or its fullscreen Lyrics view is active;
      * every other screen keeps its status bar as normal regardless of this
      * setting. player_dismiss_btn (Player's own standalone back arrow) is

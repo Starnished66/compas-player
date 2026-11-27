@@ -296,6 +296,7 @@ typedef struct {
      * standalone back arrow) while the Player or its fullscreen Lyrics
      * view is active. Other screens retain their status information. */
     bool hide_player_topbar;
+    bool hide_player_back_button;
 
     /* Status-bar visibility and clock placement. Battery percentage remains
      * independently controlled by show_battery_percent below. */
