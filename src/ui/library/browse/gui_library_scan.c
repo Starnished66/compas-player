@@ -219,7 +219,7 @@ static bool library_prompt_taken_over(void) {
 /* One row per database format change, oldest first; add a row whenever
  * TAGCACHE_DATABASE_FORMAT / TC_INDEX_MIGRATE_BELOW is raised. */
 static const struct { int format; const char * reason; } library_format_changes[] = {
-    {9, N_("Compás v1.6.2 changed how artists are grouped.")},
+    {9, N_("Compás 1.6.2 changed how artists are grouped.")},
 };
 
 /* The reason of the newest change above the loaded format, then the shared tail. */
