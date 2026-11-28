@@ -24,6 +24,7 @@
 extern char ** environ;
 
 static bool own_variable(const char * entry) {
+    if (audio_route_env_is_var(entry)) return true;
     static const char * const prefixes[] = { "COMPAS_APP_", "COMPAS_BOARD=", "COMPAS_SCREEN_" };
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
         if (strncmp(entry, prefixes[i], strlen(prefixes[i])) == 0) return true;
@@ -32,11 +33,13 @@ static bool own_variable(const char * entry) {
 }
 
 char ** app_session_environment(char * const * base, const app_manifest_t * manifest, const char * data_dir,
-                                const char * board, int screen_width, int screen_height) {
+                                const char * board, int screen_width, int screen_height,
+                                const audio_route_env_t * audio) {
     enum { OWN = 6 };
+    size_t audio_count = audio ? audio->count : 0;
     size_t n = 0;
     while (base && base[n]) n++;
-    char ** env = calloc(n + OWN + 1, sizeof(*env));
+    char ** env = calloc(n + OWN + audio_count + 1, sizeof(*env));
     if (!env) return NULL;
     size_t used = 0;
     for (size_t i = 0; i < n; i++) {
@@ -53,6 +56,10 @@ char ** app_session_environment(char * const * base, const app_manifest_t * mani
     snprintf(text[5], sizeof(text[5]), "COMPAS_SCREEN_HEIGHT=%d", screen_height);
     for (int i = 0; i < OWN; i++) {
         env[used] = strdup(text[i]);
+        if (!env[used++]) goto fail;
+    }
+    for (size_t i = 0; i < audio_count; i++) {
+        env[used] = strdup(audio->var[i]);
         if (!env[used++]) goto fail;
     }
     return env;
@@ -147,7 +154,7 @@ static pid_t spawn_app(const char * dir, const char * exec, const char * file, c
     return spawn_rc == 0 ? pid : -1;
 }
 
-int app_session_run(const app_manifest_t * manifest, const char * file) {
+int app_session_run(const app_manifest_t * manifest, const char * file, const audio_route_env_t * audio) {
     char dir[256], exec[400], data_dir[256];
     if (!app_dir_path(dir, sizeof(dir), APP_ROOT, manifest) || !app_exec_path(exec, sizeof(exec), APP_ROOT, manifest) ||
         snprintf(data_dir, sizeof(data_dir), "%s/%s", APP_DATA_ROOT, manifest->id) >= (int) sizeof(data_dir) ||
@@ -155,7 +162,7 @@ int app_session_run(const app_manifest_t * manifest, const char * file) {
         return -1;
     }
     char ** envp = app_session_environment(environ, manifest, data_dir, app_board_id(), BOARD_SCREEN_WIDTH,
-                                           BOARD_SCREEN_HEIGHT);
+                                           BOARD_SCREEN_HEIGHT, audio);
     if (!envp) return -1;
     struct fb_var_screeninfo saved_mode;
     bool mode_known = fb_mode_read(&saved_mode);

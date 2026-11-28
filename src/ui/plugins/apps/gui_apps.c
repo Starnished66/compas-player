@@ -10,6 +10,7 @@
 #include "../../../library/browser/paths/library_paths.h"
 #include "../../../network/store/catalog/emulator_store.h"
 #include "../../application/gui.h"
+#include "../external_session_audio.h"
 #include "../../appearance/gui_theme.h"
 #include "../../network/gui_network.h"
 #include "../../player/screen/gui_player.h"
@@ -83,19 +84,8 @@ static void launch_now(const char * app_id, const char * file) {
         show_info_toast(TR("USB storage is busy."));
         return;
     }
-    /* The app owns the audio device. Pausing only schedules a fade, so wait
-     * until the audio worker confirms that it released the device. */
-    gui_player_stop_for_external_session();
-    const struct timespec audio_wait = { .tv_sec = 0, .tv_nsec = 20000000 };
-    bool audio_idle = false;
-    for (int waited_ms = 0; waited_ms < 2000; waited_ms += 20) {
-        if (audio_is_idle()) {
-            audio_idle = true;
-            break;
-        }
-        (void) nanosleep(&audio_wait, NULL);
-    }
-    if (!audio_idle && audio_is_idle()) audio_idle = true;
+    /* The app owns the audio device. */
+    bool audio_idle = external_session_release_audio();
     if (!audio_idle) {
         usb_mode_control_storage_write_end();
         show_info_toast(TR("Audio is still active; cannot start the app."));
@@ -116,7 +106,9 @@ static void launch_now(const char * app_id, const char * file) {
         return;
     }
     if (app.free_player_memory) gui_release_memory_for_external_session();
-    int rc = app_session_run(&app, file);
+    audio_route_env_t audio;
+    external_session_audio_route(&audio);
+    int rc = app_session_run(&app, file, &audio);
     gui_resume_after_external_session();
     usb_mode_control_storage_write_end();
     if (rc < 0) show_error_toast(TR("Could not start the app."));
